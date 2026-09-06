@@ -9,6 +9,15 @@ Python backend for collecting survey data from the separately managed `ai_us` fr
 
 The frontend should call the deployed API with `fetch()` from its existing inline script blocks. It must not contain database credentials.
 
+## CloudType environments
+
+CloudType deploys the frontend and backend services by connecting each service to its own GitHub repository. Local Docker and MongoDB installation are not required for this project.
+
+- Development: a free-tier CloudType account runs a frontend service from `ai_us`, a backend service from this repository, and a CloudType preconfigured MongoDB container.
+- Production: a separate paid CloudType account uses the same three-service layout with separate secrets, database data, and public URLs.
+- MongoDB is provisioned in CloudType and is not connected to a GitHub repository.
+- Each environment keeps its own `MONGODB_URI`, `JWT_SECRET`, email settings, and allowed frontend origins in CloudType secrets.
+
 ## Initial layout
 
 - `app/api`: HTTP route handlers.
@@ -22,7 +31,7 @@ The frontend should call the deployed API with `fetch()` from its existing inlin
 
 ## GitHub connection
 
-Connect the blank GitHub repository after its clone URL is available:
+The backend repository is connected to GitHub. CloudType can use this repository as its backend service source.
 
 ```bash
 git remote add origin <AI_US_BACKEND_GITHUB_URL>

@@ -9,19 +9,30 @@
 - 최종 제출 API는 MongoDB에 직접 동기 저장하지 않고 영속 대기열에 먼저 접수한다. 별도 작업자가 대기열의 데이터를 MongoDB에 순차 저장한다.
 - Queue는 최종 제출·외부 이메일 발송·대용량 파일 생성처럼 지연 허용 작업에만 사용한다. 로그인, 신청 저장, 개별 승인, 목록 조회는 즉시 결과가 필요한 동기 API로 처리한다.
 - MongoDB 기반 Queue는 제출 폭주 완화와 작업자 재시도용이다. MongoDB 전체 장애 중에는 새 작업 접수가 불가하므로, MongoDB 백업·복구와 프론트 임시 저장을 별도로 유지한다.
-- CloudType에서 프론트엔드, FastAPI 백엔드, MongoDB를 별도 서비스로 운영한다.
+- CloudType에서 프론트엔드 컨테이너, backend 컨테이너, MongoDB 컨테이너의 3개 서비스로 운영한다. 프론트와 백엔드 서비스는 각 GitHub 저장소를 참조해 CloudType이 배포하고, MongoDB는 CloudType 사전구성 컨테이너를 사용한다.
+- 개발용 무료 CloudType 계정과 실제 운영용 유료 CloudType 계정은 같은 서비스 구성을 사용하되, 데이터베이스와 비밀값, 공개 URL을 완전히 분리한다.
+- 로컬 개발 서버에는 Docker나 MongoDB를 설치하지 않는다. 실제 서비스 연동이 필요한 시점에 CloudType 개발 환경을 구성한다.
 - 이번 범위에서는 별도의 스트레스 테스트를 수행하지 않는다. 기존 회의에서 공유된 결과를 용량 계획의 참고 자료로만 사용한다.
 
-## 2. 구현 범위와 우선순위
+## 2. 실제 프론트엔드 통합 기준
+
+- 현재 `AppStore.submitApplication`과 `PasswordReset.sendResetLink`만 명시적인 데모 함수로 분리되어 있다. 로그인, 연구자 승인, CSV 등록, CSV 다운로드는 inline script 안에서 바로 데모 동작을 하므로 API 호출로 교체할 지점을 별도 지정해야 한다.
+- 설문 문항 화면, 설문 최종 제출 버튼, 대화문 입력 화면은 아직 구현되어 있지 않다. `localStorage` 임시 복원, 최종 제출 Queue, 제출 상태 조회는 이 화면들이 추가될 때 함께 연결한다.
+- 신청 화면은 동의 체크를 검증하지만 현재 전송 객체에는 `joinSurvey: true`와 `joinChat`만 포함한다. 실제 신청 API에는 설명문 확인, 본인 동의, 보호자 동의의 확인값과 확인 시각을 함께 전송하도록 inline script를 보완한다.
+- 연구자 화면의 신청 목록, 참여 현황, 미참여자, 결과 CSV는 모두 예시 배열과 예시 CSV를 사용한다. 서버 API 연동 전에는 실제 연구 데이터로 보이지 않도록 데모 상태를 유지한다.
+- 연구자 로그인은 현재 입력값 검증 뒤 바로 `researcher.html`로 이동한다. 참여자 로그인도 바로 설문 패널을 열며, 두 흐름 모두 인증 API 연동 시 교체한다.
+
+## 3. 구현 범위와 우선순위
 
 ### 1단계: 계정 신청과 연구자 승인
 
 프론트의 `AppStore.submitApplication`을 API 호출로 대체한다.
 
-- 참여 신청 저장: 성별, 학교급/학년, 참여자 휴대폰 번호, 보호자 휴대폰 번호, 이메일, 설문 참여 동의, AI 대화문 제출 동의, 본인/보호자 동의 여부
+- 참여 신청 저장: 성별, 학교급/학년, 참여자 휴대폰 번호, 보호자 휴대폰 번호, 이메일, 설명문 확인, 설문 참여 동의, AI 대화문 제출 동의, 본인/보호자 동의 여부와 확인 시각
 - 중복 신청 방지: 휴대폰 번호를 정규화한 값에 고유 인덱스를 둔다.
 - 연구자 신청 목록, 학교급 필터, 선택 승인과 전체 승인
 - 승인은 계정 생성 및 첫 로그인 비밀번호 변경 필요 상태로 처리한다.
+- 연구자 CSV 등록 화면은 원본 CSV 파일을 백엔드에 전송하고, 서버에서 열 이름과 행별 유효성을 검증한 뒤 참여자 계정을 일괄 등록한다.
 - 연구자용 신청 결과 CSV 다운로드
 
 ### 2단계: 로그인과 비밀번호 관리
@@ -63,7 +74,7 @@
 | 대용량 CSV 생성 | 필요할 때만 MongoDB 영속 Queue | 긴 파일 생성이 연구자 화면을 막지 않게 처리 |
 | 로그인, 비밀번호 변경, 신청 저장, 개별 승인, 조회 | 동기 API | 사용자에게 즉시 확정 결과 제공 |
 
-## 3. API 초안
+## 4. API 초안
 
 API의 실제 URL과 JSON 필드명은 프론트 소스를 받은 뒤 기존 함수와 대조하여 확정한다.
 
@@ -76,6 +87,7 @@ API의 실제 URL과 JSON 필드명은 프론트 소스를 받은 뒤 기존 함
 | 비밀번호 변경 | `POST /api/v1/auth/password-resets/confirm` | 재설정/첫 로그인 화면 |
 | 신청 목록 | `GET /api/v1/researcher/applications` | `applications` 배열 |
 | 신청 승인 | `POST /api/v1/researcher/applications/approve` | `approve()` |
+| CSV 참여자 등록 | `POST /api/v1/researcher/participants/imports` | 파일 업로드의 `confirmBtn` |
 | 설문 제출 | `POST /api/v1/survey-responses` | 설문 최종 제출 버튼 |
 | 설문 제출 상태 | `GET /api/v1/submission-jobs/{submission_id}` | 제출 완료 확인 및 임시 저장 삭제 |
 | 대화문 제출 | `POST /api/v1/chat-submissions` | 대화문 제출 화면 |
@@ -83,7 +95,7 @@ API의 실제 URL과 JSON 필드명은 프론트 소스를 받은 뒤 기존 함
 | 대화문 CSV | `GET /api/v1/researcher/exports/chat-submissions` | 결과 다운로드 |
 | 상태 확인 | `GET /health` | CloudType health check |
 
-## 4. MongoDB 컬렉션 초안
+## 5. MongoDB 컬렉션 초안
 
 - `applications`: 신규 신청과 승인 상태. 휴대폰 번호 정규화 값에 고유 인덱스.
 - `participants`: 승인된 참여자 계정, 역할, 비밀번호 해시, 최초 비밀번호 변경 필요 여부.
@@ -97,7 +109,7 @@ API의 실제 URL과 JSON 필드명은 프론트 소스를 받은 뒤 기존 함
 
 보호자 연락처, 이메일, 대화문 등은 개인정보 또는 민감 가능 데이터이므로 최소 권한 원칙을 적용한다. 백업·보존 기간·삭제 절차는 연구 윤리 및 기관 정책에 맞춰 연구진이 확정한다.
 
-## 5. FastAPI 내부 구조
+## 6. FastAPI 내부 구조
 
 ```text
 app/
@@ -111,28 +123,31 @@ deploy/       # Dockerfile 및 CloudType 실행 설정
 docs/         # 프론트 연동 계약과 운영 문서
 ```
 
-## 6. CloudType 운영 구성
+## 7. CloudType 운영 구성
 
-- 프론트: 정적 HTML을 현재 구조 그대로 배포한다.
-- 백엔드: Docker 컨테이너에서 Uvicorn으로 FastAPI를 실행한다.
-- 대기열 작업자: API 컨테이너와 분리된 프로세스로 실행해 설문·대화문 저장과 이메일 발송을 처리한다. CloudType 배포 방식에 맞춰 별도 서비스 또는 별도 컨테이너 명령으로 구성한다.
-- MongoDB: 외부 공개를 피하고 백엔드 서비스에서만 접속하도록 설정한다.
+- 개발 환경: 무료 CloudType 계정에 `ai_us` GitHub 저장소를 참조하는 프론트 서비스, `ai_us_backend` GitHub 저장소를 참조하는 backend 서비스, CloudType 사전구성 MongoDB 컨테이너를 만든다.
+- 운영 환경: 별도 유료 CloudType 계정에 동일한 3개 서비스 구성을 만들고, 개발 환경과 별도의 MongoDB 데이터와 Secret을 사용한다.
+- 프론트: CloudType이 GitHub의 정적 HTML을 현재 구조 그대로 배포한다.
+- 백엔드: CloudType이 GitHub 저장소에서 container를 배포하며, 하나의 backend 컨테이너에서 Uvicorn FastAPI와 대기열 작업자 daemon을 별도 OS 프로세스로 실행한다.
+- 대기열 작업자: 같은 backend 컨테이너에서 설문·대화문 저장과 이메일 발송을 처리한다. FastAPI 프로세스 안에서 임시 task로 실행하지 않으며, MongoDB 작업 상태를 원자적으로 바꿔 중복 처리를 막는다.
+- MongoDB: CloudType 사전구성 컨테이너를 사용하고 외부 공개를 피한다. backend 서비스에서만 접속하도록 설정하며, MongoDB용 GitHub 저장소는 만들지 않는다.
 - 환경변수: `MONGODB_URI`, `DATABASE_NAME`, `JWT_SECRET`, `FRONTEND_ORIGINS`, 이메일 발송 설정을 CloudType Secret으로 관리한다.
 - CORS: 배포된 참여자/연구자 프론트 도메인만 허용한다.
 - `/health`를 CloudType 상태 점검 경로로 등록한다.
 - API와 작업자의 상태 점검은 각각 분리하고, 실패 작업 수와 가장 오래된 대기 작업 시간을 운영 지표로 확인한다.
 - 운영 배포 전 MongoDB 백업과 복구 절차를 문서화하고 실제 복구를 1회 확인한다.
 
-## 7. 프론트 소스 수령 후 진행 순서
+## 8. 프론트 연동 작업 순서
 
 1. `/data/ai_us_joint_research/ai_us`에 프론트 저장소를 clone한다.
-2. `AppStore.submitApplication`, `approve()`, `PasswordReset.sendResetLink`, `CHAT_CONSENT`, 로그인 및 최종 제출 처리 코드를 확인한다.
+2. `AppStore.submitApplication`, `PasswordReset.sendResetLink`, 로그인 처리, `approve()`, `confirmBtn`, `downloadBlob`, `CHAT_CONSENT`와 예시 배열을 확인한다.
 3. 각 함수가 기대하는 입력·성공·실패 화면 상태를 표로 기록한다.
-4. 같은 참여자와 회차의 `localStorage` 임시 저장을 재로그인 뒤 복원하고, 제출 작업 상태가 `completed`일 때만 자동 삭제하도록 프론트 동작을 확정한다.
-5. 해당 계약에 맞춘 FastAPI 요청/응답 모델과 MongoDB 스키마를 확정한다.
-6. 백엔드 최소 기능부터 구현하고, 프론트 변경은 inline script의 API 호출부에 한정한다.
+4. 신청 동의값을 API 요청에 추가하고, 로그인·승인·CSV 등록·다운로드의 데모 동작을 각 API 호출로 교체한다.
+5. 설문 문항과 대화문 입력 화면이 추가되면 같은 참여자와 회차의 `localStorage` 임시 저장을 재로그인 뒤 복원하고, 제출 작업 상태가 `completed`일 때만 자동 삭제하도록 연결한다.
+6. 해당 계약에 맞춘 FastAPI 요청/응답 모델과 MongoDB 스키마를 확정한다.
+7. 백엔드 최소 기능부터 구현하고, 프론트 변경은 inline script의 API 호출부에 한정한다.
 
-## 8. 연구진 확인이 필요한 결정
+## 9. 연구진 확인이 필요한 결정
 
 - AI 대화문: 링크, 본문, 또는 둘 다 허용 여부
 - 설문 최종 제출 뒤 수정/재제출 허용 여부
