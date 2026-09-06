@@ -23,7 +23,7 @@
 
 ## FH-001: API 연동 준비 사항
 
-상태: Pull Request 검토 중. 프론트 작업 브랜치 `backend/fh-001-api-integration`에서 신청·로그인·신청 목록/승인·CSV 등록 연동을 완료했다.
+상태: 병합 완료. 프론트 작업 브랜치 `backend/fh-001-api-integration`의 신청·로그인·신청 목록/승인·CSV 등록 연동이 `main`에 반영됐다.
 
 ### 변경 대상
 
@@ -81,7 +81,7 @@ CSV 등록은 `POST /api/v1/researcher/participants/imports`에 `file` 필드로
 
 - 프론트 작업 커밋: `3e21a19 Connect application management to backend API`
 - 검토 일자: 2026-09-07
-- Pull Request: `#1` (`backend/fh-001-api-integration` → `main`)
+- Pull Request: `#1` 병합 완료 (`backend/fh-001-api-integration` → `main`), merge commit `8dfaee6e9274741da4ac5d5bf3dc15759021f14b`
 - 비고: backend 공개 URL을 사용해 신청·참여자/연구자 로그인·신청 목록/승인·참여자 CSV 등록을 연결했다. 설문/대화문 결과 다운로드, 최초 비밀번호 변경 화면, 비밀번호 재설정은 후속 요청으로 남긴다.
 
 ## 다음 전달 예정 항목
