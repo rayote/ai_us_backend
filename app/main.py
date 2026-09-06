@@ -15,6 +15,8 @@ from app.services.auth import (
     ParticipantAccountRepository,
     ResearcherAccountRepository,
 )
+from app.services.jobs import JobRepository, MongoJobRepository
+from app.services.submissions import store_survey_response
 from app.services.surveys import (
     MongoSurveyDefinitionRepository,
     MongoSurveyResponseRepository,
@@ -32,6 +34,7 @@ def create_app(
     researcher_account_repository: ResearcherAccountRepository | None = None,
     survey_definition_repository: SurveyDefinitionRepository | None = None,
     survey_response_repository: SurveyResponseRepository | None = None,
+    job_repository: JobRepository | None = None,
 ) -> FastAPI:
     application_settings = settings or Settings.from_environment()
 
@@ -78,9 +81,11 @@ def create_app(
         if survey_response_repository is not None:
             app.state.survey_response_repository = survey_response_repository
         elif application_settings.mongodb_uri:
-            app.state.survey_response_repository = MongoSurveyResponseRepository(
-                database.database["survey_responses"]
-            )
+            app.state.survey_response_repository = MongoSurveyResponseRepository(database.database["survey_responses"])
+        if job_repository is not None:
+            app.state.job_repository = job_repository
+        elif application_settings.mongodb_uri:
+            app.state.job_repository = MongoJobRepository(database.database["submission_jobs"])
 
         yield
 
@@ -106,6 +111,9 @@ def create_app(
     app.include_router(admin_router)
     app.include_router(auth_router)
     app.include_router(researcher_router)
+    from app.api.survey import router as survey_router
+
+    app.include_router(survey_router)
 
     return app
 

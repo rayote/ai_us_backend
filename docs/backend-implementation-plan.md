@@ -140,7 +140,7 @@ docs/         # 프론트 연동 계약과 운영 문서
 - 운영 환경: 별도 유료 CloudType 계정에 동일한 3개 서비스 구성을 만들고, 개발 환경과 별도의 MongoDB 데이터와 Secret을 사용한다.
 - 프론트: CloudType이 GitHub의 정적 HTML을 현재 구조 그대로 배포한다.
 - 백엔드: CloudType이 GitHub 저장소에서 container를 배포하며, 하나의 backend 컨테이너에서 Uvicorn FastAPI와 대기열 작업자 daemon을 별도 OS 프로세스로 실행한다.
-- 대기열 작업자: 같은 backend 컨테이너에서 설문·대화문 저장과 알림 발송을 처리한다. FastAPI 프로세스 안에서 임시 task로 실행하지 않으며, MongoDB 작업 상태를 원자적으로 바꿔 중복 처리를 막는다.
+- 대기열 작업자: 같은 backend 컨테이너에서 `python -m app.worker` 명령으로 실행한다. 현재는 설문 최종 제출 저장을 처리하며, 대화문 저장과 알림 발송 handler는 해당 기능 구현 시 추가한다. FastAPI 프로세스 안에서 임시 task로 실행하지 않으며, 기동 시 `processing` 작업을 복구하고 MongoDB 작업 상태를 원자적으로 바꿔 중복 처리를 막는다.
 - MongoDB: CloudType 사전구성 컨테이너를 사용하고 외부 공개를 피한다. backend 서비스에서만 접속하도록 설정하며, MongoDB용 GitHub 저장소는 만들지 않는다.
 - 환경변수: `MONGODB_URI`, `DATABASE_NAME`, `JWT_SECRET`, `FRONTEND_ORIGINS`, 이메일 또는 SMS 발송 설정을 CloudType Configure 패널의 Secret으로 관리한다. CloudType이 backend 프로세스 환경변수로 주입하고 `Settings.from_environment()`가 직접 읽는다. `.env.example`은 이름 목록일 뿐이며 실제 `.env` 파일은 배포에 사용하거나 저장소에 커밋하지 않는다.
 - backend 서비스 생성 시 CloudType이 제공하는 Dockerfile 템플릿과 필요한 build/start 초기화 명령을 배포 설정에 추가한다. 템플릿의 실제 내용은 CloudType 설정 단계에서 확정한다.

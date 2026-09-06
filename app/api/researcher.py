@@ -35,14 +35,18 @@ def _approval_service(request: Request) -> ApplicationApprovalService:
 def _survey_definition_repository(request: Request) -> SurveyDefinitionRepository:
     repository = getattr(request.app.state, "survey_definition_repository", None)
     if repository is None:
-        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="설문 정의 서비스를 준비 중입니다.")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="설문 정의 서비스를 준비 중입니다."
+        )
     return repository
 
 
 def _survey_response_repository(request: Request) -> SurveyResponseRepository:
     repository = getattr(request.app.state, "survey_response_repository", None)
     if repository is None:
-        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="설문 결과 서비스를 준비 중입니다.")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="설문 결과 서비스를 준비 중입니다."
+        )
     return repository
 
 

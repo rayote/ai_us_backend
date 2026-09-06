@@ -20,6 +20,8 @@ class SurveyDefinitionRepository(Protocol):
 
 
 class SurveyResponseRepository(Protocol):
+    async def create_response(self, response: SurveyResponseRecord) -> None: ...
+
     async def list_responses(self, survey_round: int, survey_version: str) -> list[SurveyResponseRecord]: ...
 
 
@@ -60,9 +62,7 @@ class MongoSurveyDefinitionRepository:
         return _definition_from_document(document)
 
     async def get(self, survey_round: int, survey_version: str) -> SurveyDefinition | None:
-        document = await self._collection.find_one(
-            {"survey_round": survey_round, "survey_version": survey_version}
-        )
+        document = await self._collection.find_one({"survey_round": survey_round, "survey_version": survey_version})
         return _definition_from_document(document) if document else None
 
 
@@ -70,10 +70,21 @@ class MongoSurveyResponseRepository:
     def __init__(self, collection: Any) -> None:
         self._collection = collection
 
+    async def create_response(self, response: SurveyResponseRecord) -> None:
+        await self._collection.insert_one(
+            {
+                "participant_id": response.participant_id,
+                "survey_round": response.survey_round,
+                "survey_version": response.survey_version,
+                "answers": response.answers,
+                "submitted_at": response.submitted_at,
+            }
+        )
+
     async def list_responses(self, survey_round: int, survey_version: str) -> list[SurveyResponseRecord]:
-        cursor = self._collection.find(
-            {"survey_round": survey_round, "survey_version": survey_version}
-        ).sort("submitted_at", 1)
+        cursor = self._collection.find({"survey_round": survey_round, "survey_version": survey_version}).sort(
+            "submitted_at", 1
+        )
         return [_response_from_document(document) async for document in cursor]
 
 
@@ -82,7 +93,13 @@ def survey_responses_to_csv(definition: SurveyDefinition, responses: list[Survey
     writer = csv.writer(output)
     questions = sorted(definition.questions, key=lambda question: question.order)
     writer.writerow(
-        ["participantId", "surveyRound", "surveyVersion", "submittedAt", *[question.csv_column for question in questions]]
+        [
+            "participantId",
+            "surveyRound",
+            "surveyVersion",
+            "submittedAt",
+            *[question.csv_column for question in questions],
+        ]
     )
     for response in responses:
         writer.writerow(

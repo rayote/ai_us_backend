@@ -39,3 +39,15 @@ class SurveyResponseRecord(BaseModel):
     survey_version: str = Field(alias="surveyVersion")
     answers: dict[str, object]
     submitted_at: datetime = Field(alias="submittedAt")
+
+
+class SurveySubmissionCreate(BaseModel):
+    survey_round: int = Field(alias="surveyRound", ge=1)
+    survey_version: str = Field(alias="surveyVersion", min_length=1, max_length=100)
+    answers: dict[str, object]
+    submission_id: str = Field(alias="submissionId", min_length=1, max_length=128)
+
+
+class SurveySubmissionAccepted(BaseModel):
+    submission_id: str = Field(alias="submissionId")
+    status: str

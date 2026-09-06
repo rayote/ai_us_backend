@@ -51,6 +51,40 @@ Word or PDF sources may be parsed only after the extracted round, version, quest
 
 This endpoint accepts an `admin` or `researcher` bearer token and returns a UTF-8 BOM CSV file. The response columns follow the registered question order; missing answers remain blank.
 
+## Submit survey response
+
+`POST /api/v1/survey-responses`
+
+This endpoint requires a participant bearer token. The backend validates the survey definition and queues the final response before returning.
+
+```json
+{
+  "surveyRound": 1,
+  "surveyVersion": "2026-round-1-v1",
+  "answers": {
+    "q1": "응답"
+  },
+  "submissionId": "browser-generated-id"
+}
+```
+
+Successful response: `202 Accepted`
+
+```json
+{
+  "submissionId": "<queue job id>",
+  "status": "queued"
+}
+```
+
+The frontend keeps its `localStorage` draft until the status endpoint reports `completed`.
+
+## Get survey submission status
+
+`GET /api/v1/submission-jobs/{submissionId}`
+
+This endpoint requires the submitting participant bearer token and returns the job's `queued`, `processing`, `completed`, or `failed` status. A participant cannot read another participant's submission status.
+
 ## Researcher login
 
 `POST /api/v1/auth/researcher/login`

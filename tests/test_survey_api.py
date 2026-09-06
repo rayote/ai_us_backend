@@ -1,20 +1,21 @@
 from datetime import UTC, datetime
 
-from fastapi.testclient import TestClient
-
 from app.core.security import hash_password
 from app.core.settings import Settings
 from app.main import create_app
 from app.schemas.survey import SurveyDefinition, SurveyDefinitionCreate, SurveyResponseRecord
 from app.services.auth import ResearcherAccount, ResearcherAccountRepository
 from app.services.surveys import SurveyDefinitionRepository, SurveyResponseRepository
+from fastapi.testclient import TestClient
 
 
 class InMemoryResearchers(ResearcherAccountRepository):
     def __init__(self) -> None:
         self.accounts = {
             "admin": ResearcherAccount("admin-1", "admin", hash_password("admin-password"), "admin"),
-            "researcher": ResearcherAccount("researcher-1", "researcher", hash_password("researcher-password"), "researcher"),
+            "researcher": ResearcherAccount(
+                "researcher-1", "researcher", hash_password("researcher-password"), "researcher"
+            ),
         }
 
     async def find_by_username(self, username: str) -> ResearcherAccount | None:
@@ -46,6 +47,9 @@ class InMemorySurveyDefinitions(SurveyDefinitionRepository):
 
 
 class InMemorySurveyResponses(SurveyResponseRepository):
+    async def create_response(self, response: SurveyResponseRecord) -> None:
+        return None
+
     async def list_responses(self, survey_round: int, survey_version: str) -> list[SurveyResponseRecord]:
         return [
             SurveyResponseRecord(

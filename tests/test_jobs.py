@@ -25,6 +25,9 @@ class InMemoryJobRepository(JobRepository):
         self.jobs.append(queued_job)
         return queued_job
 
+    async def get(self, job_id: str) -> Job | None:
+        return next((job for job in self.jobs if job.id == job_id), None)
+
     async def claim_next(self) -> Job | None:
         for index, job in enumerate(self.jobs):
             if job.status == "queued":

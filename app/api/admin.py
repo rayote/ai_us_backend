@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from app.api.auth import require_admin
 from app.schemas.auth import ResearcherCreate, ResearcherCreated
-from app.services.auth import ResearcherAccountRepository, ResearcherAdministrationService
 from app.schemas.survey import SurveyDefinition, SurveyDefinitionCreate
+from app.services.auth import ResearcherAccountRepository, ResearcherAdministrationService
 from app.services.surveys import DuplicateSurveyDefinitionError, SurveyDefinitionRepository
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 
@@ -22,7 +22,9 @@ def _service(request: Request) -> ResearcherAdministrationService:
 def _survey_definition_repository(request: Request) -> SurveyDefinitionRepository:
     repository = getattr(request.app.state, "survey_definition_repository", None)
     if repository is None:
-        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="설문 정의 서비스를 준비 중입니다.")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="설문 정의 서비스를 준비 중입니다."
+        )
     return repository
 
 
@@ -47,4 +49,6 @@ async def create_survey_definition(
     try:
         return await _survey_definition_repository(request).create(definition)
     except DuplicateSurveyDefinitionError as error:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="이미 등록된 설문 회차와 버전입니다.") from error
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail="이미 등록된 설문 회차와 버전입니다."
+        ) from error

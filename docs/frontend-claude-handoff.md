@@ -88,3 +88,5 @@
 설문 문항이 확정되면 backend의 `admin`이 먼저 같은 `surveyRound`와 `surveyVersion`의 설문 정의를 등록한다. Claude는 정의의 문항 `key`를 최종 제출 요청의 `answers` 객체 키로 사용하며, CSV 열 순서는 backend의 설문 정의가 관리한다.
 
 문항이 많은 경우 설문 정의는 CSV 또는 Excel 원본에서 일괄 등록한다. Claude는 backend가 검토·등록한 설문 정의의 문항 `key`를 사용하며, Word·PDF 원본을 직접 추정해 문항 키를 만들지 않는다.
+
+설문 최종 제출은 `POST /api/v1/survey-responses`로 전송한다. `202 Accepted` 응답의 `submissionId`로 `GET /api/v1/submission-jobs/{submissionId}`를 확인하고, 상태가 `completed`일 때만 해당 `localStorage` 임시 저장을 삭제한다.

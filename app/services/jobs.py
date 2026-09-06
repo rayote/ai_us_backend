@@ -15,6 +15,8 @@ JobHandler = Callable[[dict[str, Any]], Awaitable[None]]
 class JobRepository(Protocol):
     async def enqueue(self, job: JobCreate) -> Job: ...
 
+    async def get(self, job_id: str) -> Job | None: ...
+
     async def recover_interrupted(self) -> int: ...
 
     async def claim_next(self) -> Job | None: ...
@@ -65,6 +67,12 @@ class MongoJobRepository:
             if document is None:
                 raise
         return _job_from_document(document)
+
+    async def get(self, job_id: str) -> Job | None:
+        if not ObjectId.is_valid(job_id):
+            return None
+        document = await self._collection.find_one({"_id": ObjectId(job_id)})
+        return _job_from_document(document) if document else None
 
     async def claim_next(self) -> Job | None:
         document = await self._collection.find_one_and_update(
