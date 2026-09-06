@@ -99,6 +99,15 @@ CSV 등록은 `POST /api/v1/researcher/participants/imports`에 `file` 필드로
 
 설문 최종 제출은 `POST /api/v1/survey-responses`로 전송한다. `202 Accepted` 응답의 `submissionId`로 `GET /api/v1/submission-jobs/{submissionId}`를 확인하고, 상태가 `completed`일 때만 해당 `localStorage` 임시 저장을 삭제한다.
 
+### FH-002: 더미 설문 연동 확인
+
+- 프론트 작업 브랜치: `backend/fh-002-dummy-survey-sync`
+- 개발 환경에서만 `surveyRound: 1`, `surveyVersion: "demo-v1"`의 3문항 더미 설문을 사용한다. 실제 연구 문항·디자인으로 대체할 때 제거한다.
+- 임시 저장 키는 참여자 휴대폰 번호, `surveyRound`, `surveyVersion`으로 구분한다.
+- 입력 변경과 30초 간격으로 `localStorage`에 저장하고, 다시 열면 임시 내용을 복원한다.
+- 최종 제출은 Queue에 접수한 뒤 `completed`일 때만 임시 저장을 삭제한다.
+- backend의 `demo-v1` 설문 정의 등록은 `csvColumn` alias 저장 수정이 배포된 뒤 수행한다.
+
 ### FH-003: AI 대화문 제출
 
 대화문 제출 화면은 `submissionPoint`가 `afterRound1` 또는 `afterRound4`인 링크 또는 본문 입력을 `POST /api/v1/chat-submissions`로 전송한다. API 응답의 `submissionId`로 기존 제출 상태 조회 API를 확인한다. 이 기능은 대화문 제출 동의 참여자에게만 표시한다.

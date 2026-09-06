@@ -52,7 +52,7 @@ class MongoSurveyDefinitionRepository:
         document = {
             "survey_round": definition.survey_round,
             "survey_version": definition.survey_version,
-            "questions": [question.model_dump() for question in definition.questions],
+            "questions": [question.model_dump(by_alias=True) for question in definition.questions],
             "created_at": datetime.now(UTC),
         }
         try:
