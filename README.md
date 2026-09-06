@@ -29,6 +29,16 @@ CloudType deploys the frontend and backend services by connecting each service t
 - `docs`: API contract and deployment notes shared with the frontend team.
 - `deploy`: CloudType deployment assets.
 
+## Local checks
+
+This server does not run local Docker or MongoDB. The API can still be checked with Python tests before it is connected to CloudType:
+
+```bash
+python3 -m pytest -q
+```
+
+Use `.env.example` only as a list of CloudType Secret names. Do not commit a real `.env` file.
+
 ## GitHub connection
 
 The backend repository is connected to GitHub. CloudType can use this repository as its backend service source.
