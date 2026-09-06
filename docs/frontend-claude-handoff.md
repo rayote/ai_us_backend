@@ -131,7 +131,7 @@ CSV 등록은 `POST /api/v1/researcher/participants/imports`에 `file` 필드로
 
 - 프론트 작업 브랜치: `backend/fh-006-session-and-approval-fixes`
 - 프론트 작업 커밋: `5017731 Fix session handling and approval errors`
-- Pull Request: `#4` 검토 중 (`backend/fh-006-session-and-approval-fixes` → `main`)
+- Pull Request: `#4` 병합 완료 (`backend/fh-006-session-and-approval-fixes` → `main`), merge commit `3f02934cb3d73907d4b9f00bd550a9c991d3f3de`
 - 선행 backend 커밋: `6acbb30 Fix session handling and duplicate approvals`
 - 참여자 로그아웃은 `ai_us_access_token`과 `ai_us_role`을 `sessionStorage`에서 삭제한 뒤 홈 화면으로 돌아간다.
 - `researcher.html`은 토큰이 없거나 `admin`·`researcher`가 아닌 역할이면 홈으로 이동한다. 정적 HTML 자체의 직접 접근은 막을 수 없지만, 민감 데이터 API는 backend가 JWT 역할을 검증한다.
