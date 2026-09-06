@@ -27,6 +27,16 @@ class MongoDatabase:
             name="researchers_username_unique",
             unique=True,
         )
+        await self.database["survey_definitions"].create_index(
+            [("survey_round", ASCENDING), ("survey_version", ASCENDING)],
+            name="survey_definitions_round_version_unique",
+            unique=True,
+        )
+        await self.database["survey_responses"].create_index(
+            [("participant_id", ASCENDING), ("survey_round", ASCENDING), ("survey_version", ASCENDING)],
+            name="survey_responses_participant_round_version_unique",
+            unique=True,
+        )
         await self.database["submission_jobs"].create_index(
             [("job_type", ASCENDING), ("idempotency_key", ASCENDING)],
             name="submission_jobs_idempotency_unique",

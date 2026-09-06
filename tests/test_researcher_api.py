@@ -81,7 +81,9 @@ class InMemoryResearchers(ResearcherAccountRepository):
     def __init__(self) -> None:
         self.accounts = {
             "admin": ResearcherAccount("admin-1", "admin", hash_password("admin-password"), "admin"),
-            "researcher": ResearcherAccount("researcher-1", "researcher", hash_password("researcher-password"), "researcher"),
+            "researcher": ResearcherAccount(
+                "researcher-1", "researcher", hash_password("researcher-password"), "researcher"
+            ),
         }
 
     async def find_by_username(self, username: str) -> ResearcherAccount | None:

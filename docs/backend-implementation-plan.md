@@ -51,13 +51,15 @@
 
 ### 3단계: 설문 응답과 대화문 제출
 
-- 설문 1건은 회차별 최종 제출 때 하나의 작업으로 대기열에 접수하고, 작업자가 하나의 MongoDB 문서로 저장한다.
+- 설문 1건은 설문 회차(`surveyRound`)별 최종 제출 때 하나의 작업으로 대기열에 접수하고, 작업자가 하나의 MongoDB 문서로 저장한다.
 - 제출 API는 대기열 접수 성공 뒤 `202 Accepted`와 제출 추적 ID를 반환한다. MongoDB 저장이 끝난 뒤에만 제출을 완료 상태로 전환한다.
 - 프론트는 `202 Accepted`만으로 임시 저장을 지우지 않고, 제출 상태 조회 API가 `completed`를 반환한 뒤에만 해당 회차의 임시 저장을 삭제한다. 네트워크 단절 시에는 같은 제출 식별자로 재전송할 수 있어야 한다.
 - 대기열은 메모리만 사용하는 방식이 아니라 MongoDB에 저장하는 영속 작업 컬렉션으로 구현한다. 서버 재시작 또는 작업자의 일시적 저장 오류 뒤에도 미처리 작업을 재시도할 수 있어야 한다.
 - 작업자는 `queued`, `processing`, `completed`, `failed` 상태와 재시도 횟수를 관리한다. 저장 작업이 일시 실패하면 최대 3회까지 재대기하며, daemon 재시작 시 `processing`에 남은 작업을 `queued`로 복구한다. 중복 제출 식별자를 고유 인덱스로 두어 같은 최종 제출이 여러 번 저장되지 않게 한다.
-- 서버는 참여자 ID, 회차, 동의 상태, 응답 전체, 서버 제출시각을 기록한다.
-- 같은 참여자와 회차의 중복 제출 정책은 `초안/최종` 또는 `최종 1회 후 수정 불가` 중 연구진 결정에 따라 확정한다.
+- 서버는 참여자 ID, 설문 회차(`surveyRound`), 설문 버전(`surveyVersion`), 동의 상태, 응답 전체, 서버 제출시각을 기록한다.
+- 설문 버전은 회차별 문항 변경을 구분한다. 예: `2026-round-1-v1`, `2026-round-2-v2`.
+- `admin`은 응답 수집 전에 회차·버전별 문항 키와 CSV 열 순서를 설문 정의로 등록한다. `admin`과 `researcher`는 해당 정의에 따라 버전별 설문 결과 CSV를 내려받는다.
+- 같은 참여자와 설문 회차·설문 버전의 중복 제출 정책은 `초안/최종` 또는 `최종 1회 후 수정 불가` 중 연구진 결정에 따라 확정한다.
 - 설문 1차 및 4차 뒤의 AI 대화문 제출은 대화문 동의 참여자만 허용한다.
 - 대화문 입력 형식은 링크, 본문, 또는 둘 다 허용 중 연구진 결정 후 API 필드를 확정한다.
 
@@ -88,6 +90,7 @@ API의 실제 URL과 JSON 필드명은 프론트 소스를 받은 뒤 기존 함
 | 참여자 로그인 | `POST /api/v1/auth/participant/login` | 로그인 모달 |
 | 연구자 로그인 | `POST /api/v1/auth/researcher/login` | 연구자 로그인 모달 |
 | 연구자 계정 생성 | `POST /api/v1/admin/researchers` | 관리자 전용 기능, 연구자 화면 추가 시 연동 |
+| 설문 정의 등록 | `POST /api/v1/admin/survey-definitions` | 관리자 전용, 설문 문항 확정 뒤 등록 |
 | 비밀번호 재설정 요청 | `POST /api/v1/auth/password-reset-requests` | `PasswordReset.sendResetLink` |
 | 참여자 최초 비밀번호 변경 | `POST /api/v1/auth/participant/password` | 첫 로그인 비밀번호 변경 화면 |
 | 신청 목록 | `GET /api/v1/researcher/applications` | `applications` 배열 |
@@ -105,7 +108,8 @@ API의 실제 URL과 JSON 필드명은 프론트 소스를 받은 뒤 기존 함
 - `applications`: 신규 신청과 승인 상태. 휴대폰 번호 정규화 값에 고유 인덱스.
 - `participants`: 승인된 참여자 계정, 역할, 비밀번호 해시, 최초 비밀번호 변경 필요 여부.
 - `researchers`: 연구자 계정과 역할.
-- `survey_responses`: 참여자 ID와 회차, 응답 전체, 제출시각. `participant_id + wave` 복합 인덱스.
+- `survey_definitions`: 설문 회차(`surveyRound`), 설문 버전(`surveyVersion`), 문항 키, 문항 순서, CSV 열 이름을 저장한다. 회차별 문항이 변경되어도 기존 CSV 열 순서를 보존하는 기준이다.
+- `survey_responses`: 참여자 ID, 설문 회차(`surveyRound`), 설문 버전(`surveyVersion`), 응답 전체, 제출시각. `participant_id + surveyRound + surveyVersion` 복합 인덱스.
 - `submission_jobs`: 최종 설문 제출 대기열. 제출 추적 ID, 멱등성 키, 상태, 작업 데이터, 재시도 횟수, 오류 사유, 생성/처리 시각을 저장한다. 처리 상태와 생성 시각의 복합 인덱스.
 - `chat_submissions`: 참여자 ID, 제출 시점(1차 후/4차 후), 형식, 링크 또는 본문, 제출시각.
 - `notification_jobs`: 비밀번호 재설정 등 이메일 또는 SMS 발송 대기열. 발송 채널, 수신 대상, 템플릿 유형, 상태, 재시도 횟수, 오류 사유, 생성/처리 시각을 저장한다.
@@ -150,7 +154,7 @@ docs/         # 프론트 연동 계약과 운영 문서
 3. 각 함수가 기대하는 입력·성공·실패 화면 상태를 표로 기록한다.
 4. 신청 동의값을 API 요청에 추가하고, 참여자 로그인 성공 뒤 `needsPasswordChange`가 `true`이면 비밀번호 변경 화면을 먼저 표시한다.
 5. 로그인·승인·CSV 등록·다운로드의 데모 동작을 각 API 호출로 교체한다.
-6. 설문 문항과 대화문 입력 화면이 추가되면 같은 참여자와 회차의 `localStorage` 임시 저장을 재로그인 뒤 복원하고, 제출 작업 상태가 `completed`일 때만 자동 삭제하도록 연결한다.
+6. 설문 문항과 대화문 입력 화면이 추가되면 같은 참여자와 설문 회차·설문 버전의 `localStorage` 임시 저장을 재로그인 뒤 복원하고, 제출 작업 상태가 `completed`일 때만 자동 삭제하도록 연결한다.
 7. 해당 계약에 맞춘 FastAPI 요청/응답 모델과 MongoDB 스키마를 확정한다.
 8. 백엔드 최소 기능부터 구현하고, 프론트 변경은 inline script의 API 호출부에 한정한다.
 

@@ -19,6 +19,7 @@ CloudType deploys the frontend and backend services by connecting each service t
 - Each environment keeps its own `MONGODB_URI`, `JWT_SECRET`, notification settings for email or SMS, and allowed frontend origins in CloudType secrets.
 - Set `RESEARCHER_BOOTSTRAP_USERNAME` and `RESEARCHER_BOOTSTRAP_PASSWORD` as development and production Secrets separately. They create the first researcher account when the backend first connects to MongoDB.
 - The bootstrap account has the `admin` role. An admin can create individual `researcher` accounts; both roles can use researcher data-management functions.
+- An admin registers each questionnaire using `surveyRound` and `surveyVersion`. Both admin and researcher accounts can download CSV exports for the stored response version.
 - Enter those values in the CloudType Configure panel. CloudType injects them as backend process environment variables, which `Settings.from_environment()` reads directly.
 - `.env.example` is only a reference list of Secret names. The application does not load a local `.env` file automatically.
 - When the CloudType backend service is created, add its provided Dockerfile template and the required build/start commands to this repository's deployment configuration. No local Docker installation is required.

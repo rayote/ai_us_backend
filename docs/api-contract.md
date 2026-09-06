@@ -4,6 +4,41 @@ Base URL: the public backend URL deployed by CloudType for the current environme
 
 All request and response bodies use JSON unless an endpoint explicitly returns a file.
 
+## Survey data terminology
+
+- `surveyRound`: the numbered survey round, such as `1` or `2`.
+- `surveyVersion`: the version of the questionnaire used in that round, such as `2026-round-2-v2`.
+
+Final survey submission, temporary browser storage, MongoDB documents, and CSV exports use both values. This preserves the questionnaire version when a later round changes its questions.
+
+## Register survey definition
+
+`POST /api/v1/admin/survey-definitions`
+
+This endpoint requires an `admin` bearer token. It registers the fixed CSV column order for a single `surveyRound` and `surveyVersion` before responses are collected.
+
+```json
+{
+  "surveyRound": 2,
+  "surveyVersion": "2026-round-2-v2",
+  "questions": [
+    {
+      "key": "q1",
+      "csvColumn": "첫 번째 문항",
+      "order": 1
+    }
+  ]
+}
+```
+
+The same round and version cannot be registered more than once. Register a new `surveyVersion` when the questionnaire changes.
+
+## Export survey responses
+
+`GET /api/v1/researcher/exports/survey-responses?survey_round=2&survey_version=2026-round-2-v2`
+
+This endpoint accepts an `admin` or `researcher` bearer token and returns a UTF-8 BOM CSV file. The response columns follow the registered question order; missing answers remain blank.
+
 ## Researcher login
 
 `POST /api/v1/auth/researcher/login`

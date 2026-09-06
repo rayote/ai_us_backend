@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from contextlib import asynccontextmanager
 
-from app.api.applications import router as applications_router
 from app.api.admin import router as admin_router
+from app.api.applications import router as applications_router
 from app.api.auth import router as auth_router
 from app.api.researcher import router as researcher_router
 from app.core.settings import Settings
@@ -15,6 +15,12 @@ from app.services.auth import (
     ParticipantAccountRepository,
     ResearcherAccountRepository,
 )
+from app.services.surveys import (
+    MongoSurveyDefinitionRepository,
+    MongoSurveyResponseRepository,
+    SurveyDefinitionRepository,
+    SurveyResponseRepository,
+)
 from fastapi import FastAPI, status
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -24,6 +30,8 @@ def create_app(
     application_repository: ApplicationRepository | None = None,
     participant_account_repository: ParticipantAccountRepository | None = None,
     researcher_account_repository: ResearcherAccountRepository | None = None,
+    survey_definition_repository: SurveyDefinitionRepository | None = None,
+    survey_response_repository: SurveyResponseRepository | None = None,
 ) -> FastAPI:
     application_settings = settings or Settings.from_environment()
 
@@ -61,6 +69,18 @@ def create_app(
                     hash_password(application_settings.researcher_bootstrap_password),
                 )
             app.state.researcher_account_repository = repository
+        if survey_definition_repository is not None:
+            app.state.survey_definition_repository = survey_definition_repository
+        elif application_settings.mongodb_uri:
+            app.state.survey_definition_repository = MongoSurveyDefinitionRepository(
+                database.database["survey_definitions"]
+            )
+        if survey_response_repository is not None:
+            app.state.survey_response_repository = survey_response_repository
+        elif application_settings.mongodb_uri:
+            app.state.survey_response_repository = MongoSurveyResponseRepository(
+                database.database["survey_responses"]
+            )
 
         yield
 
