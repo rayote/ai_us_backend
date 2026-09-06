@@ -137,3 +137,12 @@ CSV 등록은 `POST /api/v1/researcher/participants/imports`에 `file` 필드로
 - `researcher.html`은 토큰이 없거나 `admin`·`researcher`가 아닌 역할이면 홈으로 이동한다. 정적 HTML 자체의 직접 접근은 막을 수 없지만, 민감 데이터 API는 backend가 JWT 역할을 검증한다.
 - 연구자 승인 API가 `409`과 이미 등록된 휴대폰 번호 메시지를 반환하면, 해당 신청을 자동 승인하지 않고 오류를 표시한다.
 - CSV 등록 참여자는 `participants`에 직접 생성되므로 회원 신청 관리 목록에는 나타나지 않는다. 웹 신청 참여자만 신청 목록에서 검토·승인한다.
+
+### FH-007: 연구자 로그아웃과 휴대폰 입력
+
+- 프론트 작업 브랜치: `frontend/fix-logout-and-phone-caret`
+- 프론트 작업 커밋: `1716b64 Fix logout and phone input caret`
+- Pull Request: `#5` 검토 중 (`frontend/fix-logout-and-phone-caret` → `main`)
+- 연구자 로그아웃은 access token과 역할을 삭제한 뒤 홈으로 이동한다.
+- 참여자 휴대폰 번호 자동 하이픈 처리 중 입력 커서 위치를 유지한다.
+- CSV 등록은 이미 `participants.phone_normalized` 고유 인덱스와 `DuplicateKeyError` 처리로 중복 휴대폰 번호를 생성하지 않으며, 결과를 `skippedCount`로 반환한다.
