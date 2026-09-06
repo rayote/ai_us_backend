@@ -16,6 +16,8 @@ class Settings:
     frontend_origins: tuple[str, ...]
     jwt_secret: str | None = None
     jwt_expiration_minutes: int = 60
+    researcher_bootstrap_username: str | None = None
+    researcher_bootstrap_password: str | None = None
 
     @classmethod
     def from_environment(cls) -> "Settings":
@@ -26,4 +28,6 @@ class Settings:
             frontend_origins=_origins_from_environment(getenv("FRONTEND_ORIGINS", "")),
             jwt_secret=getenv("JWT_SECRET"),
             jwt_expiration_minutes=int(getenv("JWT_EXPIRATION_MINUTES", "60")),
+            researcher_bootstrap_username=getenv("RESEARCHER_BOOTSTRAP_USERNAME"),
+            researcher_bootstrap_password=getenv("RESEARCHER_BOOTSTRAP_PASSWORD"),
         )

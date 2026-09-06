@@ -60,3 +60,20 @@ class ApplicationRecord(BaseModel):
     status: Literal["pending", "approved"]
     submitted_at: datetime = Field(alias="submittedAt")
     approved_at: datetime | None = Field(default=None, alias="approvedAt")
+
+
+class ApplicationApproval(BaseModel):
+    application_ids: list[str] = Field(alias="applicationIds", min_length=1, max_length=100)
+
+    @field_validator("application_ids")
+    @classmethod
+    def validate_application_ids(cls, value: list[str]) -> list[str]:
+        if len(set(value)) != len(value):
+            raise ValueError("신청 ID는 중복될 수 없습니다.")
+        if any(not re.fullmatch(r"[0-9a-fA-F]{24}", application_id) for application_id in value):
+            raise ValueError("올바른 신청 ID가 아닙니다.")
+        return value
+
+
+class ApplicationApprovalCompleted(BaseModel):
+    approved_count: int = Field(alias="approvedCount")

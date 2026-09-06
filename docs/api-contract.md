@@ -4,6 +4,47 @@ Base URL: the public backend URL deployed by CloudType for the current environme
 
 All request and response bodies use JSON unless an endpoint explicitly returns a file.
 
+## Researcher login
+
+`POST /api/v1/auth/researcher/login`
+
+```json
+{
+  "username": "researcher",
+  "password": "<researcher password>"
+}
+```
+
+The response is a `200 OK` bearer token response with `role` set to `researcher` and `needsPasswordChange` set to `false`.
+
+The first researcher account is created only when both `RESEARCHER_BOOTSTRAP_USERNAME` and `RESEARCHER_BOOTSTRAP_PASSWORD` are configured as CloudType Secrets. This bootstrap account is inserted once and is not overwritten on later backend restarts.
+
+## Researcher application management
+
+Both endpoints require a researcher bearer token.
+
+`GET /api/v1/researcher/applications?school_level=elementary`
+
+The optional `school_level` accepts `elementary`, `middle`, or `high`. The response is a list of application records.
+
+`POST /api/v1/researcher/applications/approve`
+
+```json
+{
+  "applicationIds": ["65f000000000000000000001"]
+}
+```
+
+Successful response: `200 OK`
+
+```json
+{
+  "approvedCount": 1
+}
+```
+
+For each pending application, approval creates a participant account with the hashed initial password `1234` and requires that participant to change the password at first login. Repeating an approval does not create a duplicate participant account.
+
 ## Health check
 
 `GET /health`

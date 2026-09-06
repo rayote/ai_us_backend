@@ -1,11 +1,10 @@
 from datetime import UTC, datetime
 
-from fastapi.testclient import TestClient
-
 from app.core.security import hash_password
 from app.core.settings import Settings
 from app.main import create_app
 from app.services.auth import ParticipantAccount, ParticipantAccountRepository
+from fastapi.testclient import TestClient
 
 
 class InMemoryParticipantAccountRepository(ParticipantAccountRepository):
@@ -46,7 +45,9 @@ def test_participant_login_returns_access_token_and_password_change_requirement(
 
 def test_participant_changes_default_password() -> None:
     with _client() as client:
-        login_response = client.post("/api/v1/auth/participant/login", json={"phone": "01012345678", "password": "1234"})
+        login_response = client.post(
+            "/api/v1/auth/participant/login", json={"phone": "01012345678", "password": "1234"}
+        )
         token = login_response.json()["accessToken"]
         response = client.post(
             "/api/v1/auth/participant/password",

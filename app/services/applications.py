@@ -17,6 +17,8 @@ class ApplicationRepository(Protocol):
 
     async def list_applications(self, school_level: str | None = None) -> list[ApplicationRecord]: ...
 
+    async def get_pending(self, application_ids: list[str]) -> list[ApplicationRecord]: ...
+
     async def approve(self, application_ids: list[str]) -> int: ...
 
 
@@ -78,6 +80,11 @@ class MongoApplicationRepository:
             {"$set": {"status": "approved", "approved_at": datetime.now(UTC)}},
         )
         return result.modified_count
+
+    async def get_pending(self, application_ids: list[str]) -> list[ApplicationRecord]:
+        object_ids = [ObjectId(application_id) for application_id in application_ids]
+        cursor = self._collection.find({"_id": {"$in": object_ids}, "status": "pending"})
+        return [_application_record(document) async for document in cursor]
 
 
 def object_id() -> str:

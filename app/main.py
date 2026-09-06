@@ -4,10 +4,16 @@ from contextlib import asynccontextmanager
 
 from app.api.applications import router as applications_router
 from app.api.auth import router as auth_router
+from app.api.researcher import router as researcher_router
 from app.core.settings import Settings
 from app.db.mongodb import MongoDatabase
 from app.services.applications import ApplicationRepository, MongoApplicationRepository
-from app.services.auth import MongoParticipantAccountRepository, ParticipantAccountRepository
+from app.services.auth import (
+    MongoParticipantAccountRepository,
+    MongoResearcherAccountRepository,
+    ParticipantAccountRepository,
+    ResearcherAccountRepository,
+)
 from fastapi import FastAPI, status
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -16,6 +22,7 @@ def create_app(
     settings: Settings | None = None,
     application_repository: ApplicationRepository | None = None,
     participant_account_repository: ParticipantAccountRepository | None = None,
+    researcher_account_repository: ResearcherAccountRepository | None = None,
 ) -> FastAPI:
     application_settings = settings or Settings.from_environment()
 
@@ -38,6 +45,21 @@ def create_app(
             app.state.participant_account_repository = MongoParticipantAccountRepository(
                 database.database["participants"]
             )
+        if researcher_account_repository is not None:
+            app.state.researcher_account_repository = researcher_account_repository
+        elif application_settings.mongodb_uri:
+            repository = MongoResearcherAccountRepository(database.database["researchers"])
+            if (
+                application_settings.researcher_bootstrap_username
+                and application_settings.researcher_bootstrap_password
+            ):
+                from app.core.security import hash_password
+
+                await repository.ensure_bootstrap(
+                    application_settings.researcher_bootstrap_username,
+                    hash_password(application_settings.researcher_bootstrap_password),
+                )
+            app.state.researcher_account_repository = repository
 
         yield
 
@@ -61,6 +83,7 @@ def create_app(
 
     app.include_router(applications_router)
     app.include_router(auth_router)
+    app.include_router(researcher_router)
 
     return app
 

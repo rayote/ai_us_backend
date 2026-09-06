@@ -3,9 +3,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Protocol
 
-from bson import ObjectId
-
 from app.core.security import verify_password
+from bson import ObjectId
+from pymongo.errors import DuplicateKeyError
 
 
 @dataclass(frozen=True)
@@ -22,6 +22,8 @@ class ParticipantAccountRepository(Protocol):
     async def find_by_id(self, participant_id: str) -> ParticipantAccount | None: ...
 
     async def update_password(self, participant_id: str, password_hash: str) -> bool: ...
+
+    async def create(self, phone: str, password_hash: str) -> bool: ...
 
 
 class MongoParticipantAccountRepository:
@@ -54,6 +56,51 @@ class MongoParticipantAccountRepository:
         )
         return result.modified_count == 1
 
+    async def create(self, phone: str, password_hash: str) -> bool:
+        try:
+            await self._collection.insert_one(
+                {
+                    "phone_normalized": phone,
+                    "role": "participant",
+                    "password_hash": password_hash,
+                    "must_change_password": True,
+                }
+            )
+        except DuplicateKeyError:
+            return False
+        return True
+
+
+@dataclass(frozen=True)
+class ResearcherAccount:
+    researcher_id: str
+    username: str
+    password_hash: str
+
+
+class ResearcherAccountRepository(Protocol):
+    async def find_by_username(self, username: str) -> ResearcherAccount | None: ...
+
+    async def ensure_bootstrap(self, username: str, password_hash: str) -> None: ...
+
+
+class MongoResearcherAccountRepository:
+    def __init__(self, collection: Any) -> None:
+        self._collection = collection
+
+    async def find_by_username(self, username: str) -> ResearcherAccount | None:
+        document = await self._collection.find_one({"username": username})
+        if document is None:
+            return None
+        return ResearcherAccount(str(document["_id"]), document["username"], document["password_hash"])
+
+    async def ensure_bootstrap(self, username: str, password_hash: str) -> None:
+        await self._collection.update_one(
+            {"username": username},
+            {"$setOnInsert": {"username": username, "password_hash": password_hash, "role": "researcher"}},
+            upsert=True,
+        )
+
 
 class InvalidCredentialsError(Exception):
     """Raised when a participant cannot be authenticated."""
@@ -77,3 +124,14 @@ class ParticipantAuthenticationService:
 
         if not await self._repository.update_password(participant_id, hash_password(new_password)):
             raise InvalidCredentialsError
+
+
+class ResearcherAuthenticationService:
+    def __init__(self, repository: ResearcherAccountRepository) -> None:
+        self._repository = repository
+
+    async def authenticate(self, username: str, password: str) -> ResearcherAccount:
+        account = await self._repository.find_by_username(username)
+        if account is None or not verify_password(password, account.password_hash):
+            raise InvalidCredentialsError
+        return account

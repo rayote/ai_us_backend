@@ -19,6 +19,11 @@ class ParticipantLogin(BaseModel):
         return normalized
 
 
+class ResearcherLogin(BaseModel):
+    username: str = Field(min_length=1, max_length=100)
+    password: str = Field(min_length=1, max_length=256)
+
+
 class PasswordChange(BaseModel):
     current_password: str = Field(alias="currentPassword", min_length=1, max_length=256)
     new_password: str = Field(alias="newPassword", min_length=8, max_length=256)
@@ -34,7 +39,7 @@ class PasswordChange(BaseModel):
 class AccessToken(BaseModel):
     access_token: str = Field(alias="accessToken")
     token_type: Literal["bearer"] = Field(alias="tokenType")
-    role: Literal["participant"]
+    role: Literal["participant", "researcher"]
     needs_password_change: bool = Field(alias="needsPasswordChange")
 
 
