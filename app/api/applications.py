@@ -1,9 +1,8 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException, Request, status
-
 from app.schemas.application import ApplicationCreate, ApplicationCreated
 from app.services.applications import ApplicationRepository, DuplicateApplicationError
+from fastapi import APIRouter, HTTPException, Request, status
 
 router = APIRouter(prefix="/api/v1/applications", tags=["applications"])
 

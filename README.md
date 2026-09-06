@@ -16,7 +16,7 @@ CloudType deploys the frontend and backend services by connecting each service t
 - Development: a free-tier CloudType account runs a frontend service from `ai_us`, a backend service from this repository, and a CloudType preconfigured MongoDB container.
 - Production: a separate paid CloudType account uses the same three-service layout with separate secrets, database data, and public URLs.
 - MongoDB is provisioned in CloudType and is not connected to a GitHub repository.
-- Each environment keeps its own `MONGODB_URI`, `JWT_SECRET`, email settings, and allowed frontend origins in CloudType secrets.
+- Each environment keeps its own `MONGODB_URI`, `JWT_SECRET`, notification settings for email or SMS, and allowed frontend origins in CloudType secrets.
 - Enter those values in the CloudType Configure panel. CloudType injects them as backend process environment variables, which `Settings.from_environment()` reads directly.
 - `.env.example` is only a reference list of Secret names. The application does not load a local `.env` file automatically.
 - When the CloudType backend service is created, add its provided Dockerfile template and the required build/start commands to this repository's deployment configuration. No local Docker installation is required.

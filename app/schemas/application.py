@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+from datetime import datetime
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -46,3 +47,16 @@ class ApplicationCreate(BaseModel):
 class ApplicationCreated(BaseModel):
     application_id: str = Field(alias="applicationId")
     status: Literal["pending"]
+
+
+class ApplicationRecord(BaseModel):
+    application_id: str = Field(alias="applicationId")
+    gender: str
+    grade: str
+    phone: str
+    guardian_phone: str = Field(alias="guardianPhone")
+    email: str
+    consents: ApplicationConsents
+    status: Literal["pending", "approved"]
+    submitted_at: datetime = Field(alias="submittedAt")
+    approved_at: datetime | None = Field(default=None, alias="approvedAt")

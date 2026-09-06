@@ -11,10 +11,7 @@ class InMemoryJobRepository(JobRepository):
 
     async def enqueue(self, job: JobCreate) -> Job:
         for existing_job in self.jobs:
-            if (
-                existing_job.job_type == job.job_type
-                and existing_job.idempotency_key == job.idempotency_key
-            ):
+            if existing_job.job_type == job.job_type and existing_job.idempotency_key == job.idempotency_key:
                 return existing_job
         queued_job = Job(
             id=str(len(self.jobs) + 1),

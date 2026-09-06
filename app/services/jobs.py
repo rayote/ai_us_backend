@@ -4,11 +4,10 @@ from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
 from typing import Any, Protocol
 
+from app.schemas.jobs import Job, JobCreate
 from bson import ObjectId
 from pymongo import ASCENDING, ReturnDocument
 from pymongo.errors import DuplicateKeyError
-
-from app.schemas.jobs import Job, JobCreate
 
 JobHandler = Callable[[dict[str, Any]], Awaitable[None]]
 

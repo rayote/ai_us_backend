@@ -2,13 +2,12 @@ from __future__ import annotations
 
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, status
-from fastapi.middleware.cors import CORSMiddleware
-
 from app.api.applications import router as applications_router
 from app.core.settings import Settings
 from app.db.mongodb import MongoDatabase
 from app.services.applications import ApplicationRepository, MongoApplicationRepository
+from fastapi import FastAPI, status
+from fastapi.middleware.cors import CORSMiddleware
 
 
 def create_app(
@@ -28,9 +27,7 @@ def create_app(
                 application_settings.database_name,
             )
             await database.connect()
-            app.state.application_repository = MongoApplicationRepository(
-                database.database["applications"]
-            )
+            app.state.application_repository = MongoApplicationRepository(database.database["applications"])
 
         yield
 

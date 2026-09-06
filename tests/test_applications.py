@@ -1,9 +1,8 @@
-from fastapi.testclient import TestClient
-
 from app.core.settings import Settings
 from app.main import create_app
 from app.schemas.application import ApplicationCreate
 from app.services.applications import ApplicationRepository, DuplicateApplicationError, object_id
+from fastapi.testclient import TestClient
 
 
 class InMemoryApplicationRepository(ApplicationRepository):
