@@ -120,9 +120,9 @@ CSV 등록은 `POST /api/v1/researcher/participants/imports`에 `file` 필드로
 ### FH-005: 학교급 검증과 승인 오류 표시
 
 - 프론트 작업 브랜치: `backend/fh-005-audience-validation`
-- 프론트 작업 커밋: `1dd00d6 Validate participant school audience`
+- 프론트 작업 커밋: `1dd00d6 Validate participant school audience`, `2d975cb Use explicit school audience values`
 - Pull Request: `#3` 검토 중 (`backend/fh-005-audience-validation` → `main`)
-- 선행 backend 커밋: `9052351 Validate participant school audience`
+- 선행 backend 커밋: `9052351 Validate participant school audience`, `e23f530 Use explicit school audience values`
 - 참여자 로그인 요청에 초등학생 토글은 `audience: "elementary"`, 중고등학생 토글은 `audience: "secondary"`를 포함한다.
 - backend가 등록 학교급과 다른 모드를 거부하면 해당 오류 메시지를 기존 로그인 오류 영역에 표시한다.
 - 연구자 페이지의 API helper는 JSON body를 `JSON.stringify()`로 전송한다. 승인 요청 오류 객체나 배열을 그대로 `alert()`에 전달하지 않고, backend의 `detail` 또는 검증 메시지를 표시한다.
