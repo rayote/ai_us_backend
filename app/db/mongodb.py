@@ -17,6 +17,15 @@ class MongoDatabase:
             name="applications_phone_normalized_unique",
             unique=True,
         )
+        await self.database["submission_jobs"].create_index(
+            [("job_type", ASCENDING), ("idempotency_key", ASCENDING)],
+            name="submission_jobs_idempotency_unique",
+            unique=True,
+        )
+        await self.database["submission_jobs"].create_index(
+            [("status", ASCENDING), ("created_at", ASCENDING)],
+            name="submission_jobs_processing_order",
+        )
 
     async def close(self) -> None:
         await self._client.close()
