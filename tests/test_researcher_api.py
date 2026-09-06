@@ -76,6 +76,11 @@ class InMemoryParticipants(ParticipantAccountRepository):
         self.accounts[phone] = ParticipantAccount(phone, phone, password_hash, True)
         return True
 
+    async def create_imported(
+        self, phone: str, password_hash: str, name: str, school_level: str, grade: int
+    ) -> bool:
+        return await self.create(phone, password_hash)
+
 
 class InMemoryResearchers(ResearcherAccountRepository):
     def __init__(self) -> None:
@@ -185,3 +190,16 @@ def test_admin_can_access_researcher_application_management() -> None:
         )
 
     assert response.status_code == 200
+
+
+def test_researcher_can_import_participants_from_csv() -> None:
+    client, participants = _client()
+    with client:
+        response = client.post(
+            "/api/v1/researcher/participants/imports",
+            headers={"Authorization": f"Bearer {_researcher_token(client)}"},
+            files={"file": ("participants.csv", "이름,휴대폰번호,학교급,학년\n홍길동,010-1234-5678,초등,4\n", "text/csv")},
+        )
+
+    assert response.json() == {"createdCount": 1, "skippedCount": 0, "errors": []}
+    assert "01012345678" in participants.accounts

@@ -25,6 +25,10 @@ class ParticipantAccountRepository(Protocol):
 
     async def create(self, phone: str, password_hash: str) -> bool: ...
 
+    async def create_imported(
+        self, phone: str, password_hash: str, name: str, school_level: str, grade: int
+    ) -> bool: ...
+
 
 class MongoParticipantAccountRepository:
     def __init__(self, collection: Any) -> None:
@@ -64,6 +68,25 @@ class MongoParticipantAccountRepository:
                     "role": "participant",
                     "password_hash": password_hash,
                     "must_change_password": True,
+                }
+            )
+        except DuplicateKeyError:
+            return False
+        return True
+
+    async def create_imported(
+        self, phone: str, password_hash: str, name: str, school_level: str, grade: int
+    ) -> bool:
+        try:
+            await self._collection.insert_one(
+                {
+                    "phone_normalized": phone,
+                    "role": "participant",
+                    "password_hash": password_hash,
+                    "must_change_password": True,
+                    "name": name,
+                    "school_level": school_level,
+                    "grade": grade,
                 }
             )
         except DuplicateKeyError:

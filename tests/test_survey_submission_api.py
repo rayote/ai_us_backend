@@ -1,8 +1,6 @@
 import asyncio
 from datetime import UTC, datetime
 
-from fastapi.testclient import TestClient
-
 from app.core.security import hash_password
 from app.core.settings import Settings
 from app.main import create_app
@@ -12,6 +10,7 @@ from app.services.auth import ParticipantAccount, ParticipantAccountRepository
 from app.services.jobs import JobRepository, QueueWorker
 from app.services.submissions import store_survey_response
 from app.services.surveys import SurveyDefinitionRepository, SurveyResponseRepository
+from fastapi.testclient import TestClient
 
 
 class InMemoryParticipantAccounts(ParticipantAccountRepository):

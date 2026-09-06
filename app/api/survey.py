@@ -1,16 +1,11 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
-
 from app.api.auth import _participant_id
 from app.schemas.survey import SurveySubmissionAccepted, SurveySubmissionCreate
 from app.services.jobs import JobRepository
-from app.services.submissions import (
-    SurveySubmissionService,
-    UnknownQuestionKeyError,
-    UnknownSurveyDefinitionError,
-)
+from app.services.submissions import SurveySubmissionService, UnknownQuestionKeyError, UnknownSurveyDefinitionError
 from app.services.surveys import SurveyDefinitionRepository
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 
 router = APIRouter(prefix="/api/v1", tags=["survey submissions"])
 
@@ -25,7 +20,9 @@ def _job_repository(request: Request) -> JobRepository:
 def _submission_service(request: Request) -> SurveySubmissionService:
     definitions: SurveyDefinitionRepository | None = getattr(request.app.state, "survey_definition_repository", None)
     if definitions is None:
-        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="설문 정의 서비스를 준비 중입니다.")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="설문 정의 서비스를 준비 중입니다."
+        )
     return SurveySubmissionService(definitions, _job_repository(request))
 
 
@@ -40,7 +37,9 @@ async def submit_survey_response(
     except UnknownSurveyDefinitionError as error:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="설문 정의를 찾을 수 없습니다.") from error
     except UnknownQuestionKeyError as error:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=f"알 수 없는 문항 키: {error}") from error
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=f"알 수 없는 문항 키: {error}"
+        ) from error
     return SurveySubmissionAccepted(submissionId=job.id, status=job.status)
 
 

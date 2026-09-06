@@ -3,12 +3,14 @@ from __future__ import annotations
 from typing import Literal
 
 from app.api.auth import require_researcher
+from app.schemas.imports import ParticipantImportResult
 from app.schemas.application import ApplicationApproval, ApplicationApprovalCompleted, ApplicationRecord
 from app.services.applications import ApplicationRepository
 from app.services.approvals import ApplicationApprovalService
 from app.services.auth import ParticipantAccountRepository
+from app.services.imports import ParticipantImportService
 from app.services.surveys import SurveyDefinitionRepository, SurveyResponseRepository, survey_responses_to_csv
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile, status
 from fastapi.responses import Response
 
 router = APIRouter(prefix="/api/v1/researcher", tags=["researcher"])
@@ -30,6 +32,13 @@ def _approval_service(request: Request) -> ApplicationApprovalService:
     if participant_repository is None:
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="승인 서비스를 준비 중입니다.")
     return ApplicationApprovalService(_application_repository(request), participant_repository)
+
+
+def _participant_import_service(request: Request) -> ParticipantImportService:
+    repository: ParticipantAccountRepository | None = getattr(request.app.state, "participant_account_repository", None)
+    if repository is None:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="참여자 등록 서비스를 준비 중입니다.")
+    return ParticipantImportService(repository)
 
 
 def _survey_definition_repository(request: Request) -> SurveyDefinitionRepository:
@@ -67,6 +76,17 @@ async def approve_applications(
 ) -> ApplicationApprovalCompleted:
     approved_count = await _approval_service(request).approve(approval.application_ids)
     return ApplicationApprovalCompleted(approvedCount=approved_count)
+
+
+@router.post("/participants/imports", response_model=ParticipantImportResult)
+async def import_participants(
+    request: Request,
+    file: UploadFile = File(...),
+    _: str = Depends(require_researcher),
+) -> ParticipantImportResult:
+    if not file.filename or not file.filename.lower().endswith(".csv"):
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="CSV 파일만 업로드할 수 있습니다.")
+    return await _participant_import_service(request).import_csv(await file.read())
 
 
 @router.get("/exports/survey-responses")

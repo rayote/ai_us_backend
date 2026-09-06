@@ -126,6 +126,29 @@ Successful response: `200 OK`
 
 For each pending application, approval creates a participant account with the hashed initial password `1234` and requires that participant to change the password at first login. Repeating an approval does not create a duplicate participant account.
 
+## Import participants from CSV
+
+`POST /api/v1/researcher/participants/imports`
+
+This endpoint accepts an `admin` or `researcher` bearer token and a `multipart/form-data` file field named `file`. It currently accepts UTF-8 CSV files only. The required columns are `이름`, `휴대폰번호`, `학교급`, and `학년`.
+
+Successful response: `200 OK`
+
+```json
+{
+  "createdCount": 2,
+  "skippedCount": 1,
+  "errors": [
+    {
+      "row": 4,
+      "message": "휴대폰번호는 숫자 11자리여야 합니다."
+    }
+  ]
+}
+```
+
+Each valid row creates a participant account with the hashed initial password `1234` and requires the first password change. Existing phone numbers are skipped. Invalid rows do not stop other valid rows from importing.
+
 ## Create researcher account
 
 `POST /api/v1/admin/researchers`
