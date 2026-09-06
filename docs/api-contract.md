@@ -277,6 +277,10 @@ The frontend sends the access token in the `Authorization: Bearer <JWT>` header 
 `POST /api/v1/auth/participant/password`
 
 ```json
+
+## Planned password-reset email
+
+Password reset will use one dedicated Gmail SMTP account as its initial delivery service. The backend will create a one-time reset token, enqueue the email in `notification_jobs`, and have the worker send it through Gmail SMTP. The Gmail address, app password, and reset base URL are CloudType Secrets; the normal Gmail password is never used by the backend.
 {
   "currentPassword": "1234",
   "newPassword": "new-password-2026"

@@ -8,8 +8,8 @@ from app.schemas.imports import ParticipantImportResult
 from app.services.applications import ApplicationRepository
 from app.services.approvals import ApplicationApprovalService
 from app.services.auth import ParticipantAccountRepository
-from app.services.imports import ParticipantImportService
 from app.services.chats import ChatSubmissionRepository, chat_submissions_to_csv
+from app.services.imports import ParticipantImportService
 from app.services.surveys import SurveyDefinitionRepository, SurveyResponseRepository, survey_responses_to_csv
 from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile, status
 from fastapi.responses import Response
@@ -67,7 +67,9 @@ def _survey_response_repository(request: Request) -> SurveyResponseRepository:
 def _chat_submission_repository(request: Request) -> ChatSubmissionRepository:
     repository = getattr(request.app.state, "chat_submission_repository", None)
     if repository is None:
-        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="대화문 결과 서비스를 준비 중입니다.")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="대화문 결과 서비스를 준비 중입니다."
+        )
     return repository
 
 

@@ -38,6 +38,8 @@
 
 참여자 로그인 API는 구현되었으며, 성공 응답의 `needsPasswordChange`가 `true`이면 설문 패널을 열기 전에 `FH-004`의 비밀번호 변경 화면을 표시한다. 연구자 로그인과 신청 목록·승인 API도 구현되었지만, 실제 CloudType backend URL을 정한 뒤에 함께 연결한다. 연구자 화면의 기존 관리 기능은 `admin`과 `researcher` 모두 사용할 수 있으며, 연구자 계정 생성은 backend의 admin 전용 API로만 처리한다.
 
+비밀번호 재설정 이메일은 전용 Gmail 1계정의 backend SMTP 발송으로 처리한다. 프론트에는 Gmail 계정, 앱 비밀번호, SMTP 설정을 넣지 않으며, `PasswordReset.sendResetLink`는 backend 요청 성공 여부만 처리한다.
+
 CSV 등록은 `POST /api/v1/researcher/participants/imports`에 `file` 필드로 UTF-8 CSV를 전송한다. 현재 프론트의 CSV 양식인 `이름,휴대폰번호,학교급,학년`을 유지하며, Excel 업로드는 backend에서 아직 지원하지 않는다. 응답의 `createdCount`, `skippedCount`, `errors`를 기존 등록 완료 안내에 표시한다.
 
 ### 참여 신청 요청에 포함할 값

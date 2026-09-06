@@ -16,7 +16,7 @@ CloudType deploys the frontend and backend services by connecting each service t
 - Development: a free-tier CloudType account runs a frontend service from `ai_us`, a backend service from this repository, and a CloudType preconfigured MongoDB container.
 - Production: a separate paid CloudType account uses the same three-service layout with separate secrets, database data, and public URLs.
 - MongoDB is provisioned in CloudType and is not connected to a GitHub repository.
-- Each environment keeps its own `MONGODB_URI`, `JWT_SECRET`, notification settings for email or SMS, and allowed frontend origins in CloudType secrets.
+- Each environment keeps its own `MONGODB_URI`, `JWT_SECRET`, Gmail SMTP settings, and allowed frontend origins in CloudType secrets.
 - Set `RESEARCHER_BOOTSTRAP_USERNAME` and `RESEARCHER_BOOTSTRAP_PASSWORD` as development and production Secrets separately. They create the first researcher account when the backend first connects to MongoDB.
 - The bootstrap account has the `admin` role. An admin can create individual `researcher` accounts; both roles can use researcher data-management functions.
 - An admin registers each questionnaire using `surveyRound` and `surveyVersion`. Both admin and researcher accounts can download CSV exports for the stored response version.
@@ -27,6 +27,10 @@ CloudType deploys the frontend and backend services by connecting each service t
 - `.env.example` is only a reference list of Secret names. The application does not load a local `.env` file automatically.
 - When the CloudType backend service is created, add its provided Dockerfile template and the required build/start commands to this repository's deployment configuration. No local Docker installation is required.
 - Start Uvicorn and the Queue daemon as separate OS processes in the same backend container. The Queue command is `python -m app.worker`; its startup recovery returns interrupted `processing` jobs to `queued`. It currently processes final survey-response jobs; chat-submission and notification handlers will be added with those features.
+
+## Email sender
+
+Use one dedicated `@gmail.com` account as the initial sender for password-reset email. Enable Google 2-Step Verification on that account, create an app password, and enter `SMTP_USERNAME`, `SMTP_APP_PASSWORD`, and `EMAIL_FROM` in the CloudType Configure panel. Do not use a normal Gmail password or commit the app password. SMS is out of scope until a separate provider is selected.
 
 ## Initial layout
 

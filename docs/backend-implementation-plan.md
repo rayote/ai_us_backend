@@ -46,8 +46,9 @@
 - 승인 시 참여자 초기 비밀번호는 공통값 `1234`로 설정하되, 평문이 아닌 단방향 해시로만 저장한다.
 - 공통 초기 비밀번호로 로그인한 참여자는 설문과 대화문에 접근하기 전에 비밀번호 변경 화면으로 이동하도록 강제한다.
 - 로그인과 비밀번호 재설정 요청에는 반복 시도 제한을 적용한다.
-- `PasswordReset.sendResetLink`는 1회용 재설정 토큰을 동기 생성하고, 이메일 또는 SMS 알림 발송 작업은 Queue로 처리한다. 외부 발송 지연·재시도가 로그인 화면을 막지 않도록 한다.
-- SMS 발송은 초기 구현의 필수 의존성이 아니다. 참여 안내 또는 비밀번호 재설정에 필요해지면 외부 SMS 공급자, 발신번호, 수신 동의 절차를 확정한 뒤 Queue 작업으로 추가한다.
+- `PasswordReset.sendResetLink`는 1회용 재설정 토큰을 동기 생성하고, 전용 Gmail 계정의 SMTP 이메일 발송 작업은 Queue로 처리한다. 외부 발송 지연·재시도가 로그인 화면을 막지 않도록 한다.
+- 초기 이메일 발송 계정은 전용 `@gmail.com` 1개로 운영한다. 2단계 인증과 앱 비밀번호를 사용하며, SMTP 설정은 CloudType Secret으로만 관리한다.
+- SMS 발송은 보류한다. 참여 안내 또는 비밀번호 재설정에 필요해지면 외부 SMS 공급자, 발신번호, 수신 동의 절차를 확정한 뒤 별도 Queue 작업으로 추가한다.
 
 ### 3단계: 설문 응답과 대화문 제출
 
@@ -79,7 +80,7 @@
 | --- | --- | --- |
 | 설문 최종 제출 | MongoDB 영속 Queue | 동시 제출을 평준화하고 저장 재시도 |
 | AI 대화문 최종 제출 | MongoDB 영속 Queue | 본문 데이터의 비동기 저장과 재시도 |
-| 비밀번호 재설정 알림 | MongoDB 영속 Queue | 이메일 또는 SMS 발송 서비스 지연·실패 격리 |
+| 비밀번호 재설정 이메일 | MongoDB 영속 Queue | Gmail SMTP 발송 지연·실패 격리 |
 | 대용량 CSV 생성 | 필요할 때만 MongoDB 영속 Queue | 긴 파일 생성이 연구자 화면을 막지 않게 처리 |
 | 로그인, 비밀번호 변경, 신청 저장, 개별 승인, 조회 | 동기 API | 사용자에게 즉시 확정 결과 제공 |
 
@@ -117,7 +118,7 @@ API의 실제 URL과 JSON 필드명은 프론트 소스를 받은 뒤 기존 함
 - `survey_responses`: 참여자 ID, 설문 회차(`surveyRound`), 설문 버전(`surveyVersion`), 응답 전체, 제출시각. `participant_id + surveyRound + surveyVersion` 복합 인덱스.
 - `submission_jobs`: 최종 설문 제출 대기열. 제출 추적 ID, 멱등성 키, 상태, 작업 데이터, 재시도 횟수, 오류 사유, 생성/처리 시각을 저장한다. 처리 상태와 생성 시각의 복합 인덱스.
 - `chat_submissions`: 참여자 ID, 제출 시점(1차 후/4차 후), 입력 형식, 원본 링크 또는 본문, 정규화된 대화문, parser 상태·버전·경고, 제출시각.
-- `notification_jobs`: 비밀번호 재설정 등 이메일 또는 SMS 발송 대기열. 발송 채널, 수신 대상, 템플릿 유형, 상태, 재시도 횟수, 오류 사유, 생성/처리 시각을 저장한다.
+- `notification_jobs`: 비밀번호 재설정 Gmail SMTP 이메일 발송 대기열. 수신 대상, 템플릿 유형, 상태, 재시도 횟수, 오류 사유, 생성/처리 시각을 저장한다. SMS는 별도 공급자 확정 뒤 확장한다.
 - `password_reset_tokens`: 만료시각을 가진 일회용 토큰. TTL 인덱스.
 - `audit_logs`: 연구자 승인, CSV 내보내기 같은 민감한 관리자 작업의 기록.
 
@@ -145,7 +146,7 @@ docs/         # 프론트 연동 계약과 운영 문서
 - 백엔드: CloudType이 GitHub 저장소에서 container를 배포하며, 하나의 backend 컨테이너에서 Uvicorn FastAPI와 대기열 작업자 daemon을 별도 OS 프로세스로 실행한다.
 - 대기열 작업자: 같은 backend 컨테이너에서 `python -m app.worker` 명령으로 실행한다. 현재는 설문 최종 제출 저장을 처리하며, 대화문 저장과 알림 발송 handler는 해당 기능 구현 시 추가한다. FastAPI 프로세스 안에서 임시 task로 실행하지 않으며, 기동 시 `processing` 작업을 복구하고 MongoDB 작업 상태를 원자적으로 바꿔 중복 처리를 막는다.
 - MongoDB: CloudType 사전구성 컨테이너를 사용하고 외부 공개를 피한다. backend 서비스에서만 접속하도록 설정하며, MongoDB용 GitHub 저장소는 만들지 않는다.
-- 환경변수: `MONGODB_URI`, `DATABASE_NAME`, `JWT_SECRET`, `FRONTEND_ORIGINS`, 이메일 또는 SMS 발송 설정을 CloudType Configure 패널의 Secret으로 관리한다. CloudType이 backend 프로세스 환경변수로 주입하고 `Settings.from_environment()`가 직접 읽는다. `.env.example`은 이름 목록일 뿐이며 실제 `.env` 파일은 배포에 사용하거나 저장소에 커밋하지 않는다.
+- 환경변수: `MONGODB_URI`, `DATABASE_NAME`, `JWT_SECRET`, `FRONTEND_ORIGINS`, `SMTP_HOST`, `SMTP_PORT`, `SMTP_USERNAME`, `SMTP_APP_PASSWORD`, `EMAIL_FROM`, `PASSWORD_RESET_BASE_URL`을 CloudType Configure 패널의 Secret으로 관리한다. Gmail은 2단계 인증과 앱 비밀번호를 사용한다. CloudType이 backend 프로세스 환경변수로 주입하고 `Settings.from_environment()`가 직접 읽는다. `.env.example`은 이름 목록일 뿐이며 실제 `.env` 파일은 배포에 사용하거나 저장소에 커밋하지 않는다.
 - backend 서비스 생성 시 CloudType이 제공하는 Dockerfile 템플릿과 필요한 build/start 초기화 명령을 배포 설정에 추가한다. 템플릿의 실제 내용은 CloudType 설정 단계에서 확정한다.
 - CORS: 배포된 참여자/연구자 프론트 도메인만 허용한다.
 - `/health`를 CloudType 상태 점검 경로로 등록한다.
@@ -169,7 +170,7 @@ docs/         # 프론트 연동 계약과 운영 문서
 - AI 대화문: 링크, 본문, 또는 둘 다 허용 여부
 - 설문 최종 제출 뒤 수정/재제출 허용 여부
 - 첫 로그인 비밀번호 변경 화면의 프론트 구현 방식
-- 비밀번호 재설정에 이메일을 유지할지, SMS 발송을 추가할지와 외부 발송 서비스
+- 전용 Gmail 발송 계정 생성, 2단계 인증, 앱 비밀번호 발급과 CloudType Secret 입력
 - 연구자 계정 생성·권한 부여 절차
 - 개인정보처리방침, 데이터 보존 기간, 삭제·백업 정책
 - 참여자와 연구자 도메인의 최종 분리 방식

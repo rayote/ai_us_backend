@@ -1,8 +1,6 @@
 import asyncio
 from datetime import UTC, datetime
 
-from fastapi.testclient import TestClient
-
 from app.core.security import hash_password
 from app.core.settings import Settings
 from app.main import create_app
@@ -16,6 +14,7 @@ from app.services.auth import (
 )
 from app.services.chats import ChatSubmissionRepository, store_chat_submission
 from app.services.jobs import JobRepository, QueueWorker
+from fastapi.testclient import TestClient
 
 
 class InMemoryParticipants(ParticipantAccountRepository):
@@ -36,9 +35,7 @@ class InMemoryParticipants(ParticipantAccountRepository):
     async def create(self, phone: str, password_hash: str, chat_consent: bool = False) -> bool:
         return False
 
-    async def create_imported(
-        self, phone: str, password_hash: str, name: str, school_level: str, grade: int
-    ) -> bool:
+    async def create_imported(self, phone: str, password_hash: str, name: str, school_level: str, grade: int) -> bool:
         return False
 
 
@@ -103,7 +100,9 @@ class InMemoryChatSubmissions(ChatSubmissionRepository):
 
 class InMemoryResearchers(ResearcherAccountRepository):
     def __init__(self) -> None:
-        self.account = ResearcherAccount("researcher-1", "researcher", hash_password("researcher-password"), "researcher")
+        self.account = ResearcherAccount(
+            "researcher-1", "researcher", hash_password("researcher-password"), "researcher"
+        )
 
     async def find_by_username(self, username: str) -> ResearcherAccount | None:
         return self.account if username == self.account.username else None

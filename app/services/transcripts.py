@@ -61,7 +61,11 @@ def _parse_text(raw_input: str) -> ParsedTranscript:
         messages.append(TranscriptMessage(speaker=current_speaker, text="\n".join(current_lines)))
     if not messages:
         return ParsedTranscript(
-            status="warning", parserVersion=PARSER_VERSION, messages=[], plainText="", warnings=["대화문 본문이 비어 있습니다."]
+            status="warning",
+            parserVersion=PARSER_VERSION,
+            messages=[],
+            plainText="",
+            warnings=["대화문 본문이 비어 있습니다."],
         )
     warnings = [] if recognized_speaker else ["화자 표식을 찾지 못해 본문 전체를 하나의 대화로 보관했습니다."]
     return ParsedTranscript(
