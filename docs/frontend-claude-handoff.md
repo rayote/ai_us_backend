@@ -129,6 +129,10 @@ CSV 등록은 `POST /api/v1/researcher/participants/imports`에 `file` 필드로
 
 ### FH-006: 세션 종료와 중복 승인 처리
 
+- 프론트 작업 브랜치: `backend/fh-006-session-and-approval-fixes`
+- 프론트 작업 커밋: `5017731 Fix session handling and approval errors`
+- Pull Request: `#4` 검토 중 (`backend/fh-006-session-and-approval-fixes` → `main`)
+- 선행 backend 커밋: `6acbb30 Fix session handling and duplicate approvals`
 - 참여자 로그아웃은 `ai_us_access_token`과 `ai_us_role`을 `sessionStorage`에서 삭제한 뒤 홈 화면으로 돌아간다.
 - `researcher.html`은 토큰이 없거나 `admin`·`researcher`가 아닌 역할이면 홈으로 이동한다. 정적 HTML 자체의 직접 접근은 막을 수 없지만, 민감 데이터 API는 backend가 JWT 역할을 검증한다.
 - 연구자 승인 API가 `409`과 이미 등록된 휴대폰 번호 메시지를 반환하면, 해당 신청을 자동 승인하지 않고 오류를 표시한다.
