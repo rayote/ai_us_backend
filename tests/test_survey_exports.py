@@ -1,7 +1,6 @@
 from datetime import UTC, datetime
 
-from app.schemas.survey import SurveyDefinition, SurveyQuestion, SurveyResponseRecord
-from app.schemas.survey import SurveyDefinitionCreate
+from app.schemas.survey import SurveyDefinition, SurveyDefinitionCreate, SurveyQuestion, SurveyResponseRecord
 from app.services.surveys import MongoSurveyDefinitionRepository, survey_responses_to_csv
 
 
@@ -62,3 +61,14 @@ def test_mongo_definition_storage_uses_csv_column_alias() -> None:
 
     assert collection.document["questions"] == [{"key": "q1", "csvColumn": "첫 번째 문항", "order": 1}]
     assert stored.questions[0].csv_column == "첫 번째 문항"
+
+
+def test_definition_model_reads_legacy_mongodb_snake_case_question_column() -> None:
+    definition = SurveyDefinition(
+        surveyRound=1,
+        surveyVersion="demo-v1",
+        questions=[{"key": "q1", "csv_column": "첫 번째 문항", "order": 1}],
+        createdAt=datetime.now(UTC),
+    )
+
+    assert definition.questions[0].csv_column == "첫 번째 문항"

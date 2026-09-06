@@ -35,6 +35,8 @@ This endpoint requires an `admin` bearer token. It registers the fixed CSV colum
 
 The same round and version cannot be registered more than once. Register a new `surveyVersion` when the questionnaire changes.
 
+The backend reads both the current `csvColumn` field and the legacy MongoDB `csv_column` field for definitions registered during early development. New definitions are stored with `csvColumn`.
+
 ## Planned bulk survey-definition import
 
 For large questionnaires, the admin will use a future bulk import endpoint or reviewed backend import command instead of registering items one by one. The preferred source is CSV or Excel with the following columns:

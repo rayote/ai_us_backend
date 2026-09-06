@@ -120,6 +120,7 @@ API의 실제 URL과 JSON 필드명은 프론트 소스를 받은 뒤 기존 함
 - `participants`: 승인된 참여자 계정, 역할, 비밀번호 해시, 최초 비밀번호 변경 필요 여부.
 - `researchers`: 연구자 계정과 역할.
 - `survey_definitions`: 설문 회차(`surveyRound`), 설문 버전(`surveyVersion`), 문항 키, 문항 순서, CSV 열 이름을 저장한다. 회차별 문항이 변경되어도 기존 CSV 열 순서를 보존하는 기준이다.
+- 초기 개발 중 `csv_column`으로 저장된 문항 정의도 읽을 수 있게 유지하고, 새 정의는 API 계약과 같은 `csvColumn` 형식으로 저장한다.
 - `survey_responses`: 참여자 ID, 설문 회차(`surveyRound`), 설문 버전(`surveyVersion`), 응답 전체, 제출시각. `participant_id + surveyRound + surveyVersion` 복합 인덱스.
 - `submission_jobs`: 최종 설문 제출 대기열. 제출 추적 ID, 멱등성 키, 상태, 작업 데이터, 재시도 횟수, 오류 사유, 생성/처리 시각을 저장한다. 처리 상태와 생성 시각의 복합 인덱스.
 - `chat_submissions`: 참여자 ID, 제출 시점(1차 후/4차 후), 입력 형식, 원본 링크 또는 본문, 정규화된 대화문, parser 상태·버전·경고, 제출시각.
