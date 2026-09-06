@@ -59,6 +59,7 @@
 - 서버는 참여자 ID, 설문 회차(`surveyRound`), 설문 버전(`surveyVersion`), 동의 상태, 응답 전체, 서버 제출시각을 기록한다.
 - 설문 버전은 회차별 문항 변경을 구분한다. 예: `2026-round-1-v1`, `2026-round-2-v2`.
 - `admin`은 응답 수집 전에 회차·버전별 문항 키와 CSV 열 순서를 설문 정의로 등록한다. `admin`과 `researcher`는 해당 정의에 따라 버전별 설문 결과 CSV를 내려받는다.
+- 문항이 많은 설문은 관리자가 하나씩 등록하지 않는다. CSV 또는 Excel 원본을 우선 사용해 회차, 버전, 문항 키, CSV 열 이름, 순서를 일괄 import한다. Word·PDF는 파싱 결과 미리보기에서 해당 값들을 검토한 뒤 최종 등록한다.
 - 같은 참여자와 설문 회차·설문 버전의 중복 제출 정책은 `초안/최종` 또는 `최종 1회 후 수정 불가` 중 연구진 결정에 따라 확정한다.
 - 설문 1차 및 4차 뒤의 AI 대화문 제출은 대화문 동의 참여자만 허용한다.
 - 대화문 입력 형식은 링크, 본문, 또는 둘 다 허용 중 연구진 결정 후 API 필드를 확정한다.
@@ -91,6 +92,7 @@ API의 실제 URL과 JSON 필드명은 프론트 소스를 받은 뒤 기존 함
 | 연구자 로그인 | `POST /api/v1/auth/researcher/login` | 연구자 로그인 모달 |
 | 연구자 계정 생성 | `POST /api/v1/admin/researchers` | 관리자 전용 기능, 연구자 화면 추가 시 연동 |
 | 설문 정의 등록 | `POST /api/v1/admin/survey-definitions` | 관리자 전용, 설문 문항 확정 뒤 등록 |
+| 설문 정의 일괄 등록 | 추후 `POST /api/v1/admin/survey-definition-imports` 또는 backend import 명령 | CSV·Excel 우선, Word·PDF는 미리보기 검토 뒤 등록 |
 | 비밀번호 재설정 요청 | `POST /api/v1/auth/password-reset-requests` | `PasswordReset.sendResetLink` |
 | 참여자 최초 비밀번호 변경 | `POST /api/v1/auth/participant/password` | 첫 로그인 비밀번호 변경 화면 |
 | 신청 목록 | `GET /api/v1/researcher/applications` | `applications` 배열 |
@@ -157,6 +159,7 @@ docs/         # 프론트 연동 계약과 운영 문서
 6. 설문 문항과 대화문 입력 화면이 추가되면 같은 참여자와 설문 회차·설문 버전의 `localStorage` 임시 저장을 재로그인 뒤 복원하고, 제출 작업 상태가 `completed`일 때만 자동 삭제하도록 연결한다.
 7. 해당 계약에 맞춘 FastAPI 요청/응답 모델과 MongoDB 스키마를 확정한다.
 8. 백엔드 최소 기능부터 구현하고, 프론트 변경은 inline script의 API 호출부에 한정한다.
+9. 문항이 많은 설문은 확정 원본을 CSV 또는 Excel 형식으로 받아 설문 정의 일괄 등록 결과를 검토한다.
 
 ## 9. 연구진 확인이 필요한 결정
 

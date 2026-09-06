@@ -33,6 +33,18 @@ This endpoint requires an `admin` bearer token. It registers the fixed CSV colum
 
 The same round and version cannot be registered more than once. Register a new `surveyVersion` when the questionnaire changes.
 
+## Planned bulk survey-definition import
+
+For large questionnaires, the admin will use a future bulk import endpoint or reviewed backend import command instead of registering items one by one. The preferred source is CSV or Excel with the following columns:
+
+```csv
+surveyRound,surveyVersion,key,csvColumn,order
+2,2026-round-2-v2,q1,AI 사용 빈도,1
+2,2026-round-2-v2,q2,AI 사용 목적,2
+```
+
+Word or PDF sources may be parsed only after the extracted round, version, question keys, column names, and order are shown in a preview and reviewed. The current `POST /api/v1/admin/survey-definitions` endpoint remains the final registration step.
+
 ## Export survey responses
 
 `GET /api/v1/researcher/exports/survey-responses?survey_round=2&survey_version=2026-round-2-v2`
