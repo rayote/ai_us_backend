@@ -26,13 +26,18 @@ Enter these values in CloudType's Configure panel.
 
 ```text
 APP_ENV=development
-MONGODB_URI=<CloudType MongoDB connection URI>
+MONGODB_HOST=svc.sel3.cloudtype.app
+MONGODB_PORT=32075
+MONGODB_USERNAME=<MongoDB admin username>
+MONGODB_PASSWORD=<MongoDB admin password>
 DATABASE_NAME=ai_us_development
 FRONTEND_ORIGINS=<frontend service public URL>
 JWT_SECRET=<random secret of at least 32 bytes>
 RESEARCHER_BOOTSTRAP_USERNAME=<first admin username>
 RESEARCHER_BOOTSTRAP_PASSWORD=<first admin password>
 ```
+
+The backend creates `mongodb://<username>:<password>@<host>:<port>/?authSource=admin` at runtime. `MONGODB_USERNAME` and `MONGODB_PASSWORD` must be CloudType Secrets. The password is URL-encoded by the backend, so do not manually encode special characters. `MONGODB_URI` remains only as an optional legacy override and should not be set for this deployment.
 
 Gmail Secrets are optional at this stage. The current backend does not start a Gmail worker handler or a password-reset endpoint, so leaving `EMAIL_PROVIDER`, `SMTP_*`, `EMAIL_FROM`, and `PASSWORD_RESET_BASE_URL` unset does not prevent deployment.
 
