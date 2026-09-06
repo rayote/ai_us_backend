@@ -15,6 +15,7 @@ class ParticipantAccount:
     password_hash: str
     must_change_password: bool
     chat_consent: bool = False
+    school_level: str | None = None
 
 
 class ParticipantAccountRepository(Protocol):
@@ -24,7 +25,9 @@ class ParticipantAccountRepository(Protocol):
 
     async def update_password(self, participant_id: str, password_hash: str) -> bool: ...
 
-    async def create(self, phone: str, password_hash: str, chat_consent: bool = False) -> bool: ...
+    async def create(
+        self, phone: str, password_hash: str, chat_consent: bool = False, school_level: str | None = None
+    ) -> bool: ...
 
     async def create_imported(
         self, phone: str, password_hash: str, name: str, school_level: str, grade: int
@@ -53,6 +56,7 @@ class MongoParticipantAccountRepository:
             password_hash=document["password_hash"],
             must_change_password=document["must_change_password"],
             chat_consent=document.get("chat_consent", False),
+            school_level=document.get("school_level"),
         )
 
     async def update_password(self, participant_id: str, password_hash: str) -> bool:
@@ -62,7 +66,9 @@ class MongoParticipantAccountRepository:
         )
         return result.modified_count == 1
 
-    async def create(self, phone: str, password_hash: str, chat_consent: bool = False) -> bool:
+    async def create(
+        self, phone: str, password_hash: str, chat_consent: bool = False, school_level: str | None = None
+    ) -> bool:
         try:
             await self._collection.insert_one(
                 {
@@ -71,6 +77,7 @@ class MongoParticipantAccountRepository:
                     "password_hash": password_hash,
                     "must_change_password": True,
                     "chat_consent": chat_consent,
+                    "school_level": school_level,
                 }
             )
         except DuplicateKeyError:
@@ -145,14 +152,21 @@ class InvalidCredentialsError(Exception):
     """Raised when a participant cannot be authenticated."""
 
 
+class AudienceMismatchError(Exception):
+    """Raised when a participant selected the wrong school audience."""
+
+
 class ParticipantAuthenticationService:
     def __init__(self, repository: ParticipantAccountRepository) -> None:
         self._repository = repository
 
-    async def authenticate(self, phone: str, password: str) -> ParticipantAccount:
+    async def authenticate(self, phone: str, password: str, audience: str) -> ParticipantAccount:
         account = await self._repository.find_by_phone(phone)
         if account is None or not verify_password(password, account.password_hash):
             raise InvalidCredentialsError
+        expected_audience = "kid" if account.school_level == "초등" else "teen"
+        if account.school_level not in {"초등", "중등", "고등"} or audience != expected_audience:
+            raise AudienceMismatchError
         return account
 
     async def change_password(self, participant_id: str, current_password: str, new_password: str) -> None:

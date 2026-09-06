@@ -20,7 +20,7 @@ from fastapi.testclient import TestClient
 class InMemoryParticipants(ParticipantAccountRepository):
     def __init__(self, chat_consent: bool) -> None:
         self.account = ParticipantAccount(
-            "participant-1", "01012345678", hash_password("password-2026"), False, chat_consent
+            "participant-1", "01012345678", hash_password("password-2026"), False, chat_consent, "초등"
         )
 
     async def find_by_phone(self, phone: str) -> ParticipantAccount | None:
@@ -32,7 +32,9 @@ class InMemoryParticipants(ParticipantAccountRepository):
     async def update_password(self, participant_id: str, password_hash: str) -> bool:
         return False
 
-    async def create(self, phone: str, password_hash: str, chat_consent: bool = False) -> bool:
+    async def create(
+        self, phone: str, password_hash: str, chat_consent: bool = False, school_level: str | None = None
+    ) -> bool:
         return False
 
     async def create_imported(self, phone: str, password_hash: str, name: str, school_level: str, grade: int) -> bool:
@@ -132,7 +134,7 @@ def test_consented_participant_submission_is_parsed_and_saved() -> None:
     with TestClient(app) as client:
         login = client.post(
             "/api/v1/auth/participant/login",
-            json={"phone": "01012345678", "password": "password-2026"},
+            json={"phone": "01012345678", "password": "password-2026", "audience": "kid"},
         )
         headers = {"Authorization": f"Bearer {login.json()['accessToken']}"}
         response = client.post(
@@ -160,7 +162,7 @@ def test_participant_without_chat_consent_cannot_submit() -> None:
     with TestClient(app) as client:
         login = client.post(
             "/api/v1/auth/participant/login",
-            json={"phone": "01012345678", "password": "password-2026"},
+            json={"phone": "01012345678", "password": "password-2026", "audience": "kid"},
         )
         response = client.post(
             "/api/v1/chat-submissions",
@@ -181,7 +183,7 @@ def test_researcher_can_export_completed_chat_submission() -> None:
     with TestClient(app) as client:
         participant_login = client.post(
             "/api/v1/auth/participant/login",
-            json={"phone": "01012345678", "password": "password-2026"},
+            json={"phone": "01012345678", "password": "password-2026", "audience": "kid"},
         )
         submit = client.post(
             "/api/v1/chat-submissions",

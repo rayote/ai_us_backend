@@ -70,10 +70,12 @@ class InMemoryParticipants(ParticipantAccountRepository):
     async def update_password(self, participant_id: str, password_hash: str) -> bool:
         return False
 
-    async def create(self, phone: str, password_hash: str, chat_consent: bool = False) -> bool:
+    async def create(
+        self, phone: str, password_hash: str, chat_consent: bool = False, school_level: str | None = None
+    ) -> bool:
         if phone in self.accounts:
             return False
-        self.accounts[phone] = ParticipantAccount(phone, phone, password_hash, True, chat_consent)
+        self.accounts[phone] = ParticipantAccount(phone, phone, password_hash, True, chat_consent, school_level)
         return True
 
     async def create_imported(self, phone: str, password_hash: str, name: str, school_level: str, grade: int) -> bool:

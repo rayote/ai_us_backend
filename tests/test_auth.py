@@ -9,7 +9,7 @@ from fastapi.testclient import TestClient
 
 class InMemoryParticipantAccountRepository(ParticipantAccountRepository):
     def __init__(self) -> None:
-        self.account = ParticipantAccount("participant-1", "01012345678", hash_password("1234"), True)
+        self.account = ParticipantAccount("participant-1", "01012345678", hash_password("1234"), True, False, "초등")
 
     async def find_by_phone(self, phone: str) -> ParticipantAccount | None:
         if phone == self.account.phone:
@@ -24,7 +24,7 @@ class InMemoryParticipantAccountRepository(ParticipantAccountRepository):
     async def update_password(self, participant_id: str, password_hash: str) -> bool:
         if participant_id != self.account.participant_id:
             return False
-        self.account = ParticipantAccount(participant_id, self.account.phone, password_hash, False)
+        self.account = ParticipantAccount(participant_id, self.account.phone, password_hash, False, False, "초등")
         return True
 
 
@@ -35,18 +35,19 @@ def _client() -> TestClient:
 
 def test_participant_login_returns_access_token_and_password_change_requirement() -> None:
     with _client() as client:
-        response = client.post("/api/v1/auth/participant/login", json={"phone": "010-1234-5678", "password": "1234"})
+        response = client.post("/api/v1/auth/participant/login", json={"phone": "010-1234-5678", "password": "1234", "audience": "kid"})
 
     assert response.status_code == 200
     assert response.json()["role"] == "participant"
     assert response.json()["needsPasswordChange"] is True
+    assert response.json()["audience"] == "kid"
     assert response.json()["accessToken"]
 
 
 def test_participant_changes_default_password() -> None:
     with _client() as client:
         login_response = client.post(
-            "/api/v1/auth/participant/login", json={"phone": "01012345678", "password": "1234"}
+            "/api/v1/auth/participant/login", json={"phone": "01012345678", "password": "1234", "audience": "kid"}
         )
         token = login_response.json()["accessToken"]
         response = client.post(
@@ -56,7 +57,7 @@ def test_participant_changes_default_password() -> None:
         )
         new_login_response = client.post(
             "/api/v1/auth/participant/login",
-            json={"phone": "01012345678", "password": "new-password-2026"},
+            json={"phone": "01012345678", "password": "new-password-2026", "audience": "kid"},
         )
 
     assert response.status_code == 200
@@ -66,6 +67,16 @@ def test_participant_changes_default_password() -> None:
 
 def test_participant_login_rejects_invalid_password() -> None:
     with _client() as client:
-        response = client.post("/api/v1/auth/participant/login", json={"phone": "01012345678", "password": "wrong"})
+        response = client.post("/api/v1/auth/participant/login", json={"phone": "01012345678", "password": "wrong", "audience": "kid"})
 
     assert response.status_code == 401
+
+
+def test_participant_login_rejects_wrong_school_audience() -> None:
+    with _client() as client:
+        response = client.post(
+            "/api/v1/auth/participant/login",
+            json={"phone": "01012345678", "password": "1234", "audience": "teen"},
+        )
+
+    assert response.status_code == 403

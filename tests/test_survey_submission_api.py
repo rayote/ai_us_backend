@@ -15,7 +15,7 @@ from fastapi.testclient import TestClient
 
 class InMemoryParticipantAccounts(ParticipantAccountRepository):
     def __init__(self) -> None:
-        self.account = ParticipantAccount("participant-1", "01012345678", hash_password("password-2026"), False)
+        self.account = ParticipantAccount("participant-1", "01012345678", hash_password("password-2026"), False, False, "초등")
 
     async def find_by_phone(self, phone: str) -> ParticipantAccount | None:
         return self.account if phone == self.account.phone else None
@@ -124,7 +124,7 @@ def test_submission_is_queued_then_completed_by_worker() -> None:
     with TestClient(app) as client:
         login = client.post(
             "/api/v1/auth/participant/login",
-            json={"phone": "01012345678", "password": "password-2026"},
+            json={"phone": "01012345678", "password": "password-2026", "audience": "kid"},
         )
         headers = {"Authorization": f"Bearer {login.json()['accessToken']}"}
         submit = client.post(
@@ -163,7 +163,7 @@ def test_submission_rejects_unknown_question_key() -> None:
     with TestClient(app) as client:
         login = client.post(
             "/api/v1/auth/participant/login",
-            json={"phone": "01012345678", "password": "password-2026"},
+            json={"phone": "01012345678", "password": "password-2026", "audience": "kid"},
         )
         response = client.post(
             "/api/v1/survey-responses",

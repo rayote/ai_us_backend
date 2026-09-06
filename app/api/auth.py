@@ -3,6 +3,7 @@ from __future__ import annotations
 from app.core.security import create_access_token, decode_access_token
 from app.schemas.auth import AccessToken, ParticipantLogin, PasswordChange, PasswordChangeCompleted, ResearcherLogin
 from app.services.auth import (
+    AudienceMismatchError,
     InvalidCredentialsError,
     ParticipantAccountRepository,
     ParticipantAuthenticationService,
@@ -92,10 +93,14 @@ def require_admin(
 @router.post("/participant/login", response_model=AccessToken)
 async def participant_login(credentials: ParticipantLogin, request: Request) -> AccessToken:
     try:
-        account = await _service(request).authenticate(credentials.phone, credentials.password)
+        account = await _service(request).authenticate(credentials.phone, credentials.password, credentials.audience)
     except InvalidCredentialsError as error:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED, detail="휴대폰 번호 또는 비밀번호가 올바르지 않습니다."
+        ) from error
+    except AudienceMismatchError as error:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail="선택한 학교급과 등록된 참여자 정보가 일치하지 않습니다."
         ) from error
 
     settings = _settings(request)
@@ -109,6 +114,7 @@ async def participant_login(credentials: ParticipantLogin, request: Request) -> 
         tokenType="bearer",
         role="participant",
         needsPasswordChange=account.must_change_password,
+        audience=credentials.audience,
     )
 
 

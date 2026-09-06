@@ -21,6 +21,7 @@ class ApplicationApprovalService:
                 application.phone,
                 hash_password("1234"),
                 application.consents.chat,
+                "초등" if application.grade.startswith("초등") else "중등" if application.grade.startswith("중학") else "고등",
             )
         return await self._application_repository.approve(
             [application.application_id for application in pending_applications]

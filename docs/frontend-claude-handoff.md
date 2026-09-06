@@ -20,6 +20,7 @@
 - MongoDB URI, API 비밀값, 연구자 계정 비밀번호는 프론트에 넣지 않는다.
 - API 기본 URL은 CloudType에 배포된 해당 환경의 backend 공개 URL만 사용한다. 개발용 무료 환경과 운영용 유료 환경의 URL·비밀값·데이터는 서로 분리한다.
 - API 오류 시 기존 화면 흐름을 유지하고, 성공하지 않은 작업을 성공한 것처럼 표시하지 않는다.
+- 참여자 로그인 요청에는 현재 상단 토글의 `data-aud` 값(`kid` 또는 `teen`)을 `audience`로 함께 보낸다. backend가 계정 학교급과 비교하므로 프론트에서 임의로 우회하지 않는다.
 
 ## FH-001: API 연동 준비 사항
 
@@ -115,3 +116,10 @@ CSV 등록은 `POST /api/v1/researcher/participants/imports`에 `file` 필드로
 - 참여자 로그인 응답의 `needsPasswordChange`가 `true`이면 기존 설문 화면을 열지 않고 비밀번호 변경 모달을 표시한다.
 - 모달은 현재 비밀번호, 8자 이상 새 비밀번호, 확인 값을 입력받아 `POST /api/v1/auth/participant/password`로 전송한다.
 - backend 성공 응답 뒤에만 모달을 닫고 설문 화면으로 이동한다.
+
+### FH-005: 학교급 검증과 승인 오류 표시
+
+- 프론트 작업 브랜치: `backend/fh-005-audience-validation`
+- 참여자 로그인 요청에 초등학생 토글은 `audience: "kid"`, 중고등학생 토글은 `audience: "teen"`을 포함한다.
+- backend가 등록 학교급과 다른 모드를 거부하면 해당 오류 메시지를 기존 로그인 오류 영역에 표시한다.
+- 연구자 페이지의 API helper는 JSON body를 `JSON.stringify()`로 전송한다. 승인 요청 오류 객체나 배열을 그대로 `alert()`에 전달하지 않고, backend의 `detail` 또는 검증 메시지를 표시한다.
