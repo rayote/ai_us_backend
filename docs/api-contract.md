@@ -153,6 +153,8 @@ Successful response: `200 OK`
 
 For each pending application, approval creates a participant account with the hashed initial password `1234` and requires that participant to change the password at first login. Repeating an approval does not create a duplicate participant account.
 
+If the same phone number has already been created through CSV import or a prior approval, the endpoint returns `409 Conflict` and leaves the application pending for researcher review.
+
 ## Import participants from CSV
 
 `POST /api/v1/researcher/participants/imports`

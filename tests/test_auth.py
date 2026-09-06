@@ -35,7 +35,10 @@ def _client() -> TestClient:
 
 def test_participant_login_returns_access_token_and_password_change_requirement() -> None:
     with _client() as client:
-        response = client.post("/api/v1/auth/participant/login", json={"phone": "010-1234-5678", "password": "1234", "audience": "elementary"})
+        response = client.post(
+            "/api/v1/auth/participant/login",
+            json={"phone": "010-1234-5678", "password": "1234", "audience": "elementary"},
+        )
 
     assert response.status_code == 200
     assert response.json()["role"] == "participant"
@@ -47,7 +50,8 @@ def test_participant_login_returns_access_token_and_password_change_requirement(
 def test_participant_changes_default_password() -> None:
     with _client() as client:
         login_response = client.post(
-            "/api/v1/auth/participant/login", json={"phone": "01012345678", "password": "1234", "audience": "elementary"}
+            "/api/v1/auth/participant/login",
+            json={"phone": "01012345678", "password": "1234", "audience": "elementary"},
         )
         token = login_response.json()["accessToken"]
         response = client.post(
@@ -67,7 +71,10 @@ def test_participant_changes_default_password() -> None:
 
 def test_participant_login_rejects_invalid_password() -> None:
     with _client() as client:
-        response = client.post("/api/v1/auth/participant/login", json={"phone": "01012345678", "password": "wrong", "audience": "elementary"})
+        response = client.post(
+            "/api/v1/auth/participant/login",
+            json={"phone": "01012345678", "password": "wrong", "audience": "elementary"},
+        )
 
     assert response.status_code == 401
 

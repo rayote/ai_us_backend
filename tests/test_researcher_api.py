@@ -193,6 +193,20 @@ def test_admin_can_access_researcher_application_management() -> None:
     assert response.status_code == 200
 
 
+def test_researcher_cannot_approve_application_for_existing_participant() -> None:
+    client, participants = _client()
+    asyncio.run(participants.create("01012345678", hash_password("1234"), school_level="초등"))
+    with client:
+        response = client.post(
+            "/api/v1/researcher/applications/approve",
+            headers={"Authorization": f"Bearer {_researcher_token(client)}"},
+            json={"applicationIds": ["65f000000000000000000001"]},
+        )
+
+    assert response.status_code == 409
+    assert "이미 등록된 참여자" in response.json()["detail"]
+
+
 def test_researcher_can_import_participants_from_csv() -> None:
     client, participants = _client()
     with client:

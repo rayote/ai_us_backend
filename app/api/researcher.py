@@ -6,7 +6,7 @@ from app.api.auth import require_researcher
 from app.schemas.application import ApplicationApproval, ApplicationApprovalCompleted, ApplicationRecord
 from app.schemas.imports import ParticipantImportResult
 from app.services.applications import ApplicationRepository
-from app.services.approvals import ApplicationApprovalService
+from app.services.approvals import ApplicationApprovalService, ExistingParticipantError
 from app.services.auth import ParticipantAccountRepository
 from app.services.chats import ChatSubmissionRepository, chat_submissions_to_csv
 from app.services.imports import ParticipantImportService
@@ -88,7 +88,13 @@ async def approve_applications(
     request: Request,
     _: str = Depends(require_researcher),
 ) -> ApplicationApprovalCompleted:
-    approved_count = await _approval_service(request).approve(approval.application_ids)
+    try:
+        approved_count = await _approval_service(request).approve(approval.application_ids)
+    except ExistingParticipantError as error:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"이미 등록된 참여자 휴대폰 번호입니다: {', '.join(error.phone_numbers)}",
+        ) from error
     return ApplicationApprovalCompleted(approvedCount=approved_count)
 
 

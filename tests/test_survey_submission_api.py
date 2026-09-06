@@ -15,7 +15,9 @@ from fastapi.testclient import TestClient
 
 class InMemoryParticipantAccounts(ParticipantAccountRepository):
     def __init__(self) -> None:
-        self.account = ParticipantAccount("participant-1", "01012345678", hash_password("password-2026"), False, False, "초등")
+        self.account = ParticipantAccount(
+            "participant-1", "01012345678", hash_password("password-2026"), False, False, "초등"
+        )
 
     async def find_by_phone(self, phone: str) -> ParticipantAccount | None:
         return self.account if phone == self.account.phone else None
