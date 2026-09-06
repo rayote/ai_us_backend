@@ -142,7 +142,7 @@ CSV 등록은 `POST /api/v1/researcher/participants/imports`에 `file` 필드로
 
 - 프론트 작업 브랜치: `frontend/fix-logout-and-phone-caret`
 - 프론트 작업 커밋: `1716b64 Fix logout and phone input caret`
-- Pull Request: `#5` 검토 중 (`frontend/fix-logout-and-phone-caret` → `main`)
+- Pull Request: `#5` 병합 완료 (`frontend/fix-logout-and-phone-caret` → `main`), merge commit `45724115ec2191cd83104f2faf516bbcfac692ce`
 - 연구자 로그아웃은 access token과 역할을 삭제한 뒤 홈으로 이동한다.
 - 참여자 휴대폰 번호 자동 하이픈 처리 중 입력 커서 위치를 유지한다.
 - CSV 등록은 이미 `participants.phone_normalized` 고유 인덱스와 `DuplicateKeyError` 처리로 중복 휴대폰 번호를 생성하지 않으며, 결과를 `skippedCount`로 반환한다.
