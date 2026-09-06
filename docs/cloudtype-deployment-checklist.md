@@ -18,6 +18,8 @@ CloudType should build from the repository root using the included `Dockerfile`.
 
 The script starts `python -m app.worker` for Queue processing and Uvicorn for FastAPI. CloudType supplies the public `PORT`; the script defaults to `5000`, matching the exposed container port, only when no port is set.
 
+The CloudType MongoDB container currently reports wire version 7 (MongoDB 4.0 compatible). Do not upgrade the backend dependency to PyMongo 4.x unless the MongoDB container is upgraded to MongoDB 4.4 or later. This repository pins `pymongo>=3.12,<4.0` for compatibility.
+
 ## Required Backend Secrets
 
 Enter these values in CloudType's Configure panel.

@@ -11,6 +11,8 @@
 - 대화문 제출: 링크 또는 복사 본문의 원본과 정규화 결과를 함께 보존합니다. 현재 본문 화자 표식 기본 parser와 링크 placeholder parser를 제공합니다.
 - CSV: 설문 정의의 문항 순서를 기준으로 설문 응답을 CSV로 변환하며, 참여자와 대화문 자료도 연구자 권한으로 내려받습니다.
 
+CloudType 사전구성 MongoDB의 wire version 7(MongoDB 4.0 계열)과 호환되도록 `pymongo>=3.12,<4.0`을 사용합니다. FastAPI의 비동기 route에서 동기 PyMongo 작업은 thread 기반 호환 계층으로 실행합니다.
+
 ## 역할과 권한
 
 | 역할 | 권한 |

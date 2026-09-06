@@ -4,6 +4,8 @@ Base URL: the public backend URL deployed by CloudType for the current environme
 
 All request and response bodies use JSON unless an endpoint explicitly returns a file.
 
+The API supports the current CloudType preconfigured MongoDB service through PyMongo 3.x compatibility. This does not change the HTTP request or response contract.
+
 ## Survey data terminology
 
 - `surveyRound`: the numbered survey round, such as `1` or `2`.
