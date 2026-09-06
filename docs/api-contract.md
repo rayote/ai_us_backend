@@ -15,13 +15,13 @@ All request and response bodies use JSON unless an endpoint explicitly returns a
 }
 ```
 
-The response is a `200 OK` bearer token response with `role` set to `researcher` and `needsPasswordChange` set to `false`.
+The response is a `200 OK` bearer token response with `role` set to either `admin` or `researcher` and `needsPasswordChange` set to `false`.
 
-The first researcher account is created only when both `RESEARCHER_BOOTSTRAP_USERNAME` and `RESEARCHER_BOOTSTRAP_PASSWORD` are configured as CloudType Secrets. This bootstrap account is inserted once and is not overwritten on later backend restarts.
+The first account is created with the `admin` role only when both `RESEARCHER_BOOTSTRAP_USERNAME` and `RESEARCHER_BOOTSTRAP_PASSWORD` are configured as CloudType Secrets. This bootstrap account is inserted once and is not overwritten on later backend restarts.
 
 ## Researcher application management
 
-Both endpoints require a researcher bearer token.
+Both endpoints accept either an `admin` or `researcher` bearer token.
 
 `GET /api/v1/researcher/applications?school_level=elementary`
 
@@ -44,6 +44,29 @@ Successful response: `200 OK`
 ```
 
 For each pending application, approval creates a participant account with the hashed initial password `1234` and requires that participant to change the password at first login. Repeating an approval does not create a duplicate participant account.
+
+## Create researcher account
+
+`POST /api/v1/admin/researchers`
+
+This endpoint requires an `admin` bearer token. It creates an individual account with the `researcher` role.
+
+```json
+{
+  "username": "research-assistant",
+  "password": "individual-password"
+}
+```
+
+Successful response: `201 Created`
+
+```json
+{
+  "researcherId": "65f000000000000000000002",
+  "username": "research-assistant",
+  "role": "researcher"
+}
+```
 
 ## Health check
 

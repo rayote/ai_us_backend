@@ -76,12 +76,15 @@ class ResearcherAccount:
     researcher_id: str
     username: str
     password_hash: str
+    role: str
 
 
 class ResearcherAccountRepository(Protocol):
     async def find_by_username(self, username: str) -> ResearcherAccount | None: ...
 
     async def ensure_bootstrap(self, username: str, password_hash: str) -> None: ...
+
+    async def create(self, username: str, password_hash: str, role: str) -> str | None: ...
 
 
 class MongoResearcherAccountRepository:
@@ -92,14 +95,25 @@ class MongoResearcherAccountRepository:
         document = await self._collection.find_one({"username": username})
         if document is None:
             return None
-        return ResearcherAccount(str(document["_id"]), document["username"], document["password_hash"])
+        return ResearcherAccount(
+            str(document["_id"]), document["username"], document["password_hash"], document["role"]
+        )
 
     async def ensure_bootstrap(self, username: str, password_hash: str) -> None:
         await self._collection.update_one(
             {"username": username},
-            {"$setOnInsert": {"username": username, "password_hash": password_hash, "role": "researcher"}},
+            {"$setOnInsert": {"username": username, "password_hash": password_hash, "role": "admin"}},
             upsert=True,
         )
+
+    async def create(self, username: str, password_hash: str, role: str) -> str | None:
+        try:
+            result = await self._collection.insert_one(
+                {"username": username, "password_hash": password_hash, "role": role}
+            )
+        except DuplicateKeyError:
+            return None
+        return str(result.inserted_id)
 
 
 class InvalidCredentialsError(Exception):
@@ -135,3 +149,13 @@ class ResearcherAuthenticationService:
         if account is None or not verify_password(password, account.password_hash):
             raise InvalidCredentialsError
         return account
+
+
+class ResearcherAdministrationService:
+    def __init__(self, repository: ResearcherAccountRepository) -> None:
+        self._repository = repository
+
+    async def create_researcher(self, username: str, password: str) -> str | None:
+        from app.core.security import hash_password
+
+        return await self._repository.create(username, hash_password(password), "researcher")

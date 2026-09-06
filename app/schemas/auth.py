@@ -24,6 +24,18 @@ class ResearcherLogin(BaseModel):
     password: str = Field(min_length=1, max_length=256)
 
 
+class ResearcherCreate(BaseModel):
+    username: str = Field(min_length=1, max_length=100)
+    password: str = Field(min_length=8, max_length=256)
+    role: Literal["researcher"] = "researcher"
+
+
+class ResearcherCreated(BaseModel):
+    researcher_id: str = Field(alias="researcherId")
+    username: str
+    role: Literal["researcher"]
+
+
 class PasswordChange(BaseModel):
     current_password: str = Field(alias="currentPassword", min_length=1, max_length=256)
     new_password: str = Field(alias="newPassword", min_length=8, max_length=256)
@@ -39,7 +51,7 @@ class PasswordChange(BaseModel):
 class AccessToken(BaseModel):
     access_token: str = Field(alias="accessToken")
     token_type: Literal["bearer"] = Field(alias="tokenType")
-    role: Literal["participant", "researcher"]
+    role: Literal["participant", "researcher", "admin"]
     needs_password_change: bool = Field(alias="needsPasswordChange")
 
 

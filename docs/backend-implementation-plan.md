@@ -40,8 +40,8 @@
 기존 참여자/연구자 로그인 화면을 유지하고 API만 연결한다.
 
 - 참여자 로그인: 휴대폰 번호와 비밀번호
-- 연구자 로그인: 별도 연구자 계정
-- CloudType Secret의 연구자 초기 계정은 첫 backend 기동 시 한 번만 생성하며, 이후 재기동에서 덮어쓰지 않는다.
+- 연구자 로그인: `admin` 또는 `researcher` 역할을 가진 별도 연구자 계정
+- CloudType Secret의 초기 연구자 계정은 첫 backend 기동 시 `admin` 역할로 한 번만 생성하며, 이후 재기동에서 덮어쓰지 않는다. `admin`은 공동연구 실무자용 `researcher` 계정을 추가한다.
 - 로그인 성공 시 짧은 수명의 access token과 역할 정보를 반환
 - 승인 시 참여자 초기 비밀번호는 공통값 `1234`로 설정하되, 평문이 아닌 단방향 해시로만 저장한다.
 - 공통 초기 비밀번호로 로그인한 참여자는 설문과 대화문에 접근하기 전에 비밀번호 변경 화면으로 이동하도록 강제한다.
@@ -66,6 +66,7 @@
 - 신청 현황, 회차별 참여 현황, 미참여자 목록의 조회 API
 - 조건별 설문 결과와 대화문 자료 CSV 생성 및 다운로드. 작은 결과는 동기로 반환하고, 파일 생성 시간이 길어질 때만 Queue 작업으로 전환한다.
 - 연구자 권한이 있는 토큰만 이 기능에 접근하도록 제한
+- `admin`과 `researcher`는 신청·참여·결과 관리 기능을 함께 사용하고, 연구자 계정 생성은 `admin`만 수행한다.
 
 ### Queue 적용 기준
 
@@ -86,6 +87,7 @@ API의 실제 URL과 JSON 필드명은 프론트 소스를 받은 뒤 기존 함
 | 참여 신청 | `POST /api/v1/applications` | `AppStore.submitApplication` |
 | 참여자 로그인 | `POST /api/v1/auth/participant/login` | 로그인 모달 |
 | 연구자 로그인 | `POST /api/v1/auth/researcher/login` | 연구자 로그인 모달 |
+| 연구자 계정 생성 | `POST /api/v1/admin/researchers` | 관리자 전용 기능, 연구자 화면 추가 시 연동 |
 | 비밀번호 재설정 요청 | `POST /api/v1/auth/password-reset-requests` | `PasswordReset.sendResetLink` |
 | 참여자 최초 비밀번호 변경 | `POST /api/v1/auth/participant/password` | 첫 로그인 비밀번호 변경 화면 |
 | 신청 목록 | `GET /api/v1/researcher/applications` | `applications` 배열 |

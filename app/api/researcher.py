@@ -2,13 +2,12 @@ from __future__ import annotations
 
 from typing import Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
-
 from app.api.auth import require_researcher
 from app.schemas.application import ApplicationApproval, ApplicationApprovalCompleted, ApplicationRecord
-from app.services.approvals import ApplicationApprovalService
 from app.services.applications import ApplicationRepository
+from app.services.approvals import ApplicationApprovalService
 from app.services.auth import ParticipantAccountRepository
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 
 router = APIRouter(prefix="/api/v1/researcher", tags=["researcher"])
 
@@ -16,7 +15,9 @@ router = APIRouter(prefix="/api/v1/researcher", tags=["researcher"])
 def _application_repository(request: Request) -> ApplicationRepository:
     repository = getattr(request.app.state, "application_repository", None)
     if repository is None:
-        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="신청 관리 서비스를 준비 중입니다.")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="신청 관리 서비스를 준비 중입니다."
+        )
     return repository
 
 

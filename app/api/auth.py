@@ -67,8 +67,25 @@ def require_researcher(
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED, detail="유효하지 않은 인증 정보입니다."
         ) from error
-    if claims["role"] != "researcher":
+    if claims["role"] not in {"researcher", "admin"}:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="연구자 권한이 필요합니다.")
+    return claims["sub"]
+
+
+def require_admin(
+    request: Request,
+    credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
+) -> str:
+    if credentials is None:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="인증이 필요합니다.")
+    try:
+        claims = decode_access_token(credentials.credentials, _settings(request).jwt_secret)
+    except InvalidTokenError as error:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="유효하지 않은 인증 정보입니다."
+        ) from error
+    if claims["role"] != "admin":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="관리자 권한이 필요합니다.")
     return claims["sub"]
 
 
@@ -108,12 +125,12 @@ async def researcher_login(credentials: ResearcherLogin, request: Request) -> Ac
     return AccessToken(
         accessToken=create_access_token(
             account.researcher_id,
-            "researcher",
+            account.role,
             settings.jwt_secret,
             settings.jwt_expiration_minutes,
         ),
         tokenType="bearer",
-        role="researcher",
+        role=account.role,
         needsPasswordChange=False,
     )
 

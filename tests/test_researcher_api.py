@@ -1,8 +1,6 @@
 import asyncio
 from datetime import UTC, datetime
 
-from fastapi.testclient import TestClient
-
 from app.core.security import hash_password
 from app.core.settings import Settings
 from app.main import create_app
@@ -14,6 +12,7 @@ from app.services.auth import (
     ResearcherAccount,
     ResearcherAccountRepository,
 )
+from fastapi.testclient import TestClient
 
 
 class InMemoryApplications(ApplicationRepository):
@@ -26,7 +25,9 @@ class InMemoryApplications(ApplicationRepository):
                 phone="01012345678",
                 guardianPhone="01099999999",
                 email="participant@example.com",
-                consents=ApplicationConsents(documentRead=True, survey=True, chat=False, participant=True, guardian=True),
+                consents=ApplicationConsents(
+                    documentRead=True, survey=True, chat=False, participant=True, guardian=True
+                ),
                 status="pending",
                 submittedAt=datetime.now(UTC),
             )
@@ -39,13 +40,19 @@ class InMemoryApplications(ApplicationRepository):
         return self.records
 
     async def get_pending(self, application_ids: list[str]) -> list[ApplicationRecord]:
-        return [record for record in self.records if record.application_id in application_ids and record.status == "pending"]
+        return [
+            record
+            for record in self.records
+            if record.application_id in application_ids and record.status == "pending"
+        ]
 
     async def approve(self, application_ids: list[str]) -> int:
         approved = 0
         for index, record in enumerate(self.records):
             if record.application_id in application_ids and record.status == "pending":
-                self.records[index] = record.model_copy(update={"status": "approved", "approved_at": datetime.now(UTC)})
+                self.records[index] = record.model_copy(
+                    update={"status": "approved", "approved_at": datetime.now(UTC)}
+                )
                 approved += 1
         return approved
 
@@ -72,25 +79,35 @@ class InMemoryParticipants(ParticipantAccountRepository):
 
 class InMemoryResearchers(ResearcherAccountRepository):
     def __init__(self) -> None:
-        self.account = ResearcherAccount("researcher-1", "researcher", hash_password("researcher-password"))
+        self.accounts = {
+            "admin": ResearcherAccount("admin-1", "admin", hash_password("admin-password"), "admin"),
+            "researcher": ResearcherAccount("researcher-1", "researcher", hash_password("researcher-password"), "researcher"),
+        }
 
     async def find_by_username(self, username: str) -> ResearcherAccount | None:
-        return self.account if username == self.account.username else None
+        return self.accounts.get(username)
 
     async def ensure_bootstrap(self, username: str, password_hash: str) -> None:
         return None
+
+    async def create(self, username: str, password_hash: str, role: str) -> str | None:
+        if username in self.accounts:
+            return None
+        researcher_id = f"researcher-{len(self.accounts)}"
+        self.accounts[username] = ResearcherAccount(researcher_id, username, password_hash, role)
+        return researcher_id
 
 
 def _client() -> tuple[TestClient, InMemoryParticipants]:
     participants = InMemoryParticipants()
     return (
         TestClient(
-        create_app(
-            Settings("test", None, "ai_us_test", (), "test-secret-at-least-thirty-two-bytes", 60),
-            application_repository=InMemoryApplications(),
-            participant_account_repository=participants,
-            researcher_account_repository=InMemoryResearchers(),
-        )
+            create_app(
+                Settings("test", None, "ai_us_test", (), "test-secret-at-least-thirty-two-bytes", 60),
+                application_repository=InMemoryApplications(),
+                participant_account_repository=participants,
+                researcher_account_repository=InMemoryResearchers(),
+            )
         ),
         participants,
     )
@@ -100,6 +117,14 @@ def _researcher_token(client: TestClient) -> str:
     response = client.post(
         "/api/v1/auth/researcher/login",
         json={"username": "researcher", "password": "researcher-password"},
+    )
+    return response.json()["accessToken"]
+
+
+def _admin_token(client: TestClient) -> str:
+    response = client.post(
+        "/api/v1/auth/researcher/login",
+        json={"username": "admin", "password": "admin-password"},
     )
     return response.json()["accessToken"]
 
@@ -128,3 +153,33 @@ def test_participant_cannot_access_researcher_applications() -> None:
         response = client.get("/api/v1/researcher/applications")
 
     assert response.status_code == 401
+
+
+def test_admin_can_create_researcher_but_researcher_cannot() -> None:
+    client, _ = _client()
+    with client:
+        admin_response = client.post(
+            "/api/v1/admin/researchers",
+            headers={"Authorization": f"Bearer {_admin_token(client)}"},
+            json={"username": "assistant", "password": "assistant-password"},
+        )
+        researcher_response = client.post(
+            "/api/v1/admin/researchers",
+            headers={"Authorization": f"Bearer {_researcher_token(client)}"},
+            json={"username": "blocked", "password": "blocked-password"},
+        )
+
+    assert admin_response.status_code == 201
+    assert admin_response.json()["role"] == "researcher"
+    assert researcher_response.status_code == 403
+
+
+def test_admin_can_access_researcher_application_management() -> None:
+    client, _ = _client()
+    with client:
+        response = client.get(
+            "/api/v1/researcher/applications",
+            headers={"Authorization": f"Bearer {_admin_token(client)}"},
+        )
+
+    assert response.status_code == 200
