@@ -124,7 +124,7 @@ def test_submission_is_queued_then_completed_by_worker() -> None:
     with TestClient(app) as client:
         login = client.post(
             "/api/v1/auth/participant/login",
-            json={"phone": "01012345678", "password": "password-2026", "audience": "kid"},
+            json={"phone": "01012345678", "password": "password-2026", "audience": "elementary"},
         )
         headers = {"Authorization": f"Bearer {login.json()['accessToken']}"}
         submit = client.post(
@@ -163,7 +163,7 @@ def test_submission_rejects_unknown_question_key() -> None:
     with TestClient(app) as client:
         login = client.post(
             "/api/v1/auth/participant/login",
-            json={"phone": "01012345678", "password": "password-2026", "audience": "kid"},
+            json={"phone": "01012345678", "password": "password-2026", "audience": "elementary"},
         )
         response = client.post(
             "/api/v1/survey-responses",

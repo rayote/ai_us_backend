@@ -9,7 +9,7 @@ from pydantic import BaseModel, Field, field_validator
 class ParticipantLogin(BaseModel):
     phone: str
     password: str = Field(min_length=1, max_length=256)
-    audience: Literal["kid", "teen"]
+    audience: Literal["elementary", "secondary"]
 
     @field_validator("phone", mode="before")
     @classmethod
@@ -54,7 +54,7 @@ class AccessToken(BaseModel):
     token_type: Literal["bearer"] = Field(alias="tokenType")
     role: Literal["participant", "researcher", "admin"]
     needs_password_change: bool = Field(alias="needsPasswordChange")
-    audience: Literal["kid", "teen"] | None = None
+    audience: Literal["elementary", "secondary"] | None = None
 
 
 class PasswordChangeCompleted(BaseModel):

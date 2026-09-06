@@ -258,7 +258,7 @@ The frontend must show the current application-complete panel only after a `201`
 {
   "phone": "010-1234-5678",
   "password": "1234",
-  "audience": "kid"
+  "audience": "elementary"
 }
 ```
 
@@ -273,7 +273,7 @@ Successful response: `200 OK`
 }
 ```
 
-`audience` is required: use `kid` for the elementary-school mode and `teen` for the middle/high-school mode. The backend compares it with the participant's registered school level and returns `403 Forbidden` when they do not match. The frontend sends the access token in the `Authorization: Bearer <JWT>` header for authenticated requests. When `needsPasswordChange` is `true`, it must show the first-password-change screen before opening the survey panel.
+`audience` is required: use `elementary` for the elementary-school mode and `secondary` for the middle/high-school mode. The backend compares it with the participant's registered school level and returns `403 Forbidden` when they do not match. The frontend sends the access token in the `Authorization: Bearer <JWT>` header for authenticated requests. When `needsPasswordChange` is `true`, it must show the first-password-change screen before opening the survey panel.
 
 ## Change participant password
 

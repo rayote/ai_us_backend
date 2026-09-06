@@ -134,7 +134,7 @@ def test_consented_participant_submission_is_parsed_and_saved() -> None:
     with TestClient(app) as client:
         login = client.post(
             "/api/v1/auth/participant/login",
-            json={"phone": "01012345678", "password": "password-2026", "audience": "kid"},
+            json={"phone": "01012345678", "password": "password-2026", "audience": "elementary"},
         )
         headers = {"Authorization": f"Bearer {login.json()['accessToken']}"}
         response = client.post(
@@ -162,7 +162,7 @@ def test_participant_without_chat_consent_cannot_submit() -> None:
     with TestClient(app) as client:
         login = client.post(
             "/api/v1/auth/participant/login",
-            json={"phone": "01012345678", "password": "password-2026", "audience": "kid"},
+            json={"phone": "01012345678", "password": "password-2026", "audience": "elementary"},
         )
         response = client.post(
             "/api/v1/chat-submissions",
@@ -183,7 +183,7 @@ def test_researcher_can_export_completed_chat_submission() -> None:
     with TestClient(app) as client:
         participant_login = client.post(
             "/api/v1/auth/participant/login",
-            json={"phone": "01012345678", "password": "password-2026", "audience": "kid"},
+            json={"phone": "01012345678", "password": "password-2026", "audience": "elementary"},
         )
         submit = client.post(
             "/api/v1/chat-submissions",

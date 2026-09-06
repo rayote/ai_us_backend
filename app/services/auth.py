@@ -164,7 +164,7 @@ class ParticipantAuthenticationService:
         account = await self._repository.find_by_phone(phone)
         if account is None or not verify_password(password, account.password_hash):
             raise InvalidCredentialsError
-        expected_audience = "kid" if account.school_level == "초등" else "teen"
+        expected_audience = "elementary" if account.school_level == "초등" else "secondary"
         if account.school_level not in {"초등", "중등", "고등"} or audience != expected_audience:
             raise AudienceMismatchError
         return account
