@@ -62,7 +62,9 @@
 - 문항이 많은 설문은 관리자가 하나씩 등록하지 않는다. CSV 또는 Excel 원본을 우선 사용해 회차, 버전, 문항 키, CSV 열 이름, 순서를 일괄 import한다. Word·PDF는 파싱 결과 미리보기에서 해당 값들을 검토한 뒤 최종 등록한다.
 - 같은 참여자와 설문 회차·설문 버전의 중복 제출 정책은 `초안/최종` 또는 `최종 1회 후 수정 불가` 중 연구진 결정에 따라 확정한다.
 - 설문 1차 및 4차 뒤의 AI 대화문 제출은 대화문 동의 참여자만 허용한다.
-- 대화문 입력 형식은 링크, 본문, 또는 둘 다 허용 중 연구진 결정 후 API 필드를 확정한다.
+- AI 대화문은 링크 또는 본문으로 제출할 수 있다. 원본 입력(`rawInput`)과 정규화된 대화문 결과를 함께 보관해 parser 변경 뒤 재처리할 수 있게 한다.
+- 현재 더미 parser는 복사 본문의 기본 화자 표식을 정규화하고, 공유 링크는 서비스별 parser 전까지 `placeholder` 상태로 보관한다. 링크를 실제 대화문으로 추출한 것처럼 기록하지 않는다.
+- parser는 추출 결과의 상태, 버전, 경고를 남긴다. 본문이 앞·뒤까지 완전한지 자동으로 확정할 수 없는 경우에는 가용 부분을 보관하고 경고로 표시한다.
 
 ### 4단계: 연구자 관리와 결과 다운로드
 
@@ -101,6 +103,7 @@ API의 실제 URL과 JSON 필드명은 프론트 소스를 받은 뒤 기존 함
 | 설문 제출 | `POST /api/v1/survey-responses` | 설문 최종 제출 버튼 |
 | 설문 제출 상태 | `GET /api/v1/submission-jobs/{submission_id}` | 제출 완료 확인 및 임시 저장 삭제 |
 | 대화문 제출 | `POST /api/v1/chat-submissions` | 대화문 제출 화면 |
+| 대화문 결과 CSV | `GET /api/v1/researcher/exports/chat-submissions` | 대화문 결과 다운로드 |
 | 연구 결과 CSV | `GET /api/v1/researcher/exports/survey-responses` | 결과 다운로드 |
 | 대화문 CSV | `GET /api/v1/researcher/exports/chat-submissions` | 결과 다운로드 |
 | 상태 확인 | `GET /health` | CloudType health check |
@@ -113,7 +116,7 @@ API의 실제 URL과 JSON 필드명은 프론트 소스를 받은 뒤 기존 함
 - `survey_definitions`: 설문 회차(`surveyRound`), 설문 버전(`surveyVersion`), 문항 키, 문항 순서, CSV 열 이름을 저장한다. 회차별 문항이 변경되어도 기존 CSV 열 순서를 보존하는 기준이다.
 - `survey_responses`: 참여자 ID, 설문 회차(`surveyRound`), 설문 버전(`surveyVersion`), 응답 전체, 제출시각. `participant_id + surveyRound + surveyVersion` 복합 인덱스.
 - `submission_jobs`: 최종 설문 제출 대기열. 제출 추적 ID, 멱등성 키, 상태, 작업 데이터, 재시도 횟수, 오류 사유, 생성/처리 시각을 저장한다. 처리 상태와 생성 시각의 복합 인덱스.
-- `chat_submissions`: 참여자 ID, 제출 시점(1차 후/4차 후), 형식, 링크 또는 본문, 제출시각.
+- `chat_submissions`: 참여자 ID, 제출 시점(1차 후/4차 후), 입력 형식, 원본 링크 또는 본문, 정규화된 대화문, parser 상태·버전·경고, 제출시각.
 - `notification_jobs`: 비밀번호 재설정 등 이메일 또는 SMS 발송 대기열. 발송 채널, 수신 대상, 템플릿 유형, 상태, 재시도 횟수, 오류 사유, 생성/처리 시각을 저장한다.
 - `password_reset_tokens`: 만료시각을 가진 일회용 토큰. TTL 인덱스.
 - `audit_logs`: 연구자 승인, CSV 내보내기 같은 민감한 관리자 작업의 기록.

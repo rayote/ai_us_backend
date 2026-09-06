@@ -17,7 +17,11 @@ class ApplicationApprovalService:
     async def approve(self, application_ids: list[str]) -> int:
         pending_applications = await self._application_repository.get_pending(application_ids)
         for application in pending_applications:
-            await self._participant_repository.create(application.phone, hash_password("1234"))
+            await self._participant_repository.create(
+                application.phone,
+                hash_password("1234"),
+                application.consents.chat,
+            )
         return await self._application_repository.approve(
             [application.application_id for application in pending_applications]
         )

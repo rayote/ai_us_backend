@@ -14,6 +14,7 @@ class ParticipantAccount:
     phone: str
     password_hash: str
     must_change_password: bool
+    chat_consent: bool = False
 
 
 class ParticipantAccountRepository(Protocol):
@@ -23,7 +24,7 @@ class ParticipantAccountRepository(Protocol):
 
     async def update_password(self, participant_id: str, password_hash: str) -> bool: ...
 
-    async def create(self, phone: str, password_hash: str) -> bool: ...
+    async def create(self, phone: str, password_hash: str, chat_consent: bool = False) -> bool: ...
 
     async def create_imported(
         self, phone: str, password_hash: str, name: str, school_level: str, grade: int
@@ -51,6 +52,7 @@ class MongoParticipantAccountRepository:
             phone=document["phone_normalized"],
             password_hash=document["password_hash"],
             must_change_password=document["must_change_password"],
+            chat_consent=document.get("chat_consent", False),
         )
 
     async def update_password(self, participant_id: str, password_hash: str) -> bool:
@@ -60,7 +62,7 @@ class MongoParticipantAccountRepository:
         )
         return result.modified_count == 1
 
-    async def create(self, phone: str, password_hash: str) -> bool:
+    async def create(self, phone: str, password_hash: str, chat_consent: bool = False) -> bool:
         try:
             await self._collection.insert_one(
                 {
@@ -68,15 +70,14 @@ class MongoParticipantAccountRepository:
                     "role": "participant",
                     "password_hash": password_hash,
                     "must_change_password": True,
+                    "chat_consent": chat_consent,
                 }
             )
         except DuplicateKeyError:
             return False
         return True
 
-    async def create_imported(
-        self, phone: str, password_hash: str, name: str, school_level: str, grade: int
-    ) -> bool:
+    async def create_imported(self, phone: str, password_hash: str, name: str, school_level: str, grade: int) -> bool:
         try:
             await self._collection.insert_one(
                 {
@@ -84,6 +85,7 @@ class MongoParticipantAccountRepository:
                     "role": "participant",
                     "password_hash": password_hash,
                     "must_change_password": True,
+                    "chat_consent": False,
                     "name": name,
                     "school_level": school_level,
                     "grade": grade,

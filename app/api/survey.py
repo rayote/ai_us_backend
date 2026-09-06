@@ -50,6 +50,10 @@ async def get_submission_status(
     participant_id: str = Depends(_participant_id),
 ) -> SurveySubmissionAccepted:
     job = await _job_repository(request).get(submission_id)
-    if job is None or job.job_type != "survey_response" or job.payload.get("participantId") != participant_id:
+    if (
+        job is None
+        or job.job_type not in {"survey_response", "chat_submission"}
+        or job.payload.get("participantId") != participant_id
+    ):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="제출 작업을 찾을 수 없습니다.")
     return SurveySubmissionAccepted(submissionId=job.id, status=job.status)

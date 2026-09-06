@@ -20,9 +20,7 @@ class InMemoryParticipantAccounts(ParticipantAccountRepository):
     async def create(self, phone: str, password_hash: str) -> bool:
         return False
 
-    async def create_imported(
-        self, phone: str, password_hash: str, name: str, school_level: str, grade: int
-    ) -> bool:
+    async def create_imported(self, phone: str, password_hash: str, name: str, school_level: str, grade: int) -> bool:
         if phone in self.imported:
             return False
         self.imported[phone] = (name, school_level, grade)

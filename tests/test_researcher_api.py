@@ -70,15 +70,13 @@ class InMemoryParticipants(ParticipantAccountRepository):
     async def update_password(self, participant_id: str, password_hash: str) -> bool:
         return False
 
-    async def create(self, phone: str, password_hash: str) -> bool:
+    async def create(self, phone: str, password_hash: str, chat_consent: bool = False) -> bool:
         if phone in self.accounts:
             return False
-        self.accounts[phone] = ParticipantAccount(phone, phone, password_hash, True)
+        self.accounts[phone] = ParticipantAccount(phone, phone, password_hash, True, chat_consent)
         return True
 
-    async def create_imported(
-        self, phone: str, password_hash: str, name: str, school_level: str, grade: int
-    ) -> bool:
+    async def create_imported(self, phone: str, password_hash: str, name: str, school_level: str, grade: int) -> bool:
         return await self.create(phone, password_hash)
 
 
@@ -152,6 +150,7 @@ def test_researcher_can_list_and_approve_applications() -> None:
     assert len(list_response.json()) == 1
     assert approval_response.json() == {"approvedCount": 1}
     assert participants.accounts["01012345678"].must_change_password is True
+    assert participants.accounts["01012345678"].chat_consent is False
 
 
 def test_participant_cannot_access_researcher_applications() -> None:
@@ -198,7 +197,9 @@ def test_researcher_can_import_participants_from_csv() -> None:
         response = client.post(
             "/api/v1/researcher/participants/imports",
             headers={"Authorization": f"Bearer {_researcher_token(client)}"},
-            files={"file": ("participants.csv", "이름,휴대폰번호,학교급,학년\n홍길동,010-1234-5678,초등,4\n", "text/csv")},
+            files={
+                "file": ("participants.csv", "이름,휴대폰번호,학교급,학년\n홍길동,010-1234-5678,초등,4\n", "text/csv")
+            },
         )
 
     assert response.json() == {"createdCount": 1, "skippedCount": 0, "errors": []}

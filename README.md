@@ -22,6 +22,7 @@ CloudType deploys the frontend and backend services by connecting each service t
 - An admin registers each questionnaire using `surveyRound` and `surveyVersion`. Both admin and researcher accounts can download CSV exports for the stored response version.
 - When a questionnaire has many items, use a bulk survey-definition import rather than entering each item individually. CSV or Excel is the preferred source; Word or PDF parsing requires a reviewed preview before registration.
 - Admin and researcher accounts can import participant accounts from the frontend's UTF-8 CSV template. Excel participant imports are not implemented yet.
+- Chat submissions retain both the original link or copied text and a normalized transcript. The current dummy parser handles basic pasted-text speaker labels and marks shared links as placeholders until service-specific parsers are added.
 - Enter those values in the CloudType Configure panel. CloudType injects them as backend process environment variables, which `Settings.from_environment()` reads directly.
 - `.env.example` is only a reference list of Secret names. The application does not load a local `.env` file automatically.
 - When the CloudType backend service is created, add its provided Dockerfile template and the required build/start commands to this repository's deployment configuration. No local Docker installation is required.

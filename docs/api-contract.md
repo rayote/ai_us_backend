@@ -85,6 +85,31 @@ The frontend keeps its `localStorage` draft until the status endpoint reports `c
 
 This endpoint requires the submitting participant bearer token and returns the job's `queued`, `processing`, `completed`, or `failed` status. A participant cannot read another participant's submission status.
 
+## Submit AI chat transcript
+
+`POST /api/v1/chat-submissions`
+
+This endpoint requires a participant bearer token and is available only to participants who consented to AI chat submission at application approval. It queues the submitted original input.
+
+```json
+{
+  "submissionPoint": "afterRound1",
+  "sourceType": "text",
+  "rawInput": "사용자: 안녕하세요\nAI: 무엇을 도와드릴까요?",
+  "submissionId": "browser-generated-chat-id"
+}
+```
+
+`submissionPoint` is `afterRound1` or `afterRound4`; `sourceType` is `link` or `text`. The response is `202 Accepted` with the Queue `submissionId` and current status. Use `GET /api/v1/submission-jobs/{submissionId}` to check completion.
+
+The backend stores `rawInput` separately from the normalized transcript. The current dummy parser normalizes pasted-text speaker labels. A valid shared link receives `placeholder` parser status until a service-specific parser is added; it is not treated as extracted transcript text.
+
+## Export AI chat transcripts
+
+`GET /api/v1/researcher/exports/chat-submissions?submission_point=afterRound1`
+
+This endpoint accepts an `admin` or `researcher` bearer token. It returns a UTF-8 BOM CSV containing the original input, normalized transcript, parser status, parser version, and parser warnings. The optional `submission_point` is `afterRound1` or `afterRound4`.
+
 ## Researcher login
 
 `POST /api/v1/auth/researcher/login`

@@ -82,7 +82,7 @@ CSV 등록은 `POST /api/v1/researcher/participants/imports`에 `file` 필드로
 ## 다음 전달 예정 항목
 
 - `FH-002`: 설문 문항 화면, `localStorage` 임시 복원, Queue 제출·완료 상태 확인
-- `FH-003`: AI 대화문 입력·제출 화면과 제출 형식 반영
+- `FH-003`: AI 대화문 입력·제출 화면과 Queue 연동
 - `FH-004`: 공통 초기 비밀번호 `1234`로 로그인한 참여자에게만 표시하는 첫 로그인 비밀번호 변경 화면
 
 `FH-002`에서는 설문 최종 제출과 `localStorage` 키에 설문 회차 `surveyRound`와 설문 버전 `surveyVersion`을 함께 사용한다. 설문지가 다음 회차에 업데이트돼도 기존 임시 저장과 결과 데이터를 구분하기 위한 값이다.
@@ -92,3 +92,12 @@ CSV 등록은 `POST /api/v1/researcher/participants/imports`에 `file` 필드로
 문항이 많은 경우 설문 정의는 CSV 또는 Excel 원본에서 일괄 등록한다. Claude는 backend가 검토·등록한 설문 정의의 문항 `key`를 사용하며, Word·PDF 원본을 직접 추정해 문항 키를 만들지 않는다.
 
 설문 최종 제출은 `POST /api/v1/survey-responses`로 전송한다. `202 Accepted` 응답의 `submissionId`로 `GET /api/v1/submission-jobs/{submissionId}`를 확인하고, 상태가 `completed`일 때만 해당 `localStorage` 임시 저장을 삭제한다.
+
+### FH-003: AI 대화문 제출
+
+대화문 제출 화면은 `submissionPoint`가 `afterRound1` 또는 `afterRound4`인 링크 또는 본문 입력을 `POST /api/v1/chat-submissions`로 전송한다. API 응답의 `submissionId`로 기존 제출 상태 조회 API를 확인한다. 이 기능은 대화문 제출 동의 참여자에게만 표시한다.
+
+- 요청 필드: `submissionPoint`, `sourceType` (`link` 또는 `text`), `rawInput`, 브라우저 생성 `submissionId`
+- 공유 링크는 현재 서비스별 parser가 없으므로, backend가 `placeholder` 상태로 보관한다. 프론트에서 추출 완료로 표시하지 않는다.
+- 복사 본문은 원문 그대로 전송한다. backend가 정규화와 경고 기록을 처리한다.
+- 기존 HTML·inline script 구조와 화면 디자인을 유지한다.

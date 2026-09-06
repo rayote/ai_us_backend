@@ -3,12 +3,13 @@ from __future__ import annotations
 from typing import Literal
 
 from app.api.auth import require_researcher
-from app.schemas.imports import ParticipantImportResult
 from app.schemas.application import ApplicationApproval, ApplicationApprovalCompleted, ApplicationRecord
+from app.schemas.imports import ParticipantImportResult
 from app.services.applications import ApplicationRepository
 from app.services.approvals import ApplicationApprovalService
 from app.services.auth import ParticipantAccountRepository
 from app.services.imports import ParticipantImportService
+from app.services.chats import ChatSubmissionRepository, chat_submissions_to_csv
 from app.services.surveys import SurveyDefinitionRepository, SurveyResponseRepository, survey_responses_to_csv
 from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile, status
 from fastapi.responses import Response
@@ -35,9 +36,13 @@ def _approval_service(request: Request) -> ApplicationApprovalService:
 
 
 def _participant_import_service(request: Request) -> ParticipantImportService:
-    repository: ParticipantAccountRepository | None = getattr(request.app.state, "participant_account_repository", None)
+    repository: ParticipantAccountRepository | None = getattr(
+        request.app.state, "participant_account_repository", None
+    )
     if repository is None:
-        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="참여자 등록 서비스를 준비 중입니다.")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="참여자 등록 서비스를 준비 중입니다."
+        )
     return ParticipantImportService(repository)
 
 
@@ -56,6 +61,13 @@ def _survey_response_repository(request: Request) -> SurveyResponseRepository:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="설문 결과 서비스를 준비 중입니다."
         )
+    return repository
+
+
+def _chat_submission_repository(request: Request) -> ChatSubmissionRepository:
+    repository = getattr(request.app.state, "chat_submission_repository", None)
+    if repository is None:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="대화문 결과 서비스를 준비 중입니다.")
     return repository
 
 
@@ -85,7 +97,9 @@ async def import_participants(
     _: str = Depends(require_researcher),
 ) -> ParticipantImportResult:
     if not file.filename or not file.filename.lower().endswith(".csv"):
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="CSV 파일만 업로드할 수 있습니다.")
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="CSV 파일만 업로드할 수 있습니다."
+        )
     return await _participant_import_service(request).import_csv(await file.read())
 
 
@@ -105,4 +119,19 @@ async def export_survey_responses(
         content="\ufeff" + survey_responses_to_csv(definition, responses),
         media_type="text/csv; charset=utf-8",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@router.get("/exports/chat-submissions")
+async def export_chat_submissions(
+    submission_point: Literal["afterRound1", "afterRound4"] | None = None,
+    request: Request = None,
+    _: str = Depends(require_researcher),
+) -> Response:
+    csv_text = chat_submissions_to_csv(await _chat_submission_repository(request).list_submissions(submission_point))
+    point_name = submission_point or "all"
+    return Response(
+        content="\ufeff" + csv_text,
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="chat-submissions-{point_name}.csv"'},
     )
