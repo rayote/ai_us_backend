@@ -88,7 +88,7 @@ CSV 등록은 `POST /api/v1/researcher/participants/imports`에 `file` 필드로
 
 - `FH-002`: 설문 문항 화면, `localStorage` 임시 복원, Queue 제출·완료 상태 확인
 - `FH-003`: AI 대화문 입력·제출 화면과 Queue 연동
-- `FH-004`: 공통 초기 비밀번호 `1234`로 로그인한 참여자에게만 표시하는 첫 로그인 비밀번호 변경 화면
+- `FH-004`: Pull Request 검토 중. 공통 초기 비밀번호 `1234`로 로그인한 참여자에게만 표시하는 첫 로그인 비밀번호 변경 화면
 
 `FH-002`에서는 설문 최종 제출과 `localStorage` 키에 설문 회차 `surveyRound`와 설문 버전 `surveyVersion`을 함께 사용한다. 설문지가 다음 회차에 업데이트돼도 기존 임시 저장과 결과 데이터를 구분하기 위한 값이다.
 
@@ -106,3 +106,12 @@ CSV 등록은 `POST /api/v1/researcher/participants/imports`에 `file` 필드로
 - 공유 링크는 현재 서비스별 parser가 없으므로, backend가 `placeholder` 상태로 보관한다. 프론트에서 추출 완료로 표시하지 않는다.
 - 복사 본문은 원문 그대로 전송한다. backend가 정규화와 경고 기록을 처리한다.
 - 기존 HTML·inline script 구조와 화면 디자인을 유지한다.
+
+### FH-004: 최초 비밀번호 변경
+
+- 프론트 작업 브랜치: `backend/fh-004-first-password-change`
+- 프론트 작업 커밋: `b29e70a Add first login password change flow`
+- Pull Request: `#2` 검토 중 (`backend/fh-004-first-password-change` → `main`)
+- 참여자 로그인 응답의 `needsPasswordChange`가 `true`이면 기존 설문 화면을 열지 않고 비밀번호 변경 모달을 표시한다.
+- 모달은 현재 비밀번호, 8자 이상 새 비밀번호, 확인 값을 입력받아 `POST /api/v1/auth/participant/password`로 전송한다.
+- backend 성공 응답 뒤에만 모달을 닫고 설문 화면으로 이동한다.
