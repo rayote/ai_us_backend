@@ -8,13 +8,15 @@ Create three CloudType services in the free-tier account.
 2. Backend service: connect the `ai_us_backend` GitHub repository.
 3. MongoDB: create the CloudType preconfigured MongoDB container without a GitHub repository.
 
-Use the Dockerfile template provided by CloudType for the backend. Install dependencies with `pip install -r requirements.txt`, copy the repository source, and set the backend start command to:
+This repository provides a CloudType-ready `Dockerfile` based on the provided template. It differs from the Flask example in three required ways: Python 3.11 is used because this codebase requires Python 3.10 or later, `gunicorn` is not used, and its command starts the FastAPI API and Queue worker.
+
+CloudType should build from the repository root using the included `Dockerfile`. Its start command is:
 
 ```sh
 ./deploy/start.sh
 ```
 
-The script starts `python -m app.worker` for Queue processing and keeps `uvicorn app.main:app` as the container's main process. CloudType supplies the public `PORT`; the script defaults to `8000` only when no port is set.
+The script starts `python -m app.worker` for Queue processing and Uvicorn for FastAPI. CloudType supplies the public `PORT`; the script defaults to `5000`, matching the exposed container port, only when no port is set.
 
 ## Required Backend Secrets
 

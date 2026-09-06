@@ -44,7 +44,7 @@ MongoDB container    # CloudType 사전구성 컨테이너
 
 - 무료 CloudType 계정은 개발·통합 테스트용, 유료 계정은 실제 연구 운영용으로 분리합니다.
 - 두 환경은 MongoDB 데이터, Secret, 공개 URL을 공유하지 않습니다.
-- backend 컨테이너 시작 명령은 `./deploy/start.sh`입니다. CloudType Dockerfile 템플릿에 의존성 설치와 이 시작 명령을 적용합니다.
+- 루트 [Dockerfile](Dockerfile)은 CloudType 템플릿을 FastAPI용으로 적용한 배포 설정입니다. Python 3.11에서 의존성을 설치하고 backend 컨테이너 시작 명령으로 `./deploy/start.sh`를 실행합니다.
 - 필수 Secret과 최초 배포 점검 절차는 [CloudType 배포 체크리스트](docs/cloudtype-deployment-checklist.md)를 따릅니다.
 - `.env.example`은 CloudType Configure 패널에 입력할 변수 이름의 참고 목록입니다. 실제 `.env`와 Secret은 저장소에 커밋하지 않습니다.
 
