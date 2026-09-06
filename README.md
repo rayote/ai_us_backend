@@ -27,10 +27,13 @@ CloudType deploys the frontend and backend services by connecting each service t
 - `.env.example` is only a reference list of Secret names. The application does not load a local `.env` file automatically.
 - When the CloudType backend service is created, add its provided Dockerfile template and the required build/start commands to this repository's deployment configuration. No local Docker installation is required.
 - Start Uvicorn and the Queue daemon as separate OS processes in the same backend container. The Queue command is `python -m app.worker`; its startup recovery returns interrupted `processing` jobs to `queued`. It currently processes final survey-response jobs; chat-submission and notification handlers will be added with those features.
+- Use `deploy/start.sh` as the backend start command after adapting the CloudType Dockerfile template. The CloudType deployment checklist is in `docs/cloudtype-deployment-checklist.md`.
 
 ## Email sender
 
 Use one dedicated `@gmail.com` account as the initial sender for password-reset email. Enable Google 2-Step Verification on that account, create an app password, and enter `SMTP_USERNAME`, `SMTP_APP_PASSWORD`, and `EMAIL_FROM` in the CloudType Configure panel. Do not use a normal Gmail password or commit the app password. SMS is out of scope until a separate provider is selected.
+
+Gmail settings are optional until the password-reset email feature is implemented. Their absence does not stop the current backend API or Queue worker from starting.
 
 ## Initial layout
 

@@ -40,6 +40,8 @@
 
 비밀번호 재설정 이메일은 전용 Gmail 1계정의 backend SMTP 발송으로 처리한다. 프론트에는 Gmail 계정, 앱 비밀번호, SMTP 설정을 넣지 않으며, `PasswordReset.sendResetLink`는 backend 요청 성공 여부만 처리한다.
 
+Gmail 기반 비밀번호 재설정 API는 아직 활성화하지 않는다. CloudType 개발 환경에서 frontend와 backend URL이 정해진 뒤 별도 전달 ID로 연동한다.
+
 CSV 등록은 `POST /api/v1/researcher/participants/imports`에 `file` 필드로 UTF-8 CSV를 전송한다. 현재 프론트의 CSV 양식인 `이름,휴대폰번호,학교급,학년`을 유지하며, Excel 업로드는 backend에서 아직 지원하지 않는다. 응답의 `createdCount`, `skippedCount`, `errors`를 기존 등록 완료 안내에 표시한다.
 
 ### 참여 신청 요청에 포함할 값
