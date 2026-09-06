@@ -1,68 +1,81 @@
-# ai_us_backend
+# AI 마음 탐사대 백엔드
 
-Python backend for collecting survey data from the separately managed `ai_us` frontend and storing it in MongoDB.
+계명대학교 디지털상담 연구실의 청소년 생성형 AI 사용 종단 연구를 위한 Python 백엔드입니다. 별도 관리되는 `ai_us` 프론트엔드의 기존 HTML 및 inline script 구조를 유지하면서, 설문·대화문·참여자 계정·연구자 관리 데이터를 MongoDB에 저장합니다.
 
-## Repository boundaries
+## 주요 기능
 
-- `ai_us` (frontend repository): HTML, inline JavaScript, design assets, and survey UI.
-- `ai_us_backend` (this repository): API, validation, MongoDB connectivity, deployment configuration, and backend tests.
+- 참여 신청: 동의 항목, 연락처, 학교급·학년을 검증하고 중복 휴대폰 번호 신청을 차단합니다.
+- 참여자 인증: 휴대폰 번호 로그인, JWT 인증, 공통 초기 비밀번호 `1234`의 최초 변경 강제를 지원합니다.
+- 연구자 권한: `admin`은 연구자 계정을 생성하고, `admin`과 `researcher`는 신청 조회·승인·CSV 등록·결과 다운로드를 수행합니다.
+- 설문 응답: `surveyRound`와 `surveyVersion`으로 회차와 문항 버전을 구분하고, 최종 제출을 MongoDB 영속 Queue에 접수합니다.
+- 대화문 제출: 링크 또는 복사 본문의 원본과 정규화 결과를 함께 보존합니다. 현재 본문 화자 표식 기본 parser와 링크 placeholder parser를 제공합니다.
+- CSV: 설문 정의의 문항 순서를 기준으로 설문 응답을 CSV로 변환하며, 참여자와 대화문 자료도 연구자 권한으로 내려받습니다.
 
-The frontend should call the deployed API with `fetch()` from its existing inline script blocks. It must not contain database credentials.
+## 역할과 권한
 
-## CloudType environments
+| 역할 | 권한 |
+| --- | --- |
+| `participant` | 본인 설문·대화문 제출 및 제출 상태 조회 |
+| `researcher` | 신청 조회·승인, 참여자 CSV 등록, 설문·대화문 CSV 다운로드 |
+| `admin` | `researcher`의 모든 권한과 연구자 계정·설문 정의 등록 |
 
-CloudType deploys the frontend and backend services by connecting each service to its own GitHub repository. Local Docker and MongoDB installation are not required for this project.
+CloudType Secret의 bootstrap 계정은 최초 backend 실행 시 `admin`으로 한 번만 생성됩니다. 이후 `admin`이 공동연구 실무자용 `researcher` 계정을 추가합니다.
 
-- Development: a free-tier CloudType account runs a frontend service from `ai_us`, a backend service from this repository, and a CloudType preconfigured MongoDB container.
-- Production: a separate paid CloudType account uses the same three-service layout with separate secrets, database data, and public URLs.
-- MongoDB is provisioned in CloudType and is not connected to a GitHub repository.
-- Each environment keeps its own `MONGODB_URI`, `JWT_SECRET`, Gmail SMTP settings, and allowed frontend origins in CloudType secrets.
-- Set `RESEARCHER_BOOTSTRAP_USERNAME` and `RESEARCHER_BOOTSTRAP_PASSWORD` as development and production Secrets separately. They create the first researcher account when the backend first connects to MongoDB.
-- The bootstrap account has the `admin` role. An admin can create individual `researcher` accounts; both roles can use researcher data-management functions.
-- An admin registers each questionnaire using `surveyRound` and `surveyVersion`. Both admin and researcher accounts can download CSV exports for the stored response version.
-- When a questionnaire has many items, use a bulk survey-definition import rather than entering each item individually. CSV or Excel is the preferred source; Word or PDF parsing requires a reviewed preview before registration.
-- Admin and researcher accounts can import participant accounts from the frontend's UTF-8 CSV template. Excel participant imports are not implemented yet.
-- Chat submissions retain both the original link or copied text and a normalized transcript. The current dummy parser handles basic pasted-text speaker labels and marks shared links as placeholders until service-specific parsers are added.
-- Enter those values in the CloudType Configure panel. CloudType injects them as backend process environment variables, which `Settings.from_environment()` reads directly.
-- `.env.example` is only a reference list of Secret names. The application does not load a local `.env` file automatically.
-- When the CloudType backend service is created, add its provided Dockerfile template and the required build/start commands to this repository's deployment configuration. No local Docker installation is required.
-- Start Uvicorn and the Queue daemon as separate OS processes in the same backend container. The Queue command is `python -m app.worker`; its startup recovery returns interrupted `processing` jobs to `queued`. It currently processes final survey-response jobs; chat-submission and notification handlers will be added with those features.
-- Use `deploy/start.sh` as the backend start command after adapting the CloudType Dockerfile template. The CloudType deployment checklist is in `docs/cloudtype-deployment-checklist.md`.
+## 설문과 Queue
 
-## Email sender
+설문 작성 중 임시 데이터는 프론트엔드가 약 30초 간격으로 브라우저 `localStorage`에 저장합니다. 최종 제출은 API가 Queue에 먼저 접수하고 `202 Accepted` 및 `submissionId`를 반환합니다. 같은 backend 컨테이너의 worker daemon이 MongoDB에 저장한 뒤 상태를 `completed`로 전환합니다. 프론트는 이 상태를 확인한 경우에만 임시 저장을 삭제합니다.
 
-Use one dedicated `@gmail.com` account as the initial sender for password-reset email. Enable Google 2-Step Verification on that account, create an app password, and enter `SMTP_USERNAME`, `SMTP_APP_PASSWORD`, and `EMAIL_FROM` in the CloudType Configure panel. Do not use a normal Gmail password or commit the app password. SMS is out of scope until a separate provider is selected.
+설문지는 회차별로 변경될 수 있으므로 다음 값을 함께 사용합니다.
 
-Gmail settings are optional until the password-reset email feature is implemented. Their absence does not stop the current backend API or Queue worker from starting.
+- `surveyRound`: 설문 회차. 예: `1`, `2`
+- `surveyVersion`: 해당 회차 설문지 버전. 예: `2026-round-2-v2`
 
-## Initial layout
+`admin`은 응답 수집 전에 문항 키·CSV 열 이름·순서를 설문 정의로 등록합니다. 문항이 많은 경우 CSV 또는 Excel 원본을 검토해 일괄 등록하는 방식을 사용합니다.
 
-- `app/api`: HTTP route handlers.
-- `app/core`: settings, security, and application configuration.
-- `app/db`: MongoDB connection and data-access code.
-- `app/schemas`: request and response validation models.
-- `app/services`: survey submission business logic.
-- `tests`: backend tests.
-- `docs`: API contract and deployment notes shared with the frontend team.
-- `deploy`: CloudType deployment assets.
+## CloudType 배포
 
-## Local checks
+개발과 운영 모두 아래 3개 서비스를 사용합니다.
 
-This server does not run local Docker or MongoDB. The API can still be checked with Python tests before it is connected to CloudType:
+```text
+frontend container   # ai_us GitHub 저장소
+backend container    # 이 저장소: Uvicorn + Queue worker daemon
+MongoDB container    # CloudType 사전구성 컨테이너
+```
+
+- 무료 CloudType 계정은 개발·통합 테스트용, 유료 계정은 실제 연구 운영용으로 분리합니다.
+- 두 환경은 MongoDB 데이터, Secret, 공개 URL을 공유하지 않습니다.
+- backend 컨테이너 시작 명령은 `./deploy/start.sh`입니다. CloudType Dockerfile 템플릿에 의존성 설치와 이 시작 명령을 적용합니다.
+- 필수 Secret과 최초 배포 점검 절차는 [CloudType 배포 체크리스트](docs/cloudtype-deployment-checklist.md)를 따릅니다.
+- `.env.example`은 CloudType Configure 패널에 입력할 변수 이름의 참고 목록입니다. 실제 `.env`와 Secret은 저장소에 커밋하지 않습니다.
+
+Gmail SMTP는 비밀번호 재설정 이메일 기능을 활성화할 때만 설정합니다. 현재 Gmail Secret이 없어도 API와 Queue worker는 실행됩니다.
+
+## 디렉터리
+
+```text
+app/
+  api/        # FastAPI route handlers
+  core/       # 환경설정, JWT, 비밀번호 해시
+  db/         # MongoDB 연결과 인덱스 초기화
+  schemas/    # 요청·응답 모델
+  services/   # 신청, 인증, Queue, 설문, 대화문, CSV 처리
+  worker.py   # Queue worker daemon
+deploy/       # CloudType 시작 스크립트
+docs/         # API 계약, 구현 계획, 프론트 Claude 전달 기록
+tests/        # API와 서비스 테스트
+```
+
+## 문서
+
+- [API 계약](docs/api-contract.md)
+- [백엔드 구현 계획](docs/backend-implementation-plan.md)
+- [CloudType 배포 체크리스트](docs/cloudtype-deployment-checklist.md)
+- [프론트엔드 Claude 전달 기록](docs/frontend-claude-handoff.md)
+
+## 로컬 검증
+
+이 개발 서버에는 Docker와 MongoDB를 설치하지 않습니다. CloudType 연결 전에도 아래 테스트를 실행할 수 있습니다.
 
 ```bash
 python3 -m pytest -q
-```
-
-Use `.env.example` only as a list of CloudType Secret names. Do not commit a real `.env` file.
-
-## GitHub connection
-
-The backend repository is connected to GitHub. CloudType can use this repository as its backend service source.
-
-```bash
-git remote add origin <AI_US_BACKEND_GITHUB_URL>
-git add .
-git commit -m "Initialize backend project structure"
-git push -u origin main
 ```
