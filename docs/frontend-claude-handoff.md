@@ -23,7 +23,7 @@
 
 ## FH-001: API 연동 준비 사항
 
-상태: 요청 전. 백엔드 API 계약 확정 및 배포 URL 결정 뒤에 전달한다.
+상태: Pull Request 검토 중. 프론트 작업 브랜치 `backend/fh-001-api-integration`에서 신청·로그인·신청 목록/승인·CSV 등록 연동을 완료했다.
 
 ### 변경 대상
 
@@ -34,13 +34,13 @@
 | `index.html` | `PasswordReset.sendResetLink` | 즉시 성공하는 데모 Promise 대신 비밀번호 재설정 요청 API를 호출한다. |
 | `researcher.html` | `applications` 배열과 `approve()` | 신청 목록 API를 불러오고, 선택/전체 승인을 승인 API로 처리한다. |
 | `researcher.html` | `confirmBtn` 파일 등록 | 선택한 원본 CSV 파일을 연구자 CSV 등록 API로 전송한다. |
-| `researcher.html` | 결과 다운로드 버튼 | 예시 CSV 생성 대신 결과 다운로드 API의 응답 파일을 내려받는다. |
+| `researcher.html` | 결과 다운로드 버튼 | 현재는 데모 상태 유지. 화면의 전체·학교급 필터와 backend의 단일 `surveyRound`·`surveyVersion` CSV 계약을 맞춘 뒤 별도 요청으로 연결한다. |
 
 참여자 로그인 API는 구현되었으며, 성공 응답의 `needsPasswordChange`가 `true`이면 설문 패널을 열기 전에 `FH-004`의 비밀번호 변경 화면을 표시한다. 연구자 로그인과 신청 목록·승인 API도 구현되었지만, 실제 CloudType backend URL을 정한 뒤에 함께 연결한다. 연구자 화면의 기존 관리 기능은 `admin`과 `researcher` 모두 사용할 수 있으며, 연구자 계정 생성은 backend의 admin 전용 API로만 처리한다.
 
 비밀번호 재설정 이메일은 전용 Gmail 1계정의 backend SMTP 발송으로 처리한다. 프론트에는 Gmail 계정, 앱 비밀번호, SMTP 설정을 넣지 않으며, `PasswordReset.sendResetLink`는 backend 요청 성공 여부만 처리한다.
 
-Gmail 기반 비밀번호 재설정 API는 아직 활성화하지 않는다. CloudType 개발 환경에서 frontend와 backend URL이 정해진 뒤 별도 전달 ID로 연동한다.
+Gmail 기반 비밀번호 재설정 API는 아직 구현·활성화하지 않는다. `PasswordReset.sendResetLink`는 데모 상태를 유지하고 별도 전달 ID로 연동한다.
 
 CSV 등록은 `POST /api/v1/researcher/participants/imports`에 `file` 필드로 UTF-8 CSV를 전송한다. 현재 프론트의 CSV 양식인 `이름,휴대폰번호,학교급,학년`을 유지하며, Excel 업로드는 backend에서 아직 지원하지 않는다. 응답의 `createdCount`, `skippedCount`, `errors`를 기존 등록 완료 안내에 표시한다.
 
@@ -79,9 +79,10 @@ CSV 등록은 `POST /api/v1/researcher/participants/imports`에 `file` 필드로
 
 ### 작업 완료 기록
 
-- 프론트 작업 커밋: 미정
-- 검토 일자: 미정
-- 비고: 백엔드 API 구현 전에는 실제 코드 변경 요청을 보내지 않는다.
+- 프론트 작업 커밋: `3e21a19 Connect application management to backend API`
+- 검토 일자: 2026-09-07
+- Pull Request: `#1` (`backend/fh-001-api-integration` → `main`)
+- 비고: backend 공개 URL을 사용해 신청·참여자/연구자 로그인·신청 목록/승인·참여자 CSV 등록을 연결했다. 설문/대화문 결과 다운로드, 최초 비밀번호 변경 화면, 비밀번호 재설정은 후속 요청으로 남긴다.
 
 ## 다음 전달 예정 항목
 
