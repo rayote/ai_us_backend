@@ -121,7 +121,7 @@ CSV 등록은 `POST /api/v1/researcher/participants/imports`에 `file` 필드로
 
 - 프론트 작업 브랜치: `backend/fh-005-audience-validation`
 - 프론트 작업 커밋: `1dd00d6 Validate participant school audience`, `2d975cb Use explicit school audience values`
-- Pull Request: `#3` 검토 중 (`backend/fh-005-audience-validation` → `main`)
+- Pull Request: `#3` 병합 완료 (`backend/fh-005-audience-validation` → `main`), merge commit `7f5786f35ae95d68bd41a6e3058152ca109ea55a`
 - 선행 backend 커밋: `9052351 Validate participant school audience`, `e23f530 Use explicit school audience values`
 - 참여자 로그인 요청에 초등학생 토글은 `audience: "elementary"`, 중고등학생 토글은 `audience: "secondary"`를 포함한다.
 - backend가 등록 학교급과 다른 모드를 거부하면 해당 오류 메시지를 기존 로그인 오류 영역에 표시한다.
