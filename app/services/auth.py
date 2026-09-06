@@ -1,0 +1,79 @@
+from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import Any, Protocol
+
+from bson import ObjectId
+
+from app.core.security import verify_password
+
+
+@dataclass(frozen=True)
+class ParticipantAccount:
+    participant_id: str
+    phone: str
+    password_hash: str
+    must_change_password: bool
+
+
+class ParticipantAccountRepository(Protocol):
+    async def find_by_phone(self, phone: str) -> ParticipantAccount | None: ...
+
+    async def find_by_id(self, participant_id: str) -> ParticipantAccount | None: ...
+
+    async def update_password(self, participant_id: str, password_hash: str) -> bool: ...
+
+
+class MongoParticipantAccountRepository:
+    def __init__(self, collection: Any) -> None:
+        self._collection = collection
+
+    async def find_by_phone(self, phone: str) -> ParticipantAccount | None:
+        document = await self._collection.find_one({"phone_normalized": phone, "role": "participant"})
+        return self._account_from_document(document)
+
+    async def find_by_id(self, participant_id: str) -> ParticipantAccount | None:
+        document = await self._collection.find_one({"_id": ObjectId(participant_id), "role": "participant"})
+        return self._account_from_document(document)
+
+    @staticmethod
+    def _account_from_document(document: dict[str, Any] | None) -> ParticipantAccount | None:
+        if document is None:
+            return None
+        return ParticipantAccount(
+            participant_id=str(document["_id"]),
+            phone=document["phone_normalized"],
+            password_hash=document["password_hash"],
+            must_change_password=document["must_change_password"],
+        )
+
+    async def update_password(self, participant_id: str, password_hash: str) -> bool:
+        result = await self._collection.update_one(
+            {"_id": ObjectId(participant_id), "role": "participant"},
+            {"$set": {"password_hash": password_hash, "must_change_password": False}},
+        )
+        return result.modified_count == 1
+
+
+class InvalidCredentialsError(Exception):
+    """Raised when a participant cannot be authenticated."""
+
+
+class ParticipantAuthenticationService:
+    def __init__(self, repository: ParticipantAccountRepository) -> None:
+        self._repository = repository
+
+    async def authenticate(self, phone: str, password: str) -> ParticipantAccount:
+        account = await self._repository.find_by_phone(phone)
+        if account is None or not verify_password(password, account.password_hash):
+            raise InvalidCredentialsError
+        return account
+
+    async def change_password(self, participant_id: str, current_password: str, new_password: str) -> None:
+        account = await self._repository.find_by_id(participant_id)
+        if account is None or not verify_password(current_password, account.password_hash):
+            raise InvalidCredentialsError
+        from app.core.security import hash_password
+
+        if not await self._repository.update_password(participant_id, hash_password(new_password)):
+            raise InvalidCredentialsError

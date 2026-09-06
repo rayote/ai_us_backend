@@ -14,6 +14,8 @@ class Settings:
     mongodb_uri: str | None
     database_name: str
     frontend_origins: tuple[str, ...]
+    jwt_secret: str | None = None
+    jwt_expiration_minutes: int = 60
 
     @classmethod
     def from_environment(cls) -> "Settings":
@@ -22,4 +24,6 @@ class Settings:
             mongodb_uri=getenv("MONGODB_URI"),
             database_name=getenv("DATABASE_NAME", "ai_us"),
             frontend_origins=_origins_from_environment(getenv("FRONTEND_ORIGINS", "")),
+            jwt_secret=getenv("JWT_SECRET"),
+            jwt_expiration_minutes=int(getenv("JWT_EXPIRATION_MINUTES", "60")),
         )

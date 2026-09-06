@@ -86,7 +86,7 @@ API의 실제 URL과 JSON 필드명은 프론트 소스를 받은 뒤 기존 함
 | 참여자 로그인 | `POST /api/v1/auth/participant/login` | 로그인 모달 |
 | 연구자 로그인 | `POST /api/v1/auth/researcher/login` | 연구자 로그인 모달 |
 | 비밀번호 재설정 요청 | `POST /api/v1/auth/password-reset-requests` | `PasswordReset.sendResetLink` |
-| 비밀번호 변경 | `POST /api/v1/auth/password-resets/confirm` | 재설정/첫 로그인 화면 |
+| 참여자 최초 비밀번호 변경 | `POST /api/v1/auth/participant/password` | 첫 로그인 비밀번호 변경 화면 |
 | 신청 목록 | `GET /api/v1/researcher/applications` | `applications` 배열 |
 | 신청 승인 | `POST /api/v1/researcher/applications/approve` | `approve()` |
 | CSV 참여자 등록 | `POST /api/v1/researcher/participants/imports` | 파일 업로드의 `confirmBtn` |
@@ -145,10 +145,11 @@ docs/         # 프론트 연동 계약과 운영 문서
 1. `/data/ai_us_joint_research/ai_us`에 프론트 저장소를 clone한다.
 2. `AppStore.submitApplication`, `PasswordReset.sendResetLink`, 로그인 처리, `approve()`, `confirmBtn`, `downloadBlob`, `CHAT_CONSENT`와 예시 배열을 확인한다.
 3. 각 함수가 기대하는 입력·성공·실패 화면 상태를 표로 기록한다.
-4. 신청 동의값을 API 요청에 추가하고, 로그인·승인·CSV 등록·다운로드의 데모 동작을 각 API 호출로 교체한다.
-5. 설문 문항과 대화문 입력 화면이 추가되면 같은 참여자와 회차의 `localStorage` 임시 저장을 재로그인 뒤 복원하고, 제출 작업 상태가 `completed`일 때만 자동 삭제하도록 연결한다.
-6. 해당 계약에 맞춘 FastAPI 요청/응답 모델과 MongoDB 스키마를 확정한다.
-7. 백엔드 최소 기능부터 구현하고, 프론트 변경은 inline script의 API 호출부에 한정한다.
+4. 신청 동의값을 API 요청에 추가하고, 참여자 로그인 성공 뒤 `needsPasswordChange`가 `true`이면 비밀번호 변경 화면을 먼저 표시한다.
+5. 로그인·승인·CSV 등록·다운로드의 데모 동작을 각 API 호출로 교체한다.
+6. 설문 문항과 대화문 입력 화면이 추가되면 같은 참여자와 회차의 `localStorage` 임시 저장을 재로그인 뒤 복원하고, 제출 작업 상태가 `completed`일 때만 자동 삭제하도록 연결한다.
+7. 해당 계약에 맞춘 FastAPI 요청/응답 모델과 MongoDB 스키마를 확정한다.
+8. 백엔드 최소 기능부터 구현하고, 프론트 변경은 inline script의 API 호출부에 한정한다.
 
 ## 9. 연구진 확인이 필요한 결정
 

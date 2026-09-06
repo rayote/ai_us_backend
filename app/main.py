@@ -3,9 +3,11 @@ from __future__ import annotations
 from contextlib import asynccontextmanager
 
 from app.api.applications import router as applications_router
+from app.api.auth import router as auth_router
 from app.core.settings import Settings
 from app.db.mongodb import MongoDatabase
 from app.services.applications import ApplicationRepository, MongoApplicationRepository
+from app.services.auth import MongoParticipantAccountRepository, ParticipantAccountRepository
 from fastapi import FastAPI, status
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -13,12 +15,14 @@ from fastapi.middleware.cors import CORSMiddleware
 def create_app(
     settings: Settings | None = None,
     application_repository: ApplicationRepository | None = None,
+    participant_account_repository: ParticipantAccountRepository | None = None,
 ) -> FastAPI:
     application_settings = settings or Settings.from_environment()
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         database: MongoDatabase | None = None
+        app.state.settings = application_settings
         if application_repository is not None:
             app.state.application_repository = application_repository
         elif application_settings.mongodb_uri:
@@ -28,6 +32,12 @@ def create_app(
             )
             await database.connect()
             app.state.application_repository = MongoApplicationRepository(database.database["applications"])
+        if participant_account_repository is not None:
+            app.state.participant_account_repository = participant_account_repository
+        elif application_settings.mongodb_uri:
+            app.state.participant_account_repository = MongoParticipantAccountRepository(
+                database.database["participants"]
+            )
 
         yield
 
@@ -50,6 +60,7 @@ def create_app(
         return {"status": "ok", "environment": application_settings.environment}
 
     app.include_router(applications_router)
+    app.include_router(auth_router)
 
     return app
 

@@ -54,3 +54,47 @@ Failure responses:
 - `503 Service Unavailable`: MongoDB has not been configured or is unavailable.
 
 The frontend must show the current application-complete panel only after a `201` response. It must retain the input and show its existing failure message for any other response.
+
+## Participant login
+
+`POST /api/v1/auth/participant/login`
+
+```json
+{
+  "phone": "010-1234-5678",
+  "password": "1234"
+}
+```
+
+Successful response: `200 OK`
+
+```json
+{
+  "accessToken": "<JWT>",
+  "tokenType": "bearer",
+  "role": "participant",
+  "needsPasswordChange": true
+}
+```
+
+The frontend sends the access token in the `Authorization: Bearer <JWT>` header for authenticated requests. When `needsPasswordChange` is `true`, it must show the first-password-change screen before opening the survey panel.
+
+## Change participant password
+
+`POST /api/v1/auth/participant/password`
+
+```json
+{
+  "currentPassword": "1234",
+  "newPassword": "new-password-2026"
+}
+```
+
+This endpoint requires the participant bearer token. A new password must be at least 8 characters and cannot be `1234`.
+
+Successful response: `200 OK`
+
+```json
+{
+  "status": "completed"
+}
