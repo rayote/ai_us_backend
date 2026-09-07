@@ -168,7 +168,7 @@ CSV 등록은 `POST /api/v1/researcher/participants/imports`에 `file` 필드로
 
 - 프론트 작업 브랜치: `backend/fh-008-researcher-reporting`
 - 프론트 작업 커밋: `71a9350 Connect researcher reporting to backend`
-- Pull Request: `#8` 검토 중 (`backend/fh-008-researcher-reporting` → `main`)
+- Pull Request: `#8` 병합 완료 (`backend/fh-008-researcher-reporting` → `main`), merge commit `13b5726e42b6fd422de230ea5ae91bbb082d50e1`
 - 선행 backend 커밋: `ce226b7 Add researcher participation reporting API`
 - `참여 현황`은 `GET /api/v1/researcher/participation-status`를 사용해 MongoDB의 참여자 학교급별 인원과 회차별 완료 인원을 표시한다.
 - `미참여자`는 `GET /api/v1/researcher/nonparticipants?survey_round=<round>&survey_version=<version>`을 사용한다. 현재 개발 화면은 `1`회차와 `demo-v1`을 대상으로 하며, 실제 설문 정의 등록 뒤 해당 버전 선택 UI로 대체한다.
