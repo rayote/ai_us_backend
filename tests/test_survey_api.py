@@ -4,7 +4,7 @@ from app.core.security import hash_password
 from app.core.settings import Settings
 from app.main import create_app
 from app.schemas.survey import SurveyDefinition, SurveyDefinitionCreate, SurveyResponseRecord
-from app.services.auth import ResearcherAccount, ResearcherAccountRepository
+from app.services.auth import ParticipantAccount, ParticipantAccountRepository, ResearcherAccount, ResearcherAccountRepository
 from app.services.surveys import SurveyDefinitionRepository, SurveyResponseRepository
 from fastapi.testclient import TestClient
 
@@ -62,11 +62,32 @@ class InMemorySurveyResponses(SurveyResponseRepository):
         ]
 
 
+class InMemoryParticipants(ParticipantAccountRepository):
+    async def find_by_phone(self, phone: str):
+        return None
+
+    async def find_by_id(self, participant_id: str):
+        return None
+
+    async def update_password(self, participant_id: str, password_hash: str) -> bool:
+        return False
+
+    async def create(self, phone: str, password_hash: str, chat_consent: bool = False, school_level: str | None = None) -> bool:
+        return False
+
+    async def create_imported(self, phone: str, password_hash: str, name: str, school_level: str, grade: int) -> bool:
+        return False
+
+    async def list_participants(self) -> list[ParticipantAccount]:
+        return [ParticipantAccount("participant-1", "01012345678", "hash", False, school_level="초등")]
+
+
 def _client() -> TestClient:
     return TestClient(
         create_app(
             Settings("test", None, "ai_us_test", (), "test-secret-at-least-thirty-two-bytes", 60),
             researcher_account_repository=InMemoryResearchers(),
+            participant_account_repository=InMemoryParticipants(),
             survey_definition_repository=InMemorySurveyDefinitions(),
             survey_response_repository=InMemorySurveyResponses(),
         )
@@ -104,8 +125,8 @@ def test_admin_registers_definition_and_researcher_downloads_csv() -> None:
     assert create_response.status_code == 201
     assert export_response.status_code == 200
     assert export_response.headers["content-type"].startswith("text/csv")
-    assert "participantId,surveyRound,surveyVersion,submittedAt,첫 번째 문항" in export_response.text
-    assert export_response.text.endswith(",응답\r\n")
+    assert "아이디(휴대폰),학교급,학년,surveyRound,surveyVersion,submittedAt,첫 번째 문항" in export_response.text
+    assert "01012345678,초등" in export_response.text
 
 
 def test_researcher_cannot_register_survey_definition() -> None:
@@ -130,4 +151,5 @@ def test_researcher_can_preview_survey_responses() -> None:
         )
 
     assert response.status_code == 200
-    assert response.json()[0]["participantId"] == "participant-1"
+    assert response.json()[0]["phone"] == "01012345678"
+    assert response.json()[0]["schoolLevel"] == "초등"

@@ -53,13 +53,13 @@ Word or PDF sources may be parsed only after the extracted round, version, quest
 
 `GET /api/v1/researcher/exports/survey-responses?survey_round=2&survey_version=2026-round-2-v2`
 
-This endpoint accepts an `admin` or `researcher` bearer token and returns a UTF-8 BOM CSV file. The response columns follow the registered question order; missing answers remain blank.
+This endpoint accepts an `admin` or `researcher` bearer token and returns a UTF-8 BOM CSV file. It includes `아이디(휴대폰)`, `학교급`, and `학년` before the round, version, submission time, and registered question columns. The optional `school_level` query accepts `초등`, `중등`, or `고등`; missing answers remain blank.
 
 ## Preview survey responses
 
 `GET /api/v1/researcher/survey-response-previews?survey_round=2&survey_version=2026-round-2-v2`
 
-This endpoint accepts an `admin` or `researcher` bearer token and returns at most 10 matching MongoDB response records. Each preview includes the participant ID, survey round, survey version, and submission time. It returns an empty array when no response matches the selected round and version.
+This endpoint accepts an `admin` or `researcher` bearer token and returns at most 10 matching MongoDB response records. Each preview includes the participant phone identifier, school level, grade, survey round, survey version, and submission time. The optional `school_level` query accepts `초등`, `중등`, or `고등`. Internal MongoDB participant object IDs are not returned to the researcher UI. It returns an empty array when no response matches the selected conditions.
 
 ## Submit survey response
 

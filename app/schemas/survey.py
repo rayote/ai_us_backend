@@ -44,7 +44,9 @@ class SurveyResponseRecord(BaseModel):
 
 
 class SurveyResponsePreview(BaseModel):
-    participant_id: str = Field(alias="participantId")
+    phone: str
+    school_level: str | None = Field(alias="schoolLevel")
+    grade: int | None = None
     survey_round: int = Field(alias="surveyRound")
     survey_version: str = Field(alias="surveyVersion")
     submitted_at: datetime = Field(alias="submittedAt")

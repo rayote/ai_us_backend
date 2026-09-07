@@ -195,5 +195,6 @@ CSV 등록은 `POST /api/v1/researcher/participants/imports`에 `file` 필드로
 - 프론트 작업 커밋: `c43e335 Preview survey responses from backend`
 - Pull Request: `#10` 병합 완료 (`backend/fh-010-survey-preview` → `main`), merge commit `7068766efcdaa0397636d3da33e73a4cb5b99f2e`
 - 선행 backend 커밋: `be18b3e Add survey response preview API`
-- 결과 다운로드 화면의 설문 응답 미리보기는 선택된 회차·설문 버전의 실제 MongoDB 응답을 최대 10건 표시한다.
+- 결과 다운로드 화면의 설문 응답 미리보기는 선택된 회차·설문 버전·학교급 조건의 실제 MongoDB 응답을 최대 10건 표시한다. 내부 MongoDB ObjectId 대신 연구자에게 익숙한 `아이디(휴대폰)`, `학교급`, `학년`을 표시한다.
+- 설문 CSV 다운로드에도 `아이디(휴대폰)`, `학교급`, `학년`을 포함하고 화면에서 선택한 학교급을 `school_level` query로 전송한다.
 - 응답이 없으면 더미 행 대신 “해당 조건의 설문 응답이 없습니다”를 표시한다.

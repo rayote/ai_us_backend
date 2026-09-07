@@ -94,13 +94,19 @@ class MongoSurveyResponseRepository:
         return [_response_from_document(document) async for document in cursor]
 
 
-def survey_responses_to_csv(definition: SurveyDefinition, responses: list[SurveyResponseRecord]) -> str:
+def survey_responses_to_csv(
+    definition: SurveyDefinition,
+    responses: list[SurveyResponseRecord],
+    participant_profiles: dict[str, tuple[str, str | None, int | None]] | None = None,
+) -> str:
     output = io.StringIO(newline="")
     writer = csv.writer(output)
     questions = sorted(definition.questions, key=lambda question: question.order)
     writer.writerow(
         [
-            "participantId",
+            "아이디(휴대폰)",
+            "학교급",
+            "학년",
             "surveyRound",
             "surveyVersion",
             "submittedAt",
@@ -108,9 +114,12 @@ def survey_responses_to_csv(definition: SurveyDefinition, responses: list[Survey
         ]
     )
     for response in responses:
+        profile = (participant_profiles or {}).get(response.participant_id, ("-", None, None))
         writer.writerow(
             [
-                response.participant_id,
+                profile[0],
+                profile[1] or "",
+                profile[2] or "",
                 response.survey_round,
                 response.survey_version,
                 response.submitted_at.isoformat(),

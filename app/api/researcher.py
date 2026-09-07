@@ -149,15 +149,25 @@ async def export_survey_responses(
     survey_round: int,
     survey_version: str,
     request: Request,
+    school_level: Literal["초등", "중등", "고등"] | None = None,
     _: str = Depends(require_researcher),
 ) -> Response:
     definition = await _survey_definition_repository(request).get(survey_round, survey_version)
     if definition is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="설문 정의를 찾을 수 없습니다.")
     responses = await _survey_response_repository(request).list_responses(survey_round, survey_version)
+    participants: ParticipantAccountRepository | None = getattr(request.app.state, "participant_account_repository", None)
+    if participants is None:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="참여자 정보를 준비 중입니다.")
+    profiles = {
+        participant.participant_id: (participant.phone, participant.school_level, participant.grade)
+        for participant in await participants.list_participants()
+    }
+    if school_level is not None:
+        responses = [response for response in responses if profiles.get(response.participant_id, ("-", None, None))[1] == school_level]
     filename = f"survey-responses-round-{survey_round}-{survey_version}.csv"
     return Response(
-        content="\ufeff" + survey_responses_to_csv(definition, responses),
+        content="\ufeff" + survey_responses_to_csv(definition, responses, profiles),
         media_type="text/csv; charset=utf-8",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
@@ -168,12 +178,24 @@ async def survey_response_previews(
     survey_round: int,
     survey_version: str,
     request: Request,
+    school_level: Literal["초등", "중등", "고등"] | None = None,
     _: str = Depends(require_researcher),
 ) -> list[SurveyResponsePreview]:
     responses = await _survey_response_repository(request).list_responses(survey_round, survey_version)
+    participants: ParticipantAccountRepository | None = getattr(request.app.state, "participant_account_repository", None)
+    if participants is None:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="참여자 정보를 준비 중입니다.")
+    profiles = {
+        participant.participant_id: (participant.phone, participant.school_level, participant.grade)
+        for participant in await participants.list_participants()
+    }
+    if school_level is not None:
+        responses = [response for response in responses if profiles.get(response.participant_id, ("-", None, None))[1] == school_level]
     return [
         SurveyResponsePreview(
-            participantId=response.participant_id,
+            phone=profiles.get(response.participant_id, ("-", None, None))[0],
+            schoolLevel=profiles.get(response.participant_id, ("-", None, None))[1],
+            grade=profiles.get(response.participant_id, ("-", None, None))[2],
             surveyRound=response.survey_round,
             surveyVersion=response.survey_version,
             submittedAt=response.submitted_at,
