@@ -5,12 +5,12 @@ from typing import Literal
 from app.api.auth import require_researcher
 from app.schemas.application import ApplicationApproval, ApplicationApprovalCompleted, ApplicationRecord
 from app.schemas.imports import ParticipantImportResult
+from app.schemas.reporting import NonparticipantReport, ParticipationStatus
 from app.services.applications import ApplicationRepository
 from app.services.approvals import ApplicationApprovalService, ExistingParticipantError
 from app.services.auth import ParticipantAccountRepository
 from app.services.chats import ChatSubmissionRepository, chat_submissions_to_csv
 from app.services.imports import ParticipantImportService
-from app.schemas.reporting import NonparticipantReport, ParticipationStatus
 from app.services.reporting import ResearcherReportingService
 from app.services.surveys import SurveyDefinitionRepository, SurveyResponseRepository, survey_responses_to_csv
 from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile, status
@@ -76,10 +76,14 @@ def _chat_submission_repository(request: Request) -> ChatSubmissionRepository:
 
 
 def _reporting_service(request: Request) -> ResearcherReportingService:
-    participants: ParticipantAccountRepository | None = getattr(request.app.state, "participant_account_repository", None)
+    participants: ParticipantAccountRepository | None = getattr(
+        request.app.state, "participant_account_repository", None
+    )
     responses: SurveyResponseRepository | None = getattr(request.app.state, "survey_response_repository", None)
     if participants is None or responses is None:
-        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="참여 현황 서비스를 준비 중입니다.")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="참여 현황 서비스를 준비 중입니다."
+        )
     return ResearcherReportingService(participants, responses)
 
 

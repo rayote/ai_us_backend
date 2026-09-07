@@ -1,6 +1,12 @@
 from __future__ import annotations
 
-from app.schemas.reporting import NonparticipantRecord, NonparticipantReport, ParticipationStatus, SchoolLevelCount, SurveyRoundCount
+from app.schemas.reporting import (
+    NonparticipantRecord,
+    NonparticipantReport,
+    ParticipationStatus,
+    SchoolLevelCount,
+    SurveyRoundCount,
+)
 from app.services.auth import ParticipantAccountRepository
 from app.services.surveys import SurveyResponseRepository
 

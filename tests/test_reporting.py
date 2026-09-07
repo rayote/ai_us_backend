@@ -24,7 +24,9 @@ class InMemoryParticipants(ParticipantAccountRepository):
     async def update_password(self, participant_id: str, password_hash: str) -> bool:
         return False
 
-    async def create(self, phone: str, password_hash: str, chat_consent: bool = False, school_level: str | None = None) -> bool:
+    async def create(
+        self, phone: str, password_hash: str, chat_consent: bool = False, school_level: str | None = None
+    ) -> bool:
         return False
 
     async def create_imported(self, phone: str, password_hash: str, name: str, school_level: str, grade: int) -> bool:
@@ -40,13 +42,23 @@ class InMemoryResponses(SurveyResponseRepository):
 
     async def list_responses(self, survey_round: int, survey_version: str) -> list[SurveyResponseRecord]:
         return [
-            SurveyResponseRecord(participantId="1", surveyRound=survey_round, surveyVersion=survey_version, answers={}, submittedAt=datetime.now(UTC))
+            SurveyResponseRecord(
+                participantId="1",
+                surveyRound=survey_round,
+                surveyVersion=survey_version,
+                answers={},
+                submittedAt=datetime.now(UTC),
+            )
         ]
 
     async def list_all_responses(self) -> list[SurveyResponseRecord]:
         return [
-            SurveyResponseRecord(participantId="1", surveyRound=1, surveyVersion="v1", answers={}, submittedAt=datetime.now(UTC)),
-            SurveyResponseRecord(participantId="2", surveyRound=1, surveyVersion="v1", answers={}, submittedAt=datetime.now(UTC)),
+            SurveyResponseRecord(
+                participantId="1", surveyRound=1, surveyVersion="v1", answers={}, submittedAt=datetime.now(UTC)
+            ),
+            SurveyResponseRecord(
+                participantId="2", surveyRound=1, surveyVersion="v1", answers={}, submittedAt=datetime.now(UTC)
+            ),
         ]
 
 
