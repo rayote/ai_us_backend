@@ -173,6 +173,7 @@ CSV 등록은 `POST /api/v1/researcher/participants/imports`에 `file` 필드로
 - `참여 현황`은 `GET /api/v1/researcher/participation-status`를 사용해 MongoDB의 참여자 학교급별 인원과 회차별 완료 인원을 표시한다.
 - `미참여자`는 `GET /api/v1/researcher/nonparticipants?survey_round=<round>&survey_version=<version>`을 사용한다. 현재 개발 화면은 `1`회차와 `demo-v1`을 대상으로 하며, 실제 설문 정의 등록 뒤 해당 버전 선택 UI로 대체한다.
 - 설문 결과 다운로드는 회차와 설문 버전을 명시해 `GET /api/v1/researcher/exports/survey-responses`의 CSV 응답을 내려받는다.
+- 설문 결과 미리보기는 `GET /api/v1/researcher/survey-response-previews`로 최근 최대 10건의 실제 MongoDB 응답 메타데이터를 표시한다. 선택 조건에 결과가 없으면 더미 행 대신 “해당 조건의 설문 응답이 없습니다”를 표시한다.
 - AI 대화문 결과 다운로드는 `GET /api/v1/researcher/exports/chat-submissions`에 제출 시점과 학교급 필터를 전송해 실제 CSV를 내려받는다.
 - 실제 설문 버전 목록 UI는 후속 작업이다.
 

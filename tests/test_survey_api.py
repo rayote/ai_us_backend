@@ -118,3 +118,16 @@ def test_researcher_cannot_register_survey_definition() -> None:
         )
 
     assert response.status_code == 403
+
+
+def test_researcher_can_preview_survey_responses() -> None:
+    with _client() as client:
+        researcher_token = _token(client, "researcher", "researcher-password")
+        response = client.get(
+            "/api/v1/researcher/survey-response-previews",
+            headers={"Authorization": f"Bearer {researcher_token}"},
+            params={"survey_round": 2, "survey_version": "2026-round-2-v2"},
+        )
+
+    assert response.status_code == 200
+    assert response.json()[0]["participantId"] == "participant-1"

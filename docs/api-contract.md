@@ -55,6 +55,12 @@ Word or PDF sources may be parsed only after the extracted round, version, quest
 
 This endpoint accepts an `admin` or `researcher` bearer token and returns a UTF-8 BOM CSV file. The response columns follow the registered question order; missing answers remain blank.
 
+## Preview survey responses
+
+`GET /api/v1/researcher/survey-response-previews?survey_round=2&survey_version=2026-round-2-v2`
+
+This endpoint accepts an `admin` or `researcher` bearer token and returns at most 10 matching MongoDB response records. Each preview includes the participant ID, survey round, survey version, and submission time. It returns an empty array when no response matches the selected round and version.
+
 ## Submit survey response
 
 `POST /api/v1/survey-responses`

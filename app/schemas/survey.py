@@ -43,6 +43,13 @@ class SurveyResponseRecord(BaseModel):
     submitted_at: datetime = Field(alias="submittedAt")
 
 
+class SurveyResponsePreview(BaseModel):
+    participant_id: str = Field(alias="participantId")
+    survey_round: int = Field(alias="surveyRound")
+    survey_version: str = Field(alias="surveyVersion")
+    submitted_at: datetime = Field(alias="submittedAt")
+
+
 class SurveySubmissionCreate(BaseModel):
     survey_round: int = Field(alias="surveyRound", ge=1)
     survey_version: str = Field(alias="surveyVersion", min_length=1, max_length=100)

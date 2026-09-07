@@ -6,6 +6,7 @@ from app.api.auth import require_researcher
 from app.schemas.application import ApplicationApproval, ApplicationApprovalCompleted, ApplicationRecord
 from app.schemas.imports import ParticipantImportResult
 from app.schemas.reporting import NonparticipantReport, ParticipationStatus
+from app.schemas.survey import SurveyResponsePreview
 from app.services.applications import ApplicationRepository
 from app.services.approvals import ApplicationApprovalService, ExistingParticipantError
 from app.services.auth import ParticipantAccountRepository
@@ -160,6 +161,25 @@ async def export_survey_responses(
         media_type="text/csv; charset=utf-8",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
+
+
+@router.get("/survey-response-previews", response_model=list[SurveyResponsePreview])
+async def survey_response_previews(
+    survey_round: int,
+    survey_version: str,
+    request: Request,
+    _: str = Depends(require_researcher),
+) -> list[SurveyResponsePreview]:
+    responses = await _survey_response_repository(request).list_responses(survey_round, survey_version)
+    return [
+        SurveyResponsePreview(
+            participantId=response.participant_id,
+            surveyRound=response.survey_round,
+            surveyVersion=response.survey_version,
+            submittedAt=response.submitted_at,
+        )
+        for response in responses[:10]
+    ]
 
 
 @router.get("/exports/chat-submissions")
