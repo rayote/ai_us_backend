@@ -21,9 +21,11 @@ def test_chat_export_includes_raw_input_and_normalized_transcript() -> None:
                 ),
                 submittedAt=datetime(2026, 9, 7, 12, 0, tzinfo=UTC),
             )
-        ]
+        ],
+        {"participant-1": ("홍길동", "초등", 4)},
     )
 
-    assert csv_text.splitlines()[0].endswith("plainText,rawInput")
+    assert csv_text.splitlines()[0].startswith("participantId,name,schoolLevel,grade")
+    assert "홍길동,초등,4" in csv_text
     assert "user: 안녕하세요" in csv_text
     assert "사용자: 안녕하세요" in csv_text

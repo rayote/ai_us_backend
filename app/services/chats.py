@@ -106,12 +106,18 @@ async def store_chat_submission(payload: dict[str, object], repository: ChatSubm
     )
 
 
-def chat_submissions_to_csv(submissions: list[ChatSubmissionRecord]) -> str:
+def chat_submissions_to_csv(
+    submissions: list[ChatSubmissionRecord],
+    participant_profiles: dict[str, tuple[str | None, str | None, int | None]] | None = None,
+) -> str:
     output = io.StringIO(newline="")
     writer = csv.writer(output)
     writer.writerow(
         [
             "participantId",
+            "name",
+            "schoolLevel",
+            "grade",
             "submissionPoint",
             "sourceType",
             "submittedAt",
@@ -123,9 +129,13 @@ def chat_submissions_to_csv(submissions: list[ChatSubmissionRecord]) -> str:
         ]
     )
     for submission in submissions:
+        profile = (participant_profiles or {}).get(submission.participant_id, (None, None, None))
         writer.writerow(
             [
                 submission.participant_id,
+                profile[0] or "",
+                profile[1] or "",
+                profile[2] or "",
                 submission.submission_point,
                 submission.source_type,
                 submission.submitted_at.isoformat(),

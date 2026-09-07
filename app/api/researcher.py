@@ -165,10 +165,21 @@ async def export_survey_responses(
 @router.get("/exports/chat-submissions")
 async def export_chat_submissions(
     submission_point: Literal["afterRound1", "afterRound4"] | None = None,
+    school_level: Literal["초등", "중등", "고등"] | None = None,
     request: Request = None,
     _: str = Depends(require_researcher),
 ) -> Response:
-    csv_text = chat_submissions_to_csv(await _chat_submission_repository(request).list_submissions(submission_point))
+    participants: ParticipantAccountRepository | None = getattr(request.app.state, "participant_account_repository", None)
+    if participants is None:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="참여자 정보를 준비 중입니다.")
+    profiles = {
+        participant.participant_id: (participant.name, participant.school_level, participant.grade)
+        for participant in await participants.list_participants()
+    }
+    submissions = await _chat_submission_repository(request).list_submissions(submission_point)
+    if school_level is not None:
+        submissions = [submission for submission in submissions if profiles.get(submission.participant_id, (None, None, None))[1] == school_level]
+    csv_text = chat_submissions_to_csv(submissions, profiles)
     point_name = submission_point or "all"
     return Response(
         content="\ufeff" + csv_text,

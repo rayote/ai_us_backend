@@ -112,7 +112,7 @@ The backend stores `rawInput` separately from the normalized transcript. The cur
 
 `GET /api/v1/researcher/exports/chat-submissions?submission_point=afterRound1`
 
-This endpoint accepts an `admin` or `researcher` bearer token. It returns a UTF-8 BOM CSV containing the original input, normalized transcript, parser status, parser version, and parser warnings. The optional `submission_point` is `afterRound1` or `afterRound4`.
+This endpoint accepts an `admin` or `researcher` bearer token. It returns a UTF-8 BOM CSV containing the participant ID, name, school level, grade, original input, normalized transcript, parser status, parser version, and parser warnings. The optional `submission_point` is `afterRound1` or `afterRound4`; the optional `school_level` is `초등`, `중등`, or `고등`.
 
 ## Researcher login
 

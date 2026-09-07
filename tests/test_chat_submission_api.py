@@ -40,6 +40,9 @@ class InMemoryParticipants(ParticipantAccountRepository):
     async def create_imported(self, phone: str, password_hash: str, name: str, school_level: str, grade: int) -> bool:
         return False
 
+    async def list_participants(self) -> list[ParticipantAccount]:
+        return [self.account]
+
 
 class InMemoryJobs(JobRepository):
     def __init__(self) -> None:

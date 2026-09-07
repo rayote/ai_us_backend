@@ -173,4 +173,11 @@ CSV 등록은 `POST /api/v1/researcher/participants/imports`에 `file` 필드로
 - `참여 현황`은 `GET /api/v1/researcher/participation-status`를 사용해 MongoDB의 참여자 학교급별 인원과 회차별 완료 인원을 표시한다.
 - `미참여자`는 `GET /api/v1/researcher/nonparticipants?survey_round=<round>&survey_version=<version>`을 사용한다. 현재 개발 화면은 `1`회차와 `demo-v1`을 대상으로 하며, 실제 설문 정의 등록 뒤 해당 버전 선택 UI로 대체한다.
 - 설문 결과 다운로드는 회차와 설문 버전을 명시해 `GET /api/v1/researcher/exports/survey-responses`의 CSV 응답을 내려받는다.
-- AI 대화문 결과 다운로드와 실제 설문 버전 목록 UI는 후속 작업이다.
+- AI 대화문 결과 다운로드는 `GET /api/v1/researcher/exports/chat-submissions`에 제출 시점과 학교급 필터를 전송해 실제 CSV를 내려받는다.
+- 실제 설문 버전 목록 UI는 후속 작업이다.
+
+### FH-009: AI 대화문 결과 다운로드
+
+- 프론트 작업 브랜치: `backend/fh-009-chat-export`
+- 연구자 화면의 대화문 1/2 선택은 각각 `afterRound1`/`afterRound4`로 변환하고, 학교급 선택은 `school_level` query로 전송한다.
+- backend CSV에는 참여자 ID, 이름, 학교급, 학년, 원본 입력, 정규화 대화문, parser 상태·경고가 포함된다.
