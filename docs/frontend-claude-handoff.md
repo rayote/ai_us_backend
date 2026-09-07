@@ -104,11 +104,15 @@ CSV 등록은 `POST /api/v1/researcher/participants/imports`에 `file` 필드로
 - 프론트 작업 브랜치: `backend/fh-002-dummy-survey-sync`
 - 프론트 작업 커밋: `9448063 Add dummy survey queue integration`
 - Pull Request: `#6` 병합 완료 (`backend/fh-002-dummy-survey-sync` → `main`), merge commit `5ce5b44e6e7c3f31c38faf80bff1a7e23a530b84`
+- 후속 프론트 작업 커밋: `7233b83 Lock completed dummy survey`
+- 후속 Pull Request: `#7` 검토 중 (`frontend/lock-completed-dummy-survey` → `main`)
 - 선행 backend 커밋: `5edcd64 Fix survey definition MongoDB storage`
 - 개발 환경에서만 `surveyRound: 1`, `surveyVersion: "demo-v1"`의 3문항 더미 설문을 사용한다. 실제 연구 문항·디자인으로 대체할 때 제거한다.
 - 임시 저장 키는 참여자 휴대폰 번호, `surveyRound`, `surveyVersion`으로 구분한다.
 - 입력 변경과 30초 간격으로 `localStorage`에 저장하고, 다시 열면 임시 내용을 복원한다.
 - 최종 제출은 Queue에 접수한 뒤 `completed`일 때만 임시 저장을 삭제한다.
+- `completed` 뒤에는 해당 더미 설문의 입력과 제출 버튼을 잠가 30초 임시 저장 타이머나 중복 클릭이 새 제출을 만들지 않게 한다.
+- 현재는 동일 참여자·회차·버전의 최종 응답을 1건으로 제한한다. “다시 최종 제출하기”는 기존 응답 갱신 정책을 확정한 뒤 별도 요청으로 구현한다.
 - backend의 `demo-v1` 설문 정의 등록은 `csvColumn` alias 저장 수정이 배포된 뒤 수행한다.
 
 ### FH-003: AI 대화문 제출

@@ -81,7 +81,7 @@ Successful response: `202 Accepted`
 }
 ```
 
-The frontend keeps its `localStorage` draft until the status endpoint reports `completed`.
+The frontend keeps its `localStorage` draft until the status endpoint reports `completed`. It then deletes the draft and locks that survey round/version against another automatic submission. A future explicit resubmission feature requires a separate update policy; the current response storage treats a participant, round, and version as one final response.
 
 ## Get survey submission status
 

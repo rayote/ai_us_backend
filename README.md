@@ -32,7 +32,7 @@ CloudType Secret의 bootstrap 계정은 최초 backend 실행 시 `admin`으로 
 
 ## 설문과 Queue
 
-설문 작성 중 임시 데이터는 프론트엔드가 약 30초 간격으로 브라우저 `localStorage`에 저장합니다. 최종 제출은 API가 Queue에 먼저 접수하고 `202 Accepted` 및 `submissionId`를 반환합니다. 같은 backend 컨테이너의 worker daemon이 MongoDB에 저장한 뒤 상태를 `completed`로 전환합니다. 프론트는 이 상태를 확인한 경우에만 임시 저장을 삭제합니다.
+설문 작성 중 임시 데이터는 프론트엔드가 약 30초 간격으로 브라우저 `localStorage`에 저장합니다. 최종 제출은 API가 Queue에 먼저 접수하고 `202 Accepted` 및 `submissionId`를 반환합니다. 같은 backend 컨테이너의 worker daemon이 MongoDB에 저장한 뒤 상태를 `completed`로 전환합니다. 프론트는 이 상태를 확인한 경우에만 임시 저장을 삭제하고 해당 회차의 입력·제출을 잠급니다.
 
 설문지는 회차별로 변경될 수 있으므로 다음 값을 함께 사용합니다.
 
