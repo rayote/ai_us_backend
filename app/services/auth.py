@@ -16,6 +16,8 @@ class ParticipantAccount:
     must_change_password: bool
     chat_consent: bool = False
     school_level: str | None = None
+    name: str | None = None
+    grade: int | None = None
 
 
 class ParticipantAccountRepository(Protocol):
@@ -32,6 +34,8 @@ class ParticipantAccountRepository(Protocol):
     async def create_imported(
         self, phone: str, password_hash: str, name: str, school_level: str, grade: int
     ) -> bool: ...
+
+    async def list_participants(self) -> list[ParticipantAccount]: ...
 
 
 class MongoParticipantAccountRepository:
@@ -57,6 +61,8 @@ class MongoParticipantAccountRepository:
             must_change_password=document["must_change_password"],
             chat_consent=document.get("chat_consent", False),
             school_level=document.get("school_level"),
+            name=document.get("name"),
+            grade=document.get("grade"),
         )
 
     async def update_password(self, participant_id: str, password_hash: str) -> bool:
@@ -101,6 +107,10 @@ class MongoParticipantAccountRepository:
         except DuplicateKeyError:
             return False
         return True
+
+    async def list_participants(self) -> list[ParticipantAccount]:
+        cursor = self._collection.find({"role": "participant"})
+        return [self._account_from_document(document) async for document in cursor]
 
 
 @dataclass(frozen=True)

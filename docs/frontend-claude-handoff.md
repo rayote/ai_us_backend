@@ -107,7 +107,8 @@ CSV 등록은 `POST /api/v1/researcher/participants/imports`에 `file` 필드로
 - 후속 프론트 작업 커밋: `7233b83 Lock completed dummy survey`
 - 후속 Pull Request: `#7` 병합 완료 (`frontend/lock-completed-dummy-survey` → `main`), merge commit `230052552bbc89832227cfe538588b13f147bc19`
 - 선행 backend 커밋: `5edcd64 Fix survey definition MongoDB storage`
-- 개발 환경에서만 `surveyRound: 1`, `surveyVersion: "demo-v1"`의 3문항 더미 설문을 사용한다. 실제 연구 문항·디자인으로 대체할 때 제거한다.
+- **TODO - 실제 설문으로 교체:** 현재 `설문 연동 확인` 모달과 `surveyRound: 1`, `surveyVersion: "demo-v1"`의 3문항은 개발 환경 확인용 더미 설문이다. 실제 연구 설문 문항·디자인이 준비되면 이 모달과 더미 문항을 제거하고, 확정된 회차·버전·문항 키를 사용한 실제 설문 화면으로 대체한다.
+- 실제 설문 화면으로 교체할 때도 아래 임시 저장·Queue 완료 확인 계약은 유지한다. 디자인·문항 UI만 교체하고 `surveyRound`, `surveyVersion`, `answers`, `submissionId` 요청 구조는 backend API 계약에 맞춘다.
 - 임시 저장 키는 참여자 휴대폰 번호, `surveyRound`, `surveyVersion`으로 구분한다.
 - 입력 변경과 30초 간격으로 `localStorage`에 저장하고, 다시 열면 임시 내용을 복원한다.
 - 최종 제출은 Queue에 접수한 뒤 `completed`일 때만 임시 저장을 삭제한다.
@@ -162,3 +163,10 @@ CSV 등록은 `POST /api/v1/researcher/participants/imports`에 `file` 필드로
 - 연구자 로그아웃은 access token과 역할을 삭제한 뒤 홈으로 이동한다.
 - 참여자 휴대폰 번호 자동 하이픈 처리 중 입력 커서 위치를 유지한다.
 - CSV 등록은 이미 `participants.phone_normalized` 고유 인덱스와 `DuplicateKeyError` 처리로 중복 휴대폰 번호를 생성하지 않으며, 결과를 `skippedCount`로 반환한다.
+
+### FH-008: 연구자 관리 화면 실제 데이터 연동
+
+- `참여 현황`은 `GET /api/v1/researcher/participation-status`를 사용해 MongoDB의 참여자 학교급별 인원과 회차별 완료 인원을 표시한다.
+- `미참여자`는 `GET /api/v1/researcher/nonparticipants?survey_round=<round>&survey_version=<version>`을 사용한다. 현재 개발 화면은 `1`회차와 `demo-v1`을 대상으로 하며, 실제 설문 정의 등록 뒤 해당 버전 선택 UI로 대체한다.
+- 설문 결과 다운로드는 회차와 설문 버전을 명시해 `GET /api/v1/researcher/exports/survey-responses`의 CSV 응답을 내려받는다.
+- AI 대화문 결과 다운로드와 실제 설문 버전 목록 UI는 후속 작업이다.

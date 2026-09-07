@@ -24,6 +24,8 @@ class SurveyResponseRepository(Protocol):
 
     async def list_responses(self, survey_round: int, survey_version: str) -> list[SurveyResponseRecord]: ...
 
+    async def list_all_responses(self) -> list[SurveyResponseRecord]: ...
+
 
 def _definition_from_document(document: dict[str, Any]) -> SurveyDefinition:
     return SurveyDefinition(
@@ -85,6 +87,10 @@ class MongoSurveyResponseRepository:
         cursor = self._collection.find({"survey_round": survey_round, "survey_version": survey_version}).sort(
             "submitted_at", 1
         )
+        return [_response_from_document(document) async for document in cursor]
+
+    async def list_all_responses(self) -> list[SurveyResponseRecord]:
+        cursor = self._collection.find({}).sort("submitted_at", 1)
         return [_response_from_document(document) async for document in cursor]
 
 

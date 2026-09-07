@@ -10,6 +10,8 @@ from app.services.approvals import ApplicationApprovalService, ExistingParticipa
 from app.services.auth import ParticipantAccountRepository
 from app.services.chats import ChatSubmissionRepository, chat_submissions_to_csv
 from app.services.imports import ParticipantImportService
+from app.schemas.reporting import NonparticipantReport, ParticipationStatus
+from app.services.reporting import ResearcherReportingService
 from app.services.surveys import SurveyDefinitionRepository, SurveyResponseRepository, survey_responses_to_csv
 from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile, status
 from fastapi.responses import Response
@@ -73,6 +75,14 @@ def _chat_submission_repository(request: Request) -> ChatSubmissionRepository:
     return repository
 
 
+def _reporting_service(request: Request) -> ResearcherReportingService:
+    participants: ParticipantAccountRepository | None = getattr(request.app.state, "participant_account_repository", None)
+    responses: SurveyResponseRepository | None = getattr(request.app.state, "survey_response_repository", None)
+    if participants is None or responses is None:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="참여 현황 서비스를 준비 중입니다.")
+    return ResearcherReportingService(participants, responses)
+
+
 @router.get("/applications", response_model=list[ApplicationRecord])
 async def list_applications(
     school_level: Literal["elementary", "middle", "high"] | None = None,
@@ -109,6 +119,24 @@ async def import_participants(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="CSV 파일만 업로드할 수 있습니다."
         )
     return await _participant_import_service(request).import_csv(await file.read())
+
+
+@router.get("/participation-status", response_model=ParticipationStatus)
+async def participation_status(
+    request: Request,
+    _: str = Depends(require_researcher),
+) -> ParticipationStatus:
+    return await _reporting_service(request).participation_status()
+
+
+@router.get("/nonparticipants", response_model=NonparticipantReport)
+async def nonparticipants(
+    survey_round: int,
+    survey_version: str,
+    request: Request,
+    _: str = Depends(require_researcher),
+) -> NonparticipantReport:
+    return await _reporting_service(request).nonparticipants(survey_round, survey_version)
 
 
 @router.get("/exports/survey-responses")

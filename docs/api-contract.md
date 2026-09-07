@@ -157,6 +157,18 @@ For each pending application, approval creates a participant account with the ha
 
 If the same phone number has already been created through CSV import or a prior approval, the endpoint returns `409 Conflict` and leaves the application pending for researcher review.
 
+## Researcher participation reports
+
+Both endpoints require an `admin` or `researcher` bearer token.
+
+`GET /api/v1/researcher/participation-status`
+
+Returns participant totals by elementary, middle, high, and total, plus unique completed participant counts by survey round.
+
+`GET /api/v1/researcher/nonparticipants?survey_round=1&survey_version=demo-v1`
+
+Returns the participants without a completed response for the specified survey round and version, with counts by school level. The frontend development dashboard currently uses the `demo-v1` version; replace it when the real questionnaire definition is registered.
+
 ## Import participants from CSV
 
 `POST /api/v1/researcher/participants/imports`
