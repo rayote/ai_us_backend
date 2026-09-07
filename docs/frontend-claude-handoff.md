@@ -190,7 +190,7 @@ CSV 등록은 `POST /api/v1/researcher/participants/imports`에 `file` 필드로
 
 - 프론트 작업 브랜치: `backend/fh-010-survey-preview`
 - 프론트 작업 커밋: `c43e335 Preview survey responses from backend`
-- Pull Request: `#10` 검토 중 (`backend/fh-010-survey-preview` → `main`)
+- Pull Request: `#10` 병합 완료 (`backend/fh-010-survey-preview` → `main`), merge commit `7068766efcdaa0397636d3da33e73a4cb5b99f2e`
 - 선행 backend 커밋: `be18b3e Add survey response preview API`
 - 결과 다운로드 화면의 설문 응답 미리보기는 선택된 회차·설문 버전의 실제 MongoDB 응답을 최대 10건 표시한다.
 - 응답이 없으면 더미 행 대신 “해당 조건의 설문 응답이 없습니다”를 표시한다.
