@@ -105,7 +105,7 @@ CSV 등록은 `POST /api/v1/researcher/participants/imports`에 `file` 필드로
 - 프론트 작업 커밋: `9448063 Add dummy survey queue integration`
 - Pull Request: `#6` 병합 완료 (`backend/fh-002-dummy-survey-sync` → `main`), merge commit `5ce5b44e6e7c3f31c38faf80bff1a7e23a530b84`
 - 후속 프론트 작업 커밋: `7233b83 Lock completed dummy survey`
-- 후속 Pull Request: `#7` 검토 중 (`frontend/lock-completed-dummy-survey` → `main`)
+- 후속 Pull Request: `#7` 병합 완료 (`frontend/lock-completed-dummy-survey` → `main`), merge commit `230052552bbc89832227cfe538588b13f147bc19`
 - 선행 backend 커밋: `5edcd64 Fix survey definition MongoDB storage`
 - 개발 환경에서만 `surveyRound: 1`, `surveyVersion: "demo-v1"`의 3문항 더미 설문을 사용한다. 실제 연구 문항·디자인으로 대체할 때 제거한다.
 - 임시 저장 키는 참여자 휴대폰 번호, `surveyRound`, `surveyVersion`으로 구분한다.
