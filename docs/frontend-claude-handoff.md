@@ -198,3 +198,12 @@ CSV 등록은 `POST /api/v1/researcher/participants/imports`에 `file` 필드로
 - 결과 다운로드 화면의 설문 응답 미리보기는 선택된 회차·설문 버전·학교급 조건의 실제 MongoDB 응답을 최대 10건 표시한다. 내부 MongoDB ObjectId 대신 연구자에게 익숙한 `아이디(휴대폰)`, `학교급`, `학년`을 표시한다.
 - 설문 CSV 다운로드에도 `아이디(휴대폰)`, `학교급`, `학년`을 포함하고 화면에서 선택한 학교급을 `school_level` query로 전송한다.
 - 응답이 없으면 더미 행 대신 “해당 조건의 설문 응답이 없습니다”를 표시한다.
+
+### FH-011: 설문 결과 참여자 프로필
+
+- 프론트 작업 브랜치: `backend/fh-011-survey-profile-export`
+- 프론트 작업 커밋: `74df11c Show participant profiles in survey results`
+- Pull Request: `#11` 검토 중 (`backend/fh-011-survey-profile-export` → `main`)
+- 선행 backend 커밋: `9d83ccc Include participant profiles in survey exports`
+- 설문 결과 미리보기와 CSV에는 내부 MongoDB ObjectId 대신 `아이디(휴대폰)`, `학교급`, `학년`을 포함한다.
+- 화면의 학교급 선택을 preview와 CSV export API의 `school_level` query에 전송한다.
