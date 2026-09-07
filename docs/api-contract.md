@@ -53,7 +53,7 @@ Word or PDF sources may be parsed only after the extracted round, version, quest
 
 `GET /api/v1/researcher/exports/survey-responses?survey_round=2&survey_version=2026-round-2-v2`
 
-This endpoint accepts an `admin` or `researcher` bearer token and returns a UTF-8 BOM CSV file. It includes `아이디(휴대폰)`, `학교급`, and `학년` before the round, version, submission time, and registered question columns. The optional `school_level` query accepts `초등`, `중등`, or `고등`; missing answers remain blank.
+This endpoint accepts an `admin` or `researcher` bearer token and returns a UTF-8 BOM CSV file. It includes `아이디(휴대폰)`, `학교급`, and `학년` before the round, version, submission time, and registered question columns. Phone values are exported as Excel text formulas so their leading `0` is preserved when the CSV is opened in Excel. The optional `school_level` query accepts `초등`, `중등`, or `고등`; missing answers remain blank.
 
 ## Preview survey responses
 

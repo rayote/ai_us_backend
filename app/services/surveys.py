@@ -117,7 +117,7 @@ def survey_responses_to_csv(
         profile = (participant_profiles or {}).get(response.participant_id, ("-", None, None))
         writer.writerow(
             [
-                profile[0],
+                _excel_text(profile[0]),
                 profile[1] or "",
                 profile[2] or "",
                 response.survey_round,
@@ -127,6 +127,10 @@ def survey_responses_to_csv(
             ]
         )
     return output.getvalue()
+
+
+def _excel_text(value: str) -> str:
+    return f'="{value}"' if value and value != "-" else value
 
 
 def _csv_value(value: object | None) -> object:

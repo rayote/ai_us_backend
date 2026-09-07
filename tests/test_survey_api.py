@@ -133,7 +133,7 @@ def test_admin_registers_definition_and_researcher_downloads_csv() -> None:
     assert export_response.status_code == 200
     assert export_response.headers["content-type"].startswith("text/csv")
     assert "아이디(휴대폰),학교급,학년,surveyRound,surveyVersion,submittedAt,첫 번째 문항" in export_response.text
-    assert "01012345678,초등" in export_response.text
+    assert '"=""01012345678""",초등' in export_response.text
 
 
 def test_researcher_cannot_register_survey_definition() -> None:
