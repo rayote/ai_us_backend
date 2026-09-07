@@ -169,7 +169,9 @@ async def export_chat_submissions(
     request: Request = None,
     _: str = Depends(require_researcher),
 ) -> Response:
-    participants: ParticipantAccountRepository | None = getattr(request.app.state, "participant_account_repository", None)
+    participants: ParticipantAccountRepository | None = getattr(
+        request.app.state, "participant_account_repository", None
+    )
     if participants is None:
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="참여자 정보를 준비 중입니다.")
     profiles = {
@@ -178,7 +180,11 @@ async def export_chat_submissions(
     }
     submissions = await _chat_submission_repository(request).list_submissions(submission_point)
     if school_level is not None:
-        submissions = [submission for submission in submissions if profiles.get(submission.participant_id, (None, None, None))[1] == school_level]
+        submissions = [
+            submission
+            for submission in submissions
+            if profiles.get(submission.participant_id, (None, None, None))[1] == school_level
+        ]
     csv_text = chat_submissions_to_csv(submissions, profiles)
     point_name = submission_point or "all"
     return Response(

@@ -180,7 +180,7 @@ CSV 등록은 `POST /api/v1/researcher/participants/imports`에 `file` 필드로
 
 - 프론트 작업 브랜치: `backend/fh-009-chat-export`
 - 프론트 작업 커밋: `9fa5145 Connect chat export to backend`
-- Pull Request: `#9` 검토 중 (`backend/fh-009-chat-export` → `main`)
+- Pull Request: `#9` 병합 완료 (`backend/fh-009-chat-export` → `main`), merge commit `a8adf19fe3dd365efe0d304c162b228fbc5a0bce`
 - 선행 backend 커밋: `b98205c Add filtered chat transcript exports`
 - 연구자 화면의 대화문 1/2 선택은 각각 `afterRound1`/`afterRound4`로 변환하고, 학교급 선택은 `school_level` query로 전송한다.
 - backend CSV에는 참여자 ID, 이름, 학교급, 학년, 원본 입력, 정규화 대화문, parser 상태·경고가 포함된다.
