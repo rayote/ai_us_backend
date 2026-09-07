@@ -156,7 +156,9 @@ async def export_survey_responses(
     if definition is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="설문 정의를 찾을 수 없습니다.")
     responses = await _survey_response_repository(request).list_responses(survey_round, survey_version)
-    participants: ParticipantAccountRepository | None = getattr(request.app.state, "participant_account_repository", None)
+    participants: ParticipantAccountRepository | None = getattr(
+        request.app.state, "participant_account_repository", None
+    )
     if participants is None:
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="참여자 정보를 준비 중입니다.")
     profiles = {
@@ -164,7 +166,11 @@ async def export_survey_responses(
         for participant in await participants.list_participants()
     }
     if school_level is not None:
-        responses = [response for response in responses if profiles.get(response.participant_id, ("-", None, None))[1] == school_level]
+        responses = [
+            response
+            for response in responses
+            if profiles.get(response.participant_id, ("-", None, None))[1] == school_level
+        ]
     filename = f"survey-responses-round-{survey_round}-{survey_version}.csv"
     return Response(
         content="\ufeff" + survey_responses_to_csv(definition, responses, profiles),
@@ -182,7 +188,9 @@ async def survey_response_previews(
     _: str = Depends(require_researcher),
 ) -> list[SurveyResponsePreview]:
     responses = await _survey_response_repository(request).list_responses(survey_round, survey_version)
-    participants: ParticipantAccountRepository | None = getattr(request.app.state, "participant_account_repository", None)
+    participants: ParticipantAccountRepository | None = getattr(
+        request.app.state, "participant_account_repository", None
+    )
     if participants is None:
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="참여자 정보를 준비 중입니다.")
     profiles = {
@@ -190,7 +198,11 @@ async def survey_response_previews(
         for participant in await participants.list_participants()
     }
     if school_level is not None:
-        responses = [response for response in responses if profiles.get(response.participant_id, ("-", None, None))[1] == school_level]
+        responses = [
+            response
+            for response in responses
+            if profiles.get(response.participant_id, ("-", None, None))[1] == school_level
+        ]
     return [
         SurveyResponsePreview(
             phone=profiles.get(response.participant_id, ("-", None, None))[0],

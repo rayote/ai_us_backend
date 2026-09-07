@@ -203,7 +203,7 @@ CSV 등록은 `POST /api/v1/researcher/participants/imports`에 `file` 필드로
 
 - 프론트 작업 브랜치: `backend/fh-011-survey-profile-export`
 - 프론트 작업 커밋: `74df11c Show participant profiles in survey results`
-- Pull Request: `#11` 검토 중 (`backend/fh-011-survey-profile-export` → `main`)
+- Pull Request: `#11` 병합 완료 (`backend/fh-011-survey-profile-export` → `main`), merge commit `8dda548a7ad51b318ba8dc849600f24ac469a754`
 - 선행 backend 커밋: `9d83ccc Include participant profiles in survey exports`
 - 설문 결과 미리보기와 CSV에는 내부 MongoDB ObjectId 대신 `아이디(휴대폰)`, `학교급`, `학년`을 포함한다.
 - 화면의 학교급 선택을 preview와 CSV export API의 `school_level` query에 전송한다.

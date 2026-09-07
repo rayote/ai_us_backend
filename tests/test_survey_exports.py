@@ -41,7 +41,10 @@ def test_csv_export_uses_question_definition_order_and_preserves_missing_answers
 
     csv_text = survey_responses_to_csv(definition, responses)
 
-    assert csv_text.splitlines()[0] == "아이디(휴대폰),학교급,학년,surveyRound,surveyVersion,submittedAt,첫 번째 문항,두 번째 문항"
+    assert (
+        csv_text.splitlines()[0]
+        == "아이디(휴대폰),학교급,학년,surveyRound,surveyVersion,submittedAt,첫 번째 문항,두 번째 문항"
+    )
     assert csv_text.splitlines()[1].endswith("응답,선택 A; 선택 B")
     assert csv_text.splitlines()[2].endswith("다른 응답,")
 

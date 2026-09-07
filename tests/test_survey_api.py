@@ -4,7 +4,12 @@ from app.core.security import hash_password
 from app.core.settings import Settings
 from app.main import create_app
 from app.schemas.survey import SurveyDefinition, SurveyDefinitionCreate, SurveyResponseRecord
-from app.services.auth import ParticipantAccount, ParticipantAccountRepository, ResearcherAccount, ResearcherAccountRepository
+from app.services.auth import (
+    ParticipantAccount,
+    ParticipantAccountRepository,
+    ResearcherAccount,
+    ResearcherAccountRepository,
+)
 from app.services.surveys import SurveyDefinitionRepository, SurveyResponseRepository
 from fastapi.testclient import TestClient
 
@@ -72,7 +77,9 @@ class InMemoryParticipants(ParticipantAccountRepository):
     async def update_password(self, participant_id: str, password_hash: str) -> bool:
         return False
 
-    async def create(self, phone: str, password_hash: str, chat_consent: bool = False, school_level: str | None = None) -> bool:
+    async def create(
+        self, phone: str, password_hash: str, chat_consent: bool = False, school_level: str | None = None
+    ) -> bool:
         return False
 
     async def create_imported(self, phone: str, password_hash: str, name: str, school_level: str, grade: int) -> bool:
