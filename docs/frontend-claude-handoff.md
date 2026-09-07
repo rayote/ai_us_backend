@@ -108,6 +108,9 @@ CSV 등록은 `POST /api/v1/researcher/participants/imports`에 `file` 필드로
 - 후속 Pull Request: `#7` 병합 완료 (`frontend/lock-completed-dummy-survey` → `main`), merge commit `230052552bbc89832227cfe538588b13f147bc19`
 - 선행 backend 커밋: `5edcd64 Fix survey definition MongoDB storage`
 - **TODO - 실제 설문으로 교체:** 현재 `설문 연동 확인` 모달과 `surveyRound: 1`, `surveyVersion: "demo-v1"`의 3문항은 개발 환경 확인용 더미 설문이다. 실제 연구 설문 문항·디자인이 준비되면 이 모달과 더미 문항을 제거하고, 확정된 회차·버전·문항 키를 사용한 실제 설문 화면으로 대체한다.
+- **중요 - 프론트 설문 완성만으로 MongoDB 저장은 완료되지 않는다.** 실제 설문 UI·문항을 만든 뒤에는 회차, 버전, 문항 키, CSV 열 이름, 순서가 담긴 문항 정의를 backend 담당자에게 전달한다. backend 담당자가 이를 `survey_definitions`에 등록·검증한 뒤, 프론트의 최종 제출 요청을 실제 MongoDB 저장 Queue와 연결한다.
+- 프론트 Claude는 실제 설문을 만들 때 임의의 더미 문항, 임의 `surveyRound`·`surveyVersion`, 임의 문항 `key`를 추가하거나 기존 더미 값을 실제 연구 데이터에 사용하지 않는다. 확정 문항 정의의 값을 받은 뒤에만 `answers` 객체와 제출 요청을 완성한다.
+- 인계 순서: 실제 설문 UI 초안 → 연구진 문항 확정 → 문항 정의 CSV/Excel 또는 JSON 전달 → backend 설문 정의 등록·검증 → 프론트 최종 제출 연동 → 개발 환경 통합 확인.
 - 실제 설문 화면으로 교체할 때도 아래 임시 저장·Queue 완료 확인 계약은 유지한다. 디자인·문항 UI만 교체하고 `surveyRound`, `surveyVersion`, `answers`, `submissionId` 요청 구조는 backend API 계약에 맞춘다.
 - 임시 저장 키는 참여자 휴대폰 번호, `surveyRound`, `surveyVersion`으로 구분한다.
 - 입력 변경과 30초 간격으로 `localStorage`에 저장하고, 다시 열면 임시 내용을 복원한다.
