@@ -65,6 +65,28 @@ The same round and version cannot be registered more than once. Register a new `
 
 The backend reads both the current `csvColumn` field and the legacy MongoDB `csv_column` field for definitions registered during early development. New definitions are stored with `csvColumn`.
 
+## List survey definitions
+
+`GET /api/v1/researcher/survey-definitions`
+
+This endpoint accepts an `admin` or `researcher` bearer token and returns registered survey definition summaries for researcher UI filters.
+
+```json
+[
+  {
+    "surveyRound": 1,
+    "surveyVersion": "t1-elem-part1-v1-draft",
+    "audience": "elementary",
+    "part": 1,
+    "title": "청소년 생성형 AI 사용 경험 연구 · 1회차 파트1 (초등)",
+    "questionCount": 217,
+    "createdAt": "2026-09-14T00:00:00Z"
+  }
+]
+```
+
+`title` and `part` are populated from the preserved survey definition `spec` when available. The researcher page uses this list to populate survey version selections instead of hardcoding version IDs.
+
 ## Planned bulk survey-definition import
 
 For large questionnaires, the admin will use a future bulk import endpoint or reviewed backend import command instead of registering items one by one. The preferred source is CSV or Excel with the following columns:

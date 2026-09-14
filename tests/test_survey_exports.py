@@ -11,6 +11,28 @@ class InMemoryDefinitionCollection:
     async def insert_one(self, document: dict[str, object]) -> None:
         self.document = document
 
+    def find(self, filters: dict[str, object]):
+        return InMemoryCursor([self.document] if self.document else [])
+
+
+class InMemoryCursor:
+    def __init__(self, documents: list[dict[str, object]]) -> None:
+        self.documents = documents
+
+    def sort(self, key: str, direction: int) -> "InMemoryCursor":
+        return self
+
+    def __aiter__(self):
+        self.index = 0
+        return self
+
+    async def __anext__(self):
+        if self.index >= len(self.documents):
+            raise StopAsyncIteration
+        document = self.documents[self.index]
+        self.index += 1
+        return document
+
 
 def test_csv_export_uses_question_definition_order_and_preserves_missing_answers() -> None:
     definition = SurveyDefinition(
@@ -192,3 +214,28 @@ def test_definition_model_reads_legacy_mongodb_snake_case_question_column() -> N
     )
 
     assert definition.questions[0].csv_column == "첫 번째 문항"
+
+
+def test_mongo_definition_repository_lists_summaries() -> None:
+    collection = InMemoryDefinitionCollection()
+    repository = MongoSurveyDefinitionRepository(collection)
+    definition = SurveyDefinitionCreate(
+        surveyRound=1,
+        surveyVersion="t1-elem-part1-v1-draft",
+        audience="elementary",
+        part=1,
+        _meta={"title": "청소년 생성형 AI 사용 경험 연구 · 1회차 파트1 (초등)"},
+        questions=[SurveyQuestion(key="q1", csvColumn="첫 번째 문항", order=1)],
+    )
+
+    import asyncio
+
+    asyncio.run(repository.create(definition))
+    summaries = asyncio.run(repository.list_definitions())
+
+    assert summaries[0].survey_round == 1
+    assert summaries[0].survey_version == "t1-elem-part1-v1-draft"
+    assert summaries[0].audience == "elementary"
+    assert summaries[0].part == 1
+    assert summaries[0].title == "청소년 생성형 AI 사용 경험 연구 · 1회차 파트1 (초등)"
+    assert summaries[0].question_count == 1

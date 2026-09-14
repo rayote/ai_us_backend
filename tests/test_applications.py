@@ -1,8 +1,8 @@
 from app.core.settings import Settings
 from app.main import create_app
 from app.schemas.application import ApplicationCreate
-from app.services.auth import ParticipantAccount, ParticipantAccountRepository
 from app.services.applications import ApplicationRepository, DuplicateApplicationError, object_id
+from app.services.auth import ParticipantAccount, ParticipantAccountRepository
 from fastapi.testclient import TestClient
 
 
@@ -105,7 +105,10 @@ def test_create_application_rejects_registered_participant_phone_number() -> Non
         response = client.post("/api/v1/applications", json=_application_payload())
 
     assert response.status_code == 409
-    assert response.json()["detail"] == "이미 등록된 참여자 휴대폰 번호입니다. 로그인하거나 비밀번호 찾기를 이용해 주세요."
+    assert (
+        response.json()["detail"]
+        == "이미 등록된 참여자 휴대폰 번호입니다. 로그인하거나 비밀번호 찾기를 이용해 주세요."
+    )
 
 
 def test_create_application_requires_all_required_consents() -> None:

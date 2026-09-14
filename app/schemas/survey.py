@@ -30,7 +30,7 @@ class SurveyDefinitionCreate(BaseModel):
         if not isinstance(data, dict):
             return data
         if data.get("questions"):
-            if data.get("scales") and not data.get("rawSpec"):
+            if any(key in data for key in ("scales", "part", "_meta", "_reviewNotes")) and not data.get("rawSpec"):
                 data = dict(data)
                 data["rawSpec"] = deepcopy(data)
             return data
@@ -60,6 +60,16 @@ class SurveyDefinition(BaseModel):
     audience: Literal["elementary", "secondary"] | None = None
     questions: list[SurveyQuestion]
     spec: dict[str, Any] | None = None
+    created_at: datetime = Field(alias="createdAt")
+
+
+class SurveyDefinitionSummary(BaseModel):
+    survey_round: int = Field(alias="surveyRound")
+    survey_version: str = Field(alias="surveyVersion")
+    audience: Literal["elementary", "secondary"] | None = None
+    part: int | None = None
+    title: str | None = None
+    question_count: int = Field(alias="questionCount")
     created_at: datetime = Field(alias="createdAt")
 
 

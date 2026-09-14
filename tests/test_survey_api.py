@@ -3,7 +3,7 @@ from datetime import UTC, datetime
 from app.core.security import hash_password
 from app.core.settings import Settings
 from app.main import create_app
-from app.schemas.survey import SurveyDefinition, SurveyDefinitionCreate, SurveyResponseRecord
+from app.schemas.survey import SurveyDefinition, SurveyDefinitionCreate, SurveyDefinitionSummary, SurveyResponseRecord
 from app.services.auth import (
     ParticipantAccount,
     ParticipantAccountRepository,
@@ -51,6 +51,20 @@ class InMemorySurveyDefinitions(SurveyDefinitionRepository):
 
     async def get(self, survey_round: int, survey_version: str) -> SurveyDefinition | None:
         return self.definitions.get((survey_round, survey_version))
+
+    async def list_definitions(self) -> list[SurveyDefinitionSummary]:
+        return [
+            SurveyDefinitionSummary(
+                surveyRound=definition.survey_round,
+                surveyVersion=definition.survey_version,
+                audience=definition.audience,
+                part=definition.spec.get("part") if definition.spec else None,
+                title=definition.spec.get("_meta", {}).get("title") if definition.spec else None,
+                questionCount=len(definition.questions),
+                createdAt=definition.created_at,
+            )
+            for definition in self.definitions.values()
+        ]
 
 
 class InMemorySurveyResponses(SurveyResponseRepository):
@@ -203,3 +217,38 @@ def test_researcher_can_preview_survey_responses() -> None:
     assert response.status_code == 200
     assert response.json()[0]["phone"] == "01012345678"
     assert response.json()[0]["schoolLevel"] == "초등"
+
+
+def test_researcher_can_list_survey_definitions() -> None:
+    with _client() as client:
+        admin_token = _token(client, "admin", "admin-password")
+        client.post(
+            "/api/v1/admin/survey-definitions",
+            headers={"Authorization": f"Bearer {admin_token}"},
+            json={
+                "surveyRound": 1,
+                "surveyVersion": "t1-elem-part1-v1-draft",
+                "audience": "elementary",
+                "part": 1,
+                "_meta": {"title": "청소년 생성형 AI 사용 경험 연구 · 1회차 파트1 (초등)"},
+                "questions": [{"key": "q1", "csvColumn": "첫 번째 문항", "order": 1}],
+            },
+        )
+        researcher_token = _token(client, "researcher", "researcher-password")
+        response = client.get(
+            "/api/v1/researcher/survey-definitions",
+            headers={"Authorization": f"Bearer {researcher_token}"},
+        )
+
+    assert response.status_code == 200
+    assert response.json() == [
+        {
+            "surveyRound": 1,
+            "surveyVersion": "t1-elem-part1-v1-draft",
+            "audience": "elementary",
+            "part": 1,
+            "title": "청소년 생성형 AI 사용 경험 연구 · 1회차 파트1 (초등)",
+            "questionCount": 1,
+            "createdAt": response.json()[0]["createdAt"],
+        }
+    ]

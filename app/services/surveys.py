@@ -5,7 +5,7 @@ import io
 from datetime import UTC, datetime
 from typing import Any, Protocol
 
-from app.schemas.survey import SurveyDefinition, SurveyDefinitionCreate, SurveyResponseRecord
+from app.schemas.survey import SurveyDefinition, SurveyDefinitionCreate, SurveyDefinitionSummary, SurveyResponseRecord
 from pymongo.errors import DuplicateKeyError
 
 
@@ -17,6 +17,8 @@ class SurveyDefinitionRepository(Protocol):
     async def create(self, definition: SurveyDefinitionCreate) -> SurveyDefinition: ...
 
     async def get(self, survey_round: int, survey_version: str) -> SurveyDefinition | None: ...
+
+    async def list_definitions(self) -> list[SurveyDefinitionSummary]: ...
 
 
 class SurveyResponseRepository(Protocol):
@@ -34,6 +36,20 @@ def _definition_from_document(document: dict[str, Any]) -> SurveyDefinition:
         audience=document.get("audience"),
         questions=document["questions"],
         spec=document.get("spec"),
+        createdAt=document["created_at"],
+    )
+
+
+def _definition_summary_from_document(document: dict[str, Any]) -> SurveyDefinitionSummary:
+    spec = document.get("spec") or {}
+    meta = spec.get("_meta") if isinstance(spec, dict) else None
+    return SurveyDefinitionSummary(
+        surveyRound=document["survey_round"],
+        surveyVersion=document["survey_version"],
+        audience=document.get("audience"),
+        part=spec.get("part") if isinstance(spec, dict) else None,
+        title=meta.get("title") if isinstance(meta, dict) else None,
+        questionCount=len(document.get("questions") or []),
         createdAt=document["created_at"],
     )
 
@@ -72,6 +88,11 @@ class MongoSurveyDefinitionRepository:
     async def get(self, survey_round: int, survey_version: str) -> SurveyDefinition | None:
         document = await self._collection.find_one({"survey_round": survey_round, "survey_version": survey_version})
         return _definition_from_document(document) if document else None
+
+    async def list_definitions(self) -> list[SurveyDefinitionSummary]:
+        cursor = self._collection.find({}).sort("survey_round", 1)
+        definitions = [_definition_summary_from_document(document) async for document in cursor]
+        return sorted(definitions, key=lambda definition: (definition.survey_round, definition.survey_version))
 
 
 class MongoSurveyResponseRepository:

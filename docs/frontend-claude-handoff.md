@@ -255,3 +255,11 @@ CSV 등록은 `POST /api/v1/researcher/participants/imports`에 `file` 필드로
 - frontend는 리포트가 `ready`일 때만 결과지를 렌더링하고, `pending`/`processing`이면 대기 안내를 보여준다. 조회 API는 본인 JWT로 본인 리포트만 볼 수 있게 한다.
 - 분석 기준이나 문구가 바뀔 수 있으므로 `reportVersion`을 반드시 둔다. 이미 참가자에게 보여준 리포트는 snapshot으로 보존하는 방향을 우선 검토한다.
 - 연구자에게 필요한 분석 결과는 운영 서비스에 통합하지 않고, 별도 오프라인 산출물로 전달하는 대안도 유지한다.
+
+### FH-017: 연구자 설문 버전 동적 조회
+
+- 선행 backend 변경: `GET /api/v1/researcher/survey-definitions`가 추가됐다. `admin` 또는 `researcher` bearer token으로 등록된 설문 정의 요약 목록을 조회한다.
+- 응답에는 `surveyRound`, `surveyVersion`, `audience`, `part`, `title`, `questionCount`, `createdAt`이 포함된다. `part`와 `title`은 설문 정의의 보존된 `spec`에서 가져온다.
+- `researcher.html`의 설문 결과 다운로드 영역은 더 이상 설문 버전 ID를 하드코딩하지 않고, 이 API 응답으로 `fVersion` select를 채운다.
+- 설문 버전을 선택하면 해당 정의의 `surveyRound`에 맞춰 회차 select를 자동으로 맞추고, 기존 미리보기/CSV 다운로드 API에는 선택된 `survey_round`와 `survey_version`을 그대로 보낸다.
+- 등록된 설문 정의가 없거나 조회 실패 시 성공처럼 표시하지 않고, select와 미리보기 영역에 실패/빈 상태를 표시한다.

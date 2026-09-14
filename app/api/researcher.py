@@ -6,7 +6,7 @@ from app.api.auth import require_researcher
 from app.schemas.application import ApplicationApproval, ApplicationApprovalCompleted, ApplicationRecord
 from app.schemas.imports import ParticipantImportResult
 from app.schemas.reporting import NonparticipantReport, ParticipationStatus
-from app.schemas.survey import SurveyResponsePreview
+from app.schemas.survey import SurveyDefinitionSummary, SurveyResponsePreview
 from app.services.applications import ApplicationRepository
 from app.services.approvals import ApplicationApprovalService, ExistingParticipantError
 from app.services.auth import ParticipantAccountRepository
@@ -142,6 +142,14 @@ async def nonparticipants(
     _: str = Depends(require_researcher),
 ) -> NonparticipantReport:
     return await _reporting_service(request).nonparticipants(survey_round, survey_version)
+
+
+@router.get("/survey-definitions", response_model=list[SurveyDefinitionSummary])
+async def list_survey_definitions(
+    request: Request,
+    _: str = Depends(require_researcher),
+) -> list[SurveyDefinitionSummary]:
+    return await _survey_definition_repository(request).list_definitions()
 
 
 @router.get("/exports/survey-responses")

@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 from app.schemas.application import ApplicationCreate, ApplicationCreated
-from app.services.auth import ParticipantAccountRepository
 from app.services.applications import ApplicationRepository, DuplicateApplicationError
+from app.services.auth import ParticipantAccountRepository
 from fastapi import APIRouter, HTTPException, Request, status
 
 router = APIRouter(prefix="/api/v1/applications", tags=["applications"])
@@ -25,7 +25,10 @@ def _participant_repository(request: Request) -> ParticipantAccountRepository | 
 @router.post("", response_model=ApplicationCreated, status_code=status.HTTP_201_CREATED)
 async def create_application(application: ApplicationCreate, request: Request) -> ApplicationCreated:
     participant_repository = _participant_repository(request)
-    if participant_repository is not None and await participant_repository.find_by_phone(application.phone) is not None:
+    if (
+        participant_repository is not None
+        and await participant_repository.find_by_phone(application.phone) is not None
+    ):
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="이미 등록된 참여자 휴대폰 번호입니다. 로그인하거나 비밀번호 찾기를 이용해 주세요.",
