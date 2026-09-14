@@ -70,16 +70,26 @@ class InMemoryParticipants(ParticipantAccountRepository):
     async def update_password(self, participant_id: str, password_hash: str) -> bool:
         return False
 
+    async def reset_password_by_phone_email(self, phone: str, email: str, password_hash: str) -> bool:
+        return False
+
     async def create(
-        self, phone: str, password_hash: str, chat_consent: bool = False, school_level: str | None = None
+        self,
+        phone: str,
+        password_hash: str,
+        chat_consent: bool = False,
+        school_level: str | None = None,
+        email: str | None = None,
     ) -> bool:
         if phone in self.accounts:
             return False
-        self.accounts[phone] = ParticipantAccount(phone, phone, password_hash, True, chat_consent, school_level)
+        self.accounts[phone] = ParticipantAccount(phone, phone, password_hash, True, chat_consent, school_level, email=email)
         return True
 
-    async def create_imported(self, phone: str, password_hash: str, name: str, school_level: str, grade: int) -> bool:
-        return await self.create(phone, password_hash)
+    async def create_imported(
+        self, phone: str, password_hash: str, name: str, school_level: str, grade: int, email: str | None = None
+    ) -> bool:
+        return await self.create(phone, password_hash, school_level=school_level, email=email)
 
 
 class InMemoryResearchers(ResearcherAccountRepository):
@@ -153,6 +163,7 @@ def test_researcher_can_list_and_approve_applications() -> None:
     assert approval_response.json() == {"approvedCount": 1}
     assert participants.accounts["01012345678"].must_change_password is True
     assert participants.accounts["01012345678"].chat_consent is False
+    assert participants.accounts["01012345678"].email == "participant@example.com"
 
 
 def test_participant_cannot_access_researcher_applications() -> None:

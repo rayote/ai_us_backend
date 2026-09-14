@@ -39,9 +39,7 @@
 
 참여자 로그인 API는 구현되었으며, 성공 응답의 `needsPasswordChange`가 `true`이면 설문 패널을 열기 전에 `FH-004`의 비밀번호 변경 화면을 표시한다. 연구자 로그인과 신청 목록·승인 API도 구현되었지만, 실제 CloudType backend URL을 정한 뒤에 함께 연결한다. 연구자 화면의 기존 관리 기능은 `admin`과 `researcher` 모두 사용할 수 있으며, 연구자 계정 생성은 backend의 admin 전용 API로만 처리한다.
 
-비밀번호 재설정 이메일은 전용 Gmail 1계정의 backend SMTP 발송으로 처리한다. 프론트에는 Gmail 계정, 앱 비밀번호, SMTP 설정을 넣지 않으며, `PasswordReset.sendResetLink`는 backend 요청 성공 여부만 처리한다.
-
-Gmail 기반 비밀번호 재설정 API는 아직 구현·활성화하지 않는다. `PasswordReset.sendResetLink`는 데모 상태를 유지하고 별도 전달 ID로 연동한다.
+비밀번호 재설정은 Gmail 없이 약식으로 처리한다. 프론트는 참여자가 입력한 휴대폰 번호와 이메일을 `POST /api/v1/auth/participant/password-reset`으로 보내고, backend가 등록 정보와 일치하면 비밀번호를 `1234`로 초기화하며 다음 로그인에서 최초 비밀번호 변경 화면을 강제한다.
 
 CSV 등록은 `POST /api/v1/researcher/participants/imports`에 `file` 필드로 UTF-8 CSV를 전송한다. 현재 프론트의 CSV 양식인 `이름,휴대폰번호,학교급,학년`을 유지하며, Excel 업로드는 backend에서 아직 지원하지 않는다. 응답의 `createdCount`, `skippedCount`, `errors`를 기존 등록 완료 안내에 표시한다.
 
@@ -228,3 +226,11 @@ CSV 등록은 `POST /api/v1/researcher/participants/imports`에 `file` 필드로
 - `chatConsent`가 `false`이면 대화문 제출 버튼을 표시하거나 제출 성공처럼 처리하지 않는다. backend도 `POST /api/v1/chat-submissions`에서 동의하지 않은 참여자를 거부하므로, 프론트는 이를 우회하지 않는다.
 - 로그아웃 시 access token, role, participant phone과 함께 저장한 `chatConsent` 값도 삭제한다.
 - 기존 대화문 제출 payload는 유지한다: `submissionPoint`, `sourceType`, `rawInput`, `submissionId`.
+
+### FH-014: 약식 비밀번호 재설정 연동
+
+- 선행 backend 변경: `POST /api/v1/auth/participant/password-reset`가 추가됐다.
+- Claude는 기존 데모 `PasswordReset.sendResetLink`와 이메일 링크 발송 문구를 제거하고, 휴대폰 번호와 이메일 입력값을 backend API로 전송한다.
+- 요청 body는 `{ "phone": "01012345678", "email": "participant@example.com" }`이다. 휴대폰 번호는 하이픈이 있어도 되지만 프론트에서 숫자 11자리 검증을 유지한다.
+- 성공하면 “초기 비밀번호 1234로 재설정되었습니다. 로그인 후 새 비밀번호로 변경해 주세요” 취지로 안내한다. 이메일 발송/메일 확인/링크 클릭처럼 보이는 문구를 쓰지 않는다.
+- 실패하면 등록 정보가 일치하지 않는다는 오류를 표시하고, 성공 화면으로 이동하지 않는다.

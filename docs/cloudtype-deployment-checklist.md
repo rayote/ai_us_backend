@@ -39,7 +39,7 @@ RESEARCHER_BOOTSTRAP_PASSWORD=<first admin password>
 
 The backend creates `mongodb://<username>:<password>@<host>:<port>/?authSource=admin` at runtime. `MONGODB_USERNAME` and `MONGODB_PASSWORD` must be CloudType Secrets. The password is URL-encoded by the backend, so do not manually encode special characters. `MONGODB_URI` remains only as an optional legacy override and should not be set for this deployment.
 
-Gmail Secrets are optional at this stage. The current backend does not start a Gmail worker handler or a password-reset endpoint, so leaving `EMAIL_PROVIDER`, `SMTP_*`, `EMAIL_FROM`, and `PASSWORD_RESET_BASE_URL` unset does not prevent deployment.
+Gmail Secrets are not required for the current simplified password reset flow. Password reset verifies participant phone and email, resets the password to `1234`, and forces first-login password change; leaving `EMAIL_PROVIDER`, `SMTP_*`, `EMAIL_FROM`, and `PASSWORD_RESET_BASE_URL` unset does not prevent deployment.
 
 ## First Deployment Checks
 

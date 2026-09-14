@@ -6,7 +6,7 @@ from app.services.imports import ParticipantImportService
 
 class InMemoryParticipantAccounts(ParticipantAccountRepository):
     def __init__(self) -> None:
-        self.imported: dict[str, tuple[str, str, int]] = {}
+        self.imported: dict[str, tuple[str, str, int, str | None]] = {}
 
     async def find_by_phone(self, phone: str):
         return None
@@ -17,13 +17,25 @@ class InMemoryParticipantAccounts(ParticipantAccountRepository):
     async def update_password(self, participant_id: str, password_hash: str) -> bool:
         return False
 
-    async def create(self, phone: str, password_hash: str) -> bool:
+    async def reset_password_by_phone_email(self, phone: str, email: str, password_hash: str) -> bool:
         return False
 
-    async def create_imported(self, phone: str, password_hash: str, name: str, school_level: str, grade: int) -> bool:
+    async def create(
+        self,
+        phone: str,
+        password_hash: str,
+        chat_consent: bool = False,
+        school_level: str | None = None,
+        email: str | None = None,
+    ) -> bool:
+        return False
+
+    async def create_imported(
+        self, phone: str, password_hash: str, name: str, school_level: str, grade: int, email: str | None = None
+    ) -> bool:
         if phone in self.imported:
             return False
-        self.imported[phone] = (name, school_level, grade)
+        self.imported[phone] = (name, school_level, grade, email)
         return True
 
 
@@ -40,7 +52,19 @@ def test_import_creates_valid_rows_and_reports_invalid_rows() -> None:
     assert result.created_count == 1
     assert result.skipped_count == 0
     assert result.errors[0].row == 3
-    assert repository.imported["01012345678"] == ("홍길동", "초등", 4)
+    assert repository.imported["01012345678"] == ("홍길동", "초등", 4, None)
+
+
+def test_import_accepts_optional_email_column_for_password_reset() -> None:
+    repository = InMemoryParticipantAccounts()
+    service = ParticipantImportService(repository)
+
+    result = asyncio.run(
+        service.import_csv("이름,휴대폰번호,학교급,학년,이메일\n홍길동,010-1234-5678,초등,4,USER@Example.com\n".encode())
+    )
+
+    assert result.created_count == 1
+    assert repository.imported["01012345678"] == ("홍길동", "초등", 4, "user@example.com")
 
 
 def test_import_skips_existing_phone_number() -> None:

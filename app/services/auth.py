@@ -18,6 +18,7 @@ class ParticipantAccount:
     school_level: str | None = None
     name: str | None = None
     grade: int | None = None
+    email: str | None = None
 
 
 class ParticipantAccountRepository(Protocol):
@@ -27,12 +28,25 @@ class ParticipantAccountRepository(Protocol):
 
     async def update_password(self, participant_id: str, password_hash: str) -> bool: ...
 
+    async def reset_password_by_phone_email(self, phone: str, email: str, password_hash: str) -> bool: ...
+
     async def create(
-        self, phone: str, password_hash: str, chat_consent: bool = False, school_level: str | None = None
+        self,
+        phone: str,
+        password_hash: str,
+        chat_consent: bool = False,
+        school_level: str | None = None,
+        email: str | None = None,
     ) -> bool: ...
 
     async def create_imported(
-        self, phone: str, password_hash: str, name: str, school_level: str, grade: int
+        self,
+        phone: str,
+        password_hash: str,
+        name: str,
+        school_level: str,
+        grade: int,
+        email: str | None = None,
     ) -> bool: ...
 
     async def list_participants(self) -> list[ParticipantAccount]: ...
@@ -63,6 +77,7 @@ class MongoParticipantAccountRepository:
             school_level=document.get("school_level"),
             name=document.get("name"),
             grade=document.get("grade"),
+            email=document.get("email"),
         )
 
     async def update_password(self, participant_id: str, password_hash: str) -> bool:
@@ -72,38 +87,54 @@ class MongoParticipantAccountRepository:
         )
         return result.modified_count == 1
 
+    async def reset_password_by_phone_email(self, phone: str, email: str, password_hash: str) -> bool:
+        result = await self._collection.update_one(
+            {"phone_normalized": phone, "email": email, "role": "participant"},
+            {"$set": {"password_hash": password_hash, "must_change_password": True}},
+        )
+        return result.modified_count == 1
+
     async def create(
-        self, phone: str, password_hash: str, chat_consent: bool = False, school_level: str | None = None
+        self,
+        phone: str,
+        password_hash: str,
+        chat_consent: bool = False,
+        school_level: str | None = None,
+        email: str | None = None,
     ) -> bool:
+        document = {
+            "phone_normalized": phone,
+            "role": "participant",
+            "password_hash": password_hash,
+            "must_change_password": True,
+            "chat_consent": chat_consent,
+            "school_level": school_level,
+        }
+        if email is not None:
+            document["email"] = email
         try:
-            await self._collection.insert_one(
-                {
-                    "phone_normalized": phone,
-                    "role": "participant",
-                    "password_hash": password_hash,
-                    "must_change_password": True,
-                    "chat_consent": chat_consent,
-                    "school_level": school_level,
-                }
-            )
+            await self._collection.insert_one(document)
         except DuplicateKeyError:
             return False
         return True
 
-    async def create_imported(self, phone: str, password_hash: str, name: str, school_level: str, grade: int) -> bool:
+    async def create_imported(
+        self, phone: str, password_hash: str, name: str, school_level: str, grade: int, email: str | None = None
+    ) -> bool:
+        document = {
+            "phone_normalized": phone,
+            "role": "participant",
+            "password_hash": password_hash,
+            "must_change_password": True,
+            "chat_consent": False,
+            "name": name,
+            "school_level": school_level,
+            "grade": grade,
+        }
+        if email is not None:
+            document["email"] = email
         try:
-            await self._collection.insert_one(
-                {
-                    "phone_normalized": phone,
-                    "role": "participant",
-                    "password_hash": password_hash,
-                    "must_change_password": True,
-                    "chat_consent": False,
-                    "name": name,
-                    "school_level": school_level,
-                    "grade": grade,
-                }
-            )
+            await self._collection.insert_one(document)
         except DuplicateKeyError:
             return False
         return True
@@ -186,6 +217,12 @@ class ParticipantAuthenticationService:
         from app.core.security import hash_password
 
         if not await self._repository.update_password(participant_id, hash_password(new_password)):
+            raise InvalidCredentialsError
+
+    async def reset_password(self, phone: str, email: str) -> None:
+        from app.core.security import hash_password
+
+        if not await self._repository.reset_password_by_phone_email(phone, email, hash_password("1234")):
             raise InvalidCredentialsError
 
 

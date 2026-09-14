@@ -38,7 +38,7 @@ class ParticipantImportService:
         errors: list[ImportErrorRecord] = []
         for row_number, row in enumerate(reader, start=2):
             try:
-                name, phone, school_level, grade = self._validate_row(row)
+                name, phone, school_level, grade, email = self._validate_row(row)
             except ValueError as error:
                 errors.append(ImportErrorRecord(row=row_number, message=str(error)))
                 continue
@@ -48,6 +48,7 @@ class ParticipantImportService:
                 name,
                 school_level,
                 grade,
+                email,
             )
             if created:
                 created_count += 1
@@ -60,11 +61,12 @@ class ParticipantImportService:
         )
 
     @staticmethod
-    def _validate_row(row: dict[str, str | None]) -> tuple[str, str, str, int]:
+    def _validate_row(row: dict[str, str | None]) -> tuple[str, str, str, int, str | None]:
         name = (row.get("이름") or "").strip()
         phone = re.sub(r"\D", "", row.get("휴대폰번호") or "")
         school_level = (row.get("학교급") or "").strip()
         grade_text = (row.get("학년") or "").strip()
+        email = (row.get("이메일") or "").strip().lower() or None
         if not name:
             raise ValueError("이름이 비어 있습니다.")
         if not re.fullmatch(r"01\d{9}", phone):
@@ -73,4 +75,6 @@ class ParticipantImportService:
             raise ValueError("학교급은 초등, 중등, 고등 중 하나여야 합니다.")
         if not grade_text.isdigit() or not 1 <= int(grade_text) <= 6:
             raise ValueError("학년은 1에서 6 사이의 숫자여야 합니다.")
-        return name, phone, school_level, int(grade_text)
+        if email is not None and not re.fullmatch(r"[^\s@]+@[^\s@]+\.[^\s@]+", email):
+            raise ValueError("이메일 형식이 올바르지 않습니다.")
+        return name, phone, school_level, int(grade_text), email

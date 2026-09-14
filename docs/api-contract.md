@@ -348,6 +348,27 @@ Successful response: `200 OK`
 }
 ```
 
-## Planned password-reset email
+## Reset participant password
 
-Password reset will use one dedicated Gmail SMTP account as its initial delivery service. The backend will create a one-time reset token, enqueue the email in `notification_jobs`, and have the worker send it through Gmail SMTP. The Gmail address, app password, and reset base URL are CloudType Secrets; the normal Gmail password is never used by the backend.
+`POST /api/v1/auth/participant/password-reset`
+
+```json
+{
+  "phone": "010-1234-5678",
+  "email": "participant@example.com"
+}
+```
+
+This public endpoint resets a participant password to the initial password `1234` only when the registered phone number and email address match. The next participant login returns `needsPasswordChange: true`, so the frontend must show the first-password-change screen before opening the survey panel. No Gmail, SMTP, or email link is used in this simplified flow.
+
+Successful response: `200 OK`
+
+```json
+{
+  "status": "completed"
+}
+```
+
+Failure response:
+
+- `404 Not Found`: the phone number and email do not match a participant account.

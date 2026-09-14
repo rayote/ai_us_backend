@@ -1,7 +1,15 @@
 from __future__ import annotations
 
 from app.core.security import create_access_token, decode_access_token
-from app.schemas.auth import AccessToken, ParticipantLogin, PasswordChange, PasswordChangeCompleted, ResearcherLogin
+from app.schemas.auth import (
+    AccessToken,
+    ParticipantLogin,
+    PasswordChange,
+    PasswordChangeCompleted,
+    PasswordResetCompleted,
+    PasswordResetRequest,
+    ResearcherLogin,
+)
 from app.services.auth import (
     AudienceMismatchError,
     InvalidCredentialsError,
@@ -159,3 +167,12 @@ async def change_participant_password(
             status_code=status.HTTP_401_UNAUTHORIZED, detail="현재 비밀번호가 올바르지 않습니다."
         ) from error
     return PasswordChangeCompleted(status="completed")
+
+
+@router.post("/participant/password-reset", response_model=PasswordResetCompleted)
+async def reset_participant_password(password_reset: PasswordResetRequest, request: Request) -> PasswordResetCompleted:
+    try:
+        await _service(request).reset_password(password_reset.phone, password_reset.email)
+    except InvalidCredentialsError as error:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="등록 정보가 일치하지 않습니다.") from error
+    return PasswordResetCompleted(status="completed")

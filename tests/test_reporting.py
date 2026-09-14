@@ -24,6 +24,9 @@ class InMemoryParticipants(ParticipantAccountRepository):
     async def update_password(self, participant_id: str, password_hash: str) -> bool:
         return False
 
+    async def reset_password_by_phone_email(self, phone: str, email: str, password_hash: str) -> bool:
+        return False
+
     async def create(
         self, phone: str, password_hash: str, chat_consent: bool = False, school_level: str | None = None
     ) -> bool:

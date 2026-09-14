@@ -38,6 +38,7 @@ class ApplicationApprovalService:
                     if application.grade.startswith("초등")
                     else "중등" if application.grade.startswith("중학") else "고등"
                 ),
+                application.email,
             )
             if not created:
                 raise ExistingParticipantError([application.phone])
