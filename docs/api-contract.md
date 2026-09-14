@@ -59,7 +59,7 @@ For a scale-based questionnaire, send `audience` and `scales`. The backend prese
 }
 ```
 
-When `questions` is omitted, each scale question must include a stable `key`. The backend generates `csvColumn` as `scaleName | no | text` and assigns sequential `order` values. Additional fields such as `type`, `options`, `logic`, `sensitive`, and `scoring` remain in the preserved `spec`; current final submission validation still checks only registered question keys.
+When `questions` is omitted, each scale question must include stable answer keys. For normal questions, the registered key is the question `key`. For `grid` questions, the backend registers each `rows[].key` because the frontend submits row-level answers. Conditional `detail.field.key` and `other.field.key` values are also registered as additional CSV/export columns. The backend generates `csvColumn` values from `scaleName | no | text` plus row or field labels and assigns sequential `order` values. Additional fields such as `type`, `options`, `logic`, `sensitive`, and `scoring` remain in the preserved `spec`; current final submission validation still checks only registered answer keys.
 
 The same round and version cannot be registered more than once. Register a new `surveyVersion` when the questionnaire changes.
 

@@ -65,6 +65,15 @@ class SurveyDefinition(BaseModel):
 
 def _flatten_questions_from_scales(scales: list[object]) -> list[dict[str, object]]:
     questions: list[dict[str, object]] = []
+    registered_keys: set[str] = set()
+
+    def add_question(key: str, csv_column: str) -> None:
+        normalized_key = key.strip()
+        if not normalized_key or normalized_key in registered_keys:
+            return
+        registered_keys.add(normalized_key)
+        questions.append({"key": normalized_key, "csvColumn": csv_column, "order": len(questions) + 1})
+
     for scale in scales:
         if not isinstance(scale, dict):
             continue
@@ -78,14 +87,29 @@ def _flatten_questions_from_scales(scales: list[object]) -> list[dict[str, objec
             key = str(question.get("key") or "").strip()
             if not key:
                 continue
-            questions.append(
-                {
-                    "key": key,
-                    "csvColumn": _csv_column_from_question(scale_name, question),
-                    "order": len(questions) + 1,
-                }
-            )
+            csv_column = _csv_column_from_question(scale_name, question)
+            if question.get("type") == "grid" and isinstance(question.get("rows"), list):
+                for row in question["rows"]:
+                    if isinstance(row, dict):
+                        row_key = str(row.get("key") or "").strip()
+                        row_label = str(row.get("text") or row.get("label") or row_key).strip()
+                        add_question(row_key, f"{csv_column} | {row_label}")
+            else:
+                add_question(key, csv_column)
+            for extra_field in _extra_answer_fields(question):
+                extra_key = str(extra_field.get("key") or "").strip()
+                extra_label = str(extra_field.get("label") or extra_key).strip()
+                add_question(extra_key, f"{csv_column} | {extra_label}")
     return questions
+
+
+def _extra_answer_fields(question: dict[str, object]) -> list[dict[str, object]]:
+    fields: list[dict[str, object]] = []
+    for container_name in ("detail", "other"):
+        container = question.get(container_name)
+        if isinstance(container, dict) and isinstance(container.get("field"), dict):
+            fields.append(container["field"])
+    return fields
 
 
 def _csv_column_from_question(scale_name: str, question: dict[str, object]) -> str:

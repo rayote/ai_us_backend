@@ -103,6 +103,33 @@ def test_mongo_definition_storage_accepts_nested_scale_spec() -> None:
                         "type": "number",
                         "required": True,
                     },
+                    {
+                        "key": "usage.q11",
+                        "no": "11",
+                        "text": "최근 한 달 생성형 AI 서비스별 사용 빈도",
+                        "type": "grid",
+                        "required": True,
+                        "rows": [
+                            {"key": "usage.q11_1", "text": "ChatGPT"},
+                            {"key": "usage.q11_2", "text": "Gemini"},
+                        ],
+                    },
+                    {
+                        "key": "usage.q16",
+                        "no": "16",
+                        "text": "AI 서비스 유료 결제 경험이 있나요?",
+                        "type": "single",
+                        "required": True,
+                        "detail": {"when": 2, "field": {"key": "usage.q16_amount", "label": "월 결제 금액"}},
+                    },
+                    {
+                        "key": "usage.q19",
+                        "no": "19",
+                        "text": "주로 사용하는 AI 서비스",
+                        "type": "single",
+                        "required": True,
+                        "other": {"when": 99, "field": {"key": "usage.q19_other", "label": "기타 서비스명"}},
+                    },
                 ],
             }
         ],
@@ -121,6 +148,36 @@ def test_mongo_definition_storage_accepts_nested_scale_spec() -> None:
             "order": 1,
         },
         {"key": "demo.age", "csvColumn": "인구통계학적 정보 및 일반적 사항 | 3 | 나이", "order": 2},
+        {
+            "key": "usage.q11_1",
+            "csvColumn": "인구통계학적 정보 및 일반적 사항 | 11 | 최근 한 달 생성형 AI 서비스별 사용 빈도 | ChatGPT",
+            "order": 3,
+        },
+        {
+            "key": "usage.q11_2",
+            "csvColumn": "인구통계학적 정보 및 일반적 사항 | 11 | 최근 한 달 생성형 AI 서비스별 사용 빈도 | Gemini",
+            "order": 4,
+        },
+        {
+            "key": "usage.q16",
+            "csvColumn": "인구통계학적 정보 및 일반적 사항 | 16 | AI 서비스 유료 결제 경험이 있나요?",
+            "order": 5,
+        },
+        {
+            "key": "usage.q16_amount",
+            "csvColumn": "인구통계학적 정보 및 일반적 사항 | 16 | AI 서비스 유료 결제 경험이 있나요? | 월 결제 금액",
+            "order": 6,
+        },
+        {
+            "key": "usage.q19",
+            "csvColumn": "인구통계학적 정보 및 일반적 사항 | 19 | 주로 사용하는 AI 서비스",
+            "order": 7,
+        },
+        {
+            "key": "usage.q19_other",
+            "csvColumn": "인구통계학적 정보 및 일반적 사항 | 19 | 주로 사용하는 AI 서비스 | 기타 서비스명",
+            "order": 8,
+        },
     ]
     assert stored.audience == "elementary"
     assert stored.spec["surveyVersion"] == "t1-elem-v1-draft"
