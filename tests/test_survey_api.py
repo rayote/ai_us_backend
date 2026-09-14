@@ -41,7 +41,9 @@ class InMemorySurveyDefinitions(SurveyDefinitionRepository):
         created = SurveyDefinition(
             surveyRound=definition.survey_round,
             surveyVersion=definition.survey_version,
+            audience=definition.audience,
             questions=definition.questions,
+            spec=definition.raw_spec,
             createdAt=datetime.now(UTC),
         )
         self.definitions[(created.survey_round, created.survey_version)] = created
@@ -146,6 +148,47 @@ def test_researcher_cannot_register_survey_definition() -> None:
         )
 
     assert response.status_code == 403
+
+
+def test_admin_registers_nested_scale_survey_definition() -> None:
+    with _client() as client:
+        admin_token = _token(client, "admin", "admin-password")
+        response = client.post(
+            "/api/v1/admin/survey-definitions",
+            headers={"Authorization": f"Bearer {admin_token}"},
+            json={
+                "surveyRound": 1,
+                "audience": "elementary",
+                "surveyVersion": "t1-elem-v1-draft",
+                "scales": [
+                    {
+                        "scaleId": "motive",
+                        "order": 4,
+                        "scaleName": "AI 활용동기",
+                        "questions": [
+                            {
+                                "key": "motive.q1",
+                                "no": "1",
+                                "text": "나는 가족, 친구, 다른 문제에서 벗어나려고 AI를 사용한다.",
+                                "type": "likert",
+                                "required": True,
+                            }
+                        ],
+                    }
+                ],
+            },
+        )
+
+    assert response.status_code == 201
+    assert response.json()["audience"] == "elementary"
+    assert response.json()["questions"] == [
+        {
+            "key": "motive.q1",
+            "csvColumn": "AI 활용동기 | 1 | 나는 가족, 친구, 다른 문제에서 벗어나려고 AI를 사용한다.",
+            "order": 1,
+        }
+    ]
+    assert response.json()["spec"]["scales"][0]["scaleId"] == "motive"
 
 
 def test_researcher_can_preview_survey_responses() -> None:

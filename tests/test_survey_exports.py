@@ -75,6 +75,57 @@ def test_mongo_definition_storage_uses_csv_column_alias() -> None:
     assert stored.questions[0].csv_column == "첫 번째 문항"
 
 
+def test_mongo_definition_storage_accepts_nested_scale_spec() -> None:
+    collection = InMemoryDefinitionCollection()
+    repository = MongoSurveyDefinitionRepository(collection)
+    definition = SurveyDefinitionCreate(
+        surveyRound=1,
+        audience="elementary",
+        surveyVersion="t1-elem-v1-draft",
+        scales=[
+            {
+                "scaleId": "demo",
+                "order": 1,
+                "scaleName": "인구통계학적 정보 및 일반적 사항",
+                "questions": [
+                    {
+                        "key": "demo.screening1",
+                        "no": "screening1",
+                        "text": "생성형 AI를 사용한 적이 있나요?",
+                        "type": "single",
+                        "required": True,
+                        "options": [{"value": 1, "label": "없음"}],
+                    },
+                    {
+                        "key": "demo.age",
+                        "no": "3",
+                        "text": "나이",
+                        "type": "number",
+                        "required": True,
+                    },
+                ],
+            }
+        ],
+    )
+
+    import asyncio
+
+    stored = asyncio.run(repository.create(definition))
+
+    assert collection.document["audience"] == "elementary"
+    assert collection.document["spec"]["scales"][0]["questions"][0]["key"] == "demo.screening1"
+    assert collection.document["questions"] == [
+        {
+            "key": "demo.screening1",
+            "csvColumn": "인구통계학적 정보 및 일반적 사항 | screening1 | 생성형 AI를 사용한 적이 있나요?",
+            "order": 1,
+        },
+        {"key": "demo.age", "csvColumn": "인구통계학적 정보 및 일반적 사항 | 3 | 나이", "order": 2},
+    ]
+    assert stored.audience == "elementary"
+    assert stored.spec["surveyVersion"] == "t1-elem-v1-draft"
+
+
 def test_definition_model_reads_legacy_mongodb_snake_case_question_column() -> None:
     definition = SurveyDefinition(
         surveyRound=1,

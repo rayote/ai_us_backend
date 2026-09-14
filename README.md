@@ -41,7 +41,7 @@ CloudType Secret의 bootstrap 계정은 최초 backend 실행 시 `admin`으로 
 - `surveyRound`: 설문 회차. 예: `1`, `2`
 - `surveyVersion`: 해당 회차 설문지 버전. 예: `2026-round-2-v2`
 
-`admin`은 응답 수집 전에 문항 키·CSV 열 이름·순서를 설문 정의로 등록합니다. 문항이 많은 경우 CSV 또는 Excel 원본을 검토해 일괄 등록하는 방식을 사용합니다.
+`admin`은 응답 수집 전에 문항 키·CSV 열 이름·순서를 설문 정의로 등록합니다. 실제 설문 초안처럼 `scales[].questions[]` 구조를 가진 JSON은 원본 spec을 MongoDB에 보존하고, 응답 검증과 CSV export에 사용할 평면 문항 목록을 자동 생성합니다. 문항이 많은 경우 CSV 또는 Excel 원본을 검토해 일괄 등록하는 방식을 사용합니다.
 
 초기 개발 중 등록된 이전 설문 정의의 `csv_column` 형식과 현재 API의 `csvColumn` 형식을 모두 읽도록 호환 처리합니다.
 

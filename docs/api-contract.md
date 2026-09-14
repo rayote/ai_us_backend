@@ -17,7 +17,7 @@ Final survey submission, temporary browser storage, MongoDB documents, and CSV e
 
 `POST /api/v1/admin/survey-definitions`
 
-This endpoint requires an `admin` bearer token. It registers the fixed CSV column order for a single `surveyRound` and `surveyVersion` before responses are collected.
+This endpoint requires an `admin` bearer token. It registers the fixed CSV column order for a single `surveyRound` and `surveyVersion` before responses are collected. It accepts both the simple flat question format and the richer scale-based survey spec used for real questionnaire drafts.
 
 ```json
 {
@@ -32,6 +32,34 @@ This endpoint requires an `admin` bearer token. It registers the fixed CSV colum
   ]
 }
 ```
+
+For a scale-based questionnaire, send `audience` and `scales`. The backend preserves the original JSON under `spec` in MongoDB and creates the flat `questions` list from `scales[].questions[]` for submission validation and CSV export.
+
+```json
+{
+  "surveyRound": 1,
+  "audience": "elementary",
+  "surveyVersion": "t1-elem-v1-draft",
+  "scales": [
+    {
+      "scaleId": "motive",
+      "order": 4,
+      "scaleName": "AI 활용동기",
+      "questions": [
+        {
+          "key": "motive.q1",
+          "no": "1",
+          "text": "나는 가족, 친구, 다른 문제에서 벗어나려고 AI를 사용한다.",
+          "type": "likert",
+          "required": true
+        }
+      ]
+    }
+  ]
+}
+```
+
+When `questions` is omitted, each scale question must include a stable `key`. The backend generates `csvColumn` as `scaleName | no | text` and assigns sequential `order` values. Additional fields such as `type`, `options`, `logic`, `sensitive`, and `scoring` remain in the preserved `spec`; current final submission validation still checks only registered question keys.
 
 The same round and version cannot be registered more than once. Register a new `surveyVersion` when the questionnaire changes.
 

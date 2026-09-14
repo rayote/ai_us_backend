@@ -208,3 +208,15 @@ CSV 등록은 `POST /api/v1/researcher/participants/imports`에 `file` 필드로
 - 선행 backend 커밋: `9d83ccc Include participant profiles in survey exports`
 - 설문 결과 미리보기와 CSV에는 내부 MongoDB ObjectId 대신 `아이디(휴대폰)`, `학교급`, `학년`을 포함한다.
 - 화면의 학교급 선택을 preview와 CSV export API의 `school_level` query에 전송한다.
+
+### FH-012: 실제 설문 샘플 spec 연동
+
+- 선행 backend 커밋: 대기 중. `POST /api/v1/admin/survey-definitions`가 `survey_t1_elem_sample.json`처럼 `scales[].questions[]` 구조를 가진 설문 JSON을 받을 수 있게 확장됐다.
+- backend는 `surveyRound`, `surveyVersion`, `audience`, 원본 `scales`/`_meta`/`_reviewNotes`를 MongoDB `survey_definitions.spec`에 보존하고, `scales[].questions[]`에서 응답 검증과 CSV export용 평면 `questions` 목록을 자동 생성한다.
+- Claude는 현재 `index.html`의 `surveyRound: 1`, `surveyVersion: "demo-v1"`, `q1/q2/q3` 더미 설문을 실제 설문으로 교체한다.
+- 초등용 1회차 샘플은 `surveyRound: 1`, `audience: "elementary"`, `surveyVersion: "t1-elem-v1-draft"`를 사용한다. 중고등용은 연구진이 별도 spec과 `surveyVersion`을 확정한 뒤 연결한다.
+- 최종 제출 `answers` 객체의 key는 backend에 등록된 spec의 각 문항 `key`를 그대로 사용한다. Claude가 임의로 문항 key, 회차, 버전, 선택지 값을 새로 만들지 않는다.
+- `_reviewNotes`에 표시된 이름·연락처·보호자 연락처·학년 중복 수집 여부는 연구진 결정 전까지 임의로 제거하거나 확정하지 않는다. 화면에 넣을 경우에도 제출 key와 값은 spec과 일치해야 한다.
+- `logic.type: "disqualifyIf"`, `required`, `options`, `scale`, `sensitive`, `scoring`은 원본 spec에 보존된다. 현재 backend의 최종 제출 검증은 등록된 문항 key 확인까지이므로, frontend는 필수 응답·선택지·screening 흐름을 화면에서 처리한다.
+- `phq9.q9`처럼 `sensitive: true`인 문항의 고위험 응답 알림/후속 조치는 별도 backend 작업이 필요하다. Claude는 이를 완료된 기능처럼 표시하지 않는다.
+- 기존 순수 HTML/CSS/JavaScript와 inline `<script>` 구조를 유지하고, 외부 빌드 도구를 추가하지 않는다.

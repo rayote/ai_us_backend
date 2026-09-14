@@ -31,7 +31,9 @@ def _definition_from_document(document: dict[str, Any]) -> SurveyDefinition:
     return SurveyDefinition(
         surveyRound=document["survey_round"],
         surveyVersion=document["survey_version"],
+        audience=document.get("audience"),
         questions=document["questions"],
+        spec=document.get("spec"),
         createdAt=document["created_at"],
     )
 
@@ -57,6 +59,10 @@ class MongoSurveyDefinitionRepository:
             "questions": [question.model_dump(by_alias=True) for question in definition.questions],
             "created_at": datetime.now(UTC),
         }
+        if definition.audience is not None:
+            document["audience"] = definition.audience
+        if definition.raw_spec is not None:
+            document["spec"] = definition.raw_spec
         try:
             await self._collection.insert_one(document)
         except DuplicateKeyError as error:
