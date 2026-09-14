@@ -193,10 +193,6 @@ class InvalidCredentialsError(Exception):
     """Raised when a participant cannot be authenticated."""
 
 
-class AudienceMismatchError(Exception):
-    """Raised when a participant selected the wrong school audience."""
-
-
 class ParticipantAuthenticationService:
     def __init__(self, repository: ParticipantAccountRepository) -> None:
         self._repository = repository
@@ -205,10 +201,13 @@ class ParticipantAuthenticationService:
         account = await self._repository.find_by_phone(phone)
         if account is None or not verify_password(password, account.password_hash):
             raise InvalidCredentialsError
-        expected_audience = "elementary" if account.school_level == "초등" else "secondary"
-        if account.school_level not in {"초등", "중등", "고등"} or audience != expected_audience:
-            raise AudienceMismatchError
+        if account.school_level not in {"초등", "중등", "고등"}:
+            raise InvalidCredentialsError
         return account
+
+    @staticmethod
+    def account_audience(account: ParticipantAccount) -> str:
+        return "elementary" if account.school_level == "초등" else "secondary"
 
     async def change_password(self, participant_id: str, current_password: str, new_password: str) -> None:
         account = await self._repository.find_by_id(participant_id)

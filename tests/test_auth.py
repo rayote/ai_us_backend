@@ -110,14 +110,17 @@ def test_participant_login_rejects_invalid_password() -> None:
     assert response.status_code == 401
 
 
-def test_participant_login_rejects_wrong_school_audience() -> None:
+def test_participant_login_switches_wrong_school_audience() -> None:
     with _client() as client:
         response = client.post(
             "/api/v1/auth/participant/login",
             json={"phone": "01012345678", "password": "changed-password", "audience": "secondary"},
         )
 
-    assert response.status_code == 403
+    assert response.status_code == 200
+    assert response.json()["audience"] == "elementary"
+    assert response.json()["requestedAudience"] == "secondary"
+    assert response.json()["audienceSwitched"] is True
 
 
 def test_participant_password_reset_restores_default_password_and_requires_change() -> None:
