@@ -24,16 +24,17 @@ def main() -> int:
     args = parser.parse_args()
 
     survey_sets = extract_survey_sets(args.frontend_index)
-    payloads = [
-        {**part, "surveyRound": args.survey_round, "audience": audience}
-        for audience, parts in survey_sets.items()
-        for part in parts
-    ]
+    payloads = build_payloads(survey_sets, args.survey_round)
 
     print("Prepared survey definitions:")
     for payload in payloads:
         questions = [question for scale in payload.get("scales", []) for question in scale.get("questions", [])]
-        print(f"- {payload['audience']} {payload['surveyVersion']} scales={len(payload.get('scales', []))} questions={len(questions)}")
+        title = payload.get("_meta", {}).get("title") if isinstance(payload.get("_meta"), dict) else None
+        print(
+            f"- round={payload['surveyRound']} audience={payload['audience']} "
+            f"version={payload['surveyVersion']} scales={len(payload.get('scales', []))} "
+            f"questions={len(questions)} title={title or '-'}"
+        )
 
     if args.dry_run:
         return 0
@@ -71,6 +72,17 @@ def extract_survey_sets(frontend_index: Path) -> dict[str, list[dict[str, Any]]]
     node_code = f"console.log(JSON.stringify(({match.group(1)})));"
     completed = subprocess.run(["node"], input=node_code, text=True, capture_output=True, check=True)
     return json.loads(completed.stdout)
+
+
+def build_payloads(survey_sets: dict[str, list[dict[str, Any]]], default_survey_round: int) -> list[dict[str, Any]]:
+    payloads: list[dict[str, Any]] = []
+    for audience, parts in survey_sets.items():
+        for part in parts:
+            payload = dict(part)
+            payload["surveyRound"] = payload.get("surveyRound") or default_survey_round
+            payload["audience"] = audience
+            payloads.append(payload)
+    return payloads
 
 
 def post_json(

@@ -33,7 +33,7 @@ This endpoint requires an `admin` bearer token. It registers the fixed CSV colum
 }
 ```
 
-For a scale-based questionnaire, send `audience` and `scales`. The backend preserves the original JSON under `spec` in MongoDB and creates the flat `questions` list from `scales[].questions[]` for submission validation and CSV export.
+For a scale-based questionnaire, send `audience` and `scales`. The backend preserves the original JSON under `spec` in MongoDB and creates the flat `questions` list from `scales[].questions[]` for submission validation and CSV export. In the current collaboration workflow, `spec` is the questionnaire source structure prepared in the frontend `SURVEY_SETS` by the research team or Claude. It is intentionally preserved so question text, options, scale metadata, review notes, scoring hints, and future report inputs remain traceable after registration.
 
 ```json
 {
@@ -85,7 +85,7 @@ This endpoint accepts an `admin` or `researcher` bearer token and returns regist
 ]
 ```
 
-`title` and `part` are populated from the preserved survey definition `spec` when available. The researcher page uses this list to populate survey version selections instead of hardcoding version IDs.
+`title` and `part` are populated from the preserved survey definition `spec` when available. The researcher page uses this list to populate survey version selections instead of hardcoding version IDs. When a new round is added, the frontend `SURVEY_SETS` should include the correct `surveyRound`, `surveyVersion`, `audience`, `part`, and `_meta.title`; the backend registration helper preserves those values instead of requiring direct MongoDB edits.
 
 ## Planned bulk survey-definition import
 

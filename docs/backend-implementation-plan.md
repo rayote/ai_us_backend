@@ -174,6 +174,7 @@ docs/         # 프론트 연동 계약과 운영 문서
 7. 해당 계약에 맞춘 FastAPI 요청/응답 모델과 MongoDB 스키마를 확정한다.
 8. 백엔드 최소 기능부터 구현하고, 프론트 변경은 inline script의 API 호출부에 한정한다.
 9. 문항이 많은 설문은 확정 원본을 CSV 또는 Excel 형식으로 받아 설문 정의 일괄 등록 결과를 검토한다.
+10. 2회차 이후 설문은 frontend `SURVEY_SETS`에 `surveyRound`, `surveyVersion`, `audience`, `part`, `_meta.title`을 명시하고, backend 담당자가 `scripts/register_frontend_surveys.py`로 admin API 등록을 수행한다. Claude나 프론트 작업자는 MongoDB에 직접 접속하지 않는다.
 
 ## 9. 연구진 확인이 필요한 결정
 

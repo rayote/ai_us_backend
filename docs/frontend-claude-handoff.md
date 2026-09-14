@@ -263,3 +263,15 @@ CSV 등록은 `POST /api/v1/researcher/participants/imports`에 `file` 필드로
 - `researcher.html`의 설문 결과 다운로드 영역은 더 이상 설문 버전 ID를 하드코딩하지 않고, 이 API 응답으로 `fVersion` select를 채운다.
 - 설문 버전을 선택하면 해당 정의의 `surveyRound`에 맞춰 회차 select를 자동으로 맞추고, 기존 미리보기/CSV 다운로드 API에는 선택된 `survey_round`와 `survey_version`을 그대로 보낸다.
 - 등록된 설문 정의가 없거나 조회 실패 시 성공처럼 표시하지 않고, select와 미리보기 영역에 실패/빈 상태를 표시한다.
+
+### FH-018: 2회차 이후 설문 추가 파이프라인 - operational/tentative
+
+상태: 운영 절차 후보. 2회차 이후 실제 설문 원본이 확정되면 이 절차를 따른다.
+
+- Claude/공동연구 실무진은 frontend `index.html`의 `SURVEY_SETS`에 새 설문 UI/spec을 추가할 수 있다. 단, `surveyRound`, `surveyVersion`, `audience`, `part`, `_meta.title`, 문항 `key`, 선택지 `value`는 연구진 확정값만 사용한다.
+- `SURVEY_SETS`에 들어가는 객체는 MongoDB `survey_definitions.spec`로 보존되는 원본 설문 구조다. DB에서 보이는 `spec` 하위 속성은 임의 내부값이 아니라 공동연구 실무진/Claude가 작성한 문항·척도·옵션·검토 메모·채점 힌트의 원본이다.
+- Claude는 MongoDB에 직접 접속하거나 `survey_definitions`를 직접 insert하지 않는다. DB URI/Secret을 프론트 작업자나 프론트 저장소에 노출하지 않는다.
+- frontend 작업이 끝나면 backend 담당자가 최신 `SURVEY_SETS`를 pull하고 `scripts/register_frontend_surveys.py`로 backend admin API를 통해 설문 정의를 등록한다. API 등록을 거쳐야 중복 key/order, grid `rows[].key`, `detail.field.key`, `other.field.key` 변환과 검증이 적용된다.
+- 등록 helper는 각 part의 `surveyRound`가 있으면 그 값을 우선 사용하고, 없을 때만 `--survey-round` 기본값을 사용한다. 1회차와 2회차 정의가 섞여도 part별 회차가 보존되어야 한다.
+- 등록 후 `GET /api/v1/researcher/survey-definitions`와 연구자 화면의 설문 버전 select에서 새 `surveyRound`/`surveyVersion`/title이 보이는지 확인한다.
+- 새 설문이 등록되기 전에는 프론트 UI가 완성되어도 MongoDB 저장 준비 완료로 보지 않는다. 통합 확인은 참여자 제출, Queue `completed`, 연구자 미리보기, CSV 다운로드까지 포함한다.
