@@ -220,3 +220,11 @@ CSV 등록은 `POST /api/v1/researcher/participants/imports`에 `file` 필드로
 - `logic.type: "disqualifyIf"`, `required`, `options`, `scale`, `sensitive`, `scoring`은 원본 spec에 보존된다. 현재 backend의 최종 제출 검증은 등록된 문항 key 확인까지이므로, frontend는 필수 응답·선택지·screening 흐름을 화면에서 처리한다.
 - `phq9.q9`처럼 `sensitive: true`인 문항의 고위험 응답 알림/후속 조치는 별도 backend 작업이 필요하다. Claude는 이를 완료된 기능처럼 표시하지 않는다.
 - 기존 순수 HTML/CSS/JavaScript와 inline `<script>` 구조를 유지하고, 외부 빌드 도구를 추가하지 않는다.
+
+### FH-013: 대화문 제출 동의 UI 잠금 연동
+
+- 선행 backend 변경: 참여자 로그인 응답에 `chatConsent`가 추가됐다.
+- Claude는 `index.html`의 임시 `CHAT_CONSENT=true` 고정값을 제거하고, `POST /api/v1/auth/participant/login` 성공 응답의 `chatConsent`를 `sessionStorage`에 저장해 대화문 탭 열림/잠금 UI에 사용한다.
+- `chatConsent`가 `false`이면 대화문 제출 버튼을 표시하거나 제출 성공처럼 처리하지 않는다. backend도 `POST /api/v1/chat-submissions`에서 동의하지 않은 참여자를 거부하므로, 프론트는 이를 우회하지 않는다.
+- 로그아웃 시 access token, role, participant phone과 함께 저장한 `chatConsent` 값도 삭제한다.
+- 기존 대화문 제출 payload는 유지한다: `submissionPoint`, `sourceType`, `rawInput`, `submissionId`.

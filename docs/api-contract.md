@@ -319,11 +319,13 @@ Successful response: `200 OK`
   "accessToken": "<JWT>",
   "tokenType": "bearer",
   "role": "participant",
-  "needsPasswordChange": true
+  "needsPasswordChange": true,
+  "audience": "elementary",
+  "chatConsent": true
 }
 ```
 
-`audience` is required: use `elementary` for the elementary-school mode and `secondary` for the middle/high-school mode. The backend compares it with the participant's registered school level and returns `403 Forbidden` when they do not match. The frontend sends the access token in the `Authorization: Bearer <JWT>` header for authenticated requests. When `needsPasswordChange` is `true`, it must show the first-password-change screen before opening the survey panel.
+`audience` is required: use `elementary` for the elementary-school mode and `secondary` for the middle/high-school mode. The backend compares it with the participant's registered school level and returns `403 Forbidden` when they do not match. `chatConsent` reflects whether the approved participant consented to AI chat transcript submission. The frontend sends the access token in the `Authorization: Bearer <JWT>` header for authenticated requests. When `needsPasswordChange` is `true`, it must show the first-password-change screen before opening the survey panel.
 
 ## Change participant password
 

@@ -9,7 +9,7 @@ from fastapi.testclient import TestClient
 
 class InMemoryParticipantAccountRepository(ParticipantAccountRepository):
     def __init__(self) -> None:
-        self.account = ParticipantAccount("participant-1", "01012345678", hash_password("1234"), True, False, "초등")
+        self.account = ParticipantAccount("participant-1", "01012345678", hash_password("1234"), True, True, "초등")
 
     async def find_by_phone(self, phone: str) -> ParticipantAccount | None:
         if phone == self.account.phone:
@@ -24,7 +24,9 @@ class InMemoryParticipantAccountRepository(ParticipantAccountRepository):
     async def update_password(self, participant_id: str, password_hash: str) -> bool:
         if participant_id != self.account.participant_id:
             return False
-        self.account = ParticipantAccount(participant_id, self.account.phone, password_hash, False, False, "초등")
+        self.account = ParticipantAccount(
+            participant_id, self.account.phone, password_hash, False, self.account.chat_consent, "초등"
+        )
         return True
 
 
@@ -44,6 +46,7 @@ def test_participant_login_returns_access_token_and_password_change_requirement(
     assert response.json()["role"] == "participant"
     assert response.json()["needsPasswordChange"] is True
     assert response.json()["audience"] == "elementary"
+    assert response.json()["chatConsent"] is True
     assert response.json()["accessToken"]
 
 

@@ -115,6 +115,7 @@ async def participant_login(credentials: ParticipantLogin, request: Request) -> 
         role="participant",
         needsPasswordChange=account.must_change_password,
         audience=credentials.audience,
+        chatConsent=account.chat_consent,
     )
 
 

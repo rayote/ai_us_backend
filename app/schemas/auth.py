@@ -55,6 +55,7 @@ class AccessToken(BaseModel):
     role: Literal["participant", "researcher", "admin"]
     needs_password_change: bool = Field(alias="needsPasswordChange")
     audience: Literal["elementary", "secondary"] | None = None
+    chat_consent: bool | None = Field(default=None, alias="chatConsent")
 
 
 class PasswordChangeCompleted(BaseModel):
