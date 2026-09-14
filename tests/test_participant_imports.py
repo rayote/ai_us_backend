@@ -45,22 +45,35 @@ def test_import_creates_valid_rows_and_reports_invalid_rows() -> None:
 
     result = asyncio.run(
         service.import_csv(
-            "이름,휴대폰번호,학교급,학년\n홍길동,010-1234-5678,초등,4\n,010-9999-9999,중등,2\n".encode()
+            "이름,휴대폰번호,학교급,학년,이메일\n"
+            "홍길동,010-1234-5678,초등,4,user@example.com\n"
+            ",010-9999-9999,중등,2,missing@example.com\n".encode()
         )
     )
 
     assert result.created_count == 1
     assert result.skipped_count == 0
     assert result.errors[0].row == 3
-    assert repository.imported["01012345678"] == ("홍길동", "초등", 4, None)
+    assert repository.imported["01012345678"] == ("홍길동", "초등", 4, "user@example.com")
 
 
-def test_import_accepts_optional_email_column_for_password_reset() -> None:
+def test_import_requires_email_column_for_password_reset() -> None:
+    service = ParticipantImportService(InMemoryParticipantAccounts())
+
+    result = asyncio.run(service.import_csv("이름,휴대폰번호,학교급,학년\n홍길동,010-1234-5678,초등,4\n".encode()))
+
+    assert result.created_count == 0
+    assert result.errors[0].message == "필수 열: 이름, 휴대폰번호, 학교급, 학년, 이메일"
+
+
+def test_import_accepts_required_email_column_for_password_reset() -> None:
     repository = InMemoryParticipantAccounts()
     service = ParticipantImportService(repository)
 
     result = asyncio.run(
-        service.import_csv("이름,휴대폰번호,학교급,학년,이메일\n홍길동,010-1234-5678,초등,4,USER@Example.com\n".encode())
+        service.import_csv(
+            "이름,휴대폰번호,학교급,학년,이메일\n홍길동,010-1234-5678,초등,4,USER@Example.com\n".encode()
+        )
     )
 
     assert result.created_count == 1
@@ -70,7 +83,7 @@ def test_import_accepts_optional_email_column_for_password_reset() -> None:
 def test_import_skips_existing_phone_number() -> None:
     repository = InMemoryParticipantAccounts()
     service = ParticipantImportService(repository)
-    csv_content = "이름,휴대폰번호,학교급,학년\n홍길동,010-1234-5678,초등,4\n".encode()
+    csv_content = "이름,휴대폰번호,학교급,학년,이메일\n홍길동,010-1234-5678,초등,4,user@example.com\n".encode()
 
     first_result = asyncio.run(service.import_csv(csv_content))
     second_result = asyncio.run(service.import_csv(csv_content))

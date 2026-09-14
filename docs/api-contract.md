@@ -207,7 +207,7 @@ Returns the participants without a completed response for the specified survey r
 
 `POST /api/v1/researcher/participants/imports`
 
-This endpoint accepts an `admin` or `researcher` bearer token and a `multipart/form-data` file field named `file`. It currently accepts UTF-8 CSV files only. The required columns are `이름`, `휴대폰번호`, `학교급`, and `학년`.
+This endpoint accepts an `admin` or `researcher` bearer token and a `multipart/form-data` file field named `file`. It currently accepts UTF-8 CSV files only. The required columns are `이름`, `휴대폰번호`, `학교급`, `학년`, and `이메일`.
 
 Successful response: `200 OK`
 
@@ -224,7 +224,7 @@ Successful response: `200 OK`
 }
 ```
 
-Each valid row creates a participant account with the hashed initial password `1234` and requires the first password change. Existing phone numbers are skipped. Invalid rows do not stop other valid rows from importing.
+Each valid row creates a participant account with the hashed initial password `1234`, the registered email used for simplified password reset, and requires the first password change. Existing phone numbers are skipped. Invalid rows do not stop other valid rows from importing.
 
 ## Create researcher account
 

@@ -83,7 +83,9 @@ class InMemoryParticipants(ParticipantAccountRepository):
     ) -> bool:
         if phone in self.accounts:
             return False
-        self.accounts[phone] = ParticipantAccount(phone, phone, password_hash, True, chat_consent, school_level, email=email)
+        self.accounts[phone] = ParticipantAccount(
+            phone, phone, password_hash, True, chat_consent, school_level, email=email
+        )
         return True
 
     async def create_imported(
@@ -225,9 +227,14 @@ def test_researcher_can_import_participants_from_csv() -> None:
             "/api/v1/researcher/participants/imports",
             headers={"Authorization": f"Bearer {_researcher_token(client)}"},
             files={
-                "file": ("participants.csv", "이름,휴대폰번호,학교급,학년\n홍길동,010-1234-5678,초등,4\n", "text/csv")
+                "file": (
+                    "participants.csv",
+                    "이름,휴대폰번호,학교급,학년,이메일\n홍길동,010-1234-5678,초등,4,user@example.com\n",
+                    "text/csv",
+                )
             },
         )
 
     assert response.json() == {"createdCount": 1, "skippedCount": 0, "errors": []}
     assert "01012345678" in participants.accounts
+    assert participants.accounts["01012345678"].email == "user@example.com"

@@ -41,7 +41,7 @@
 
 비밀번호 재설정은 Gmail 없이 약식으로 처리한다. 프론트는 참여자가 입력한 휴대폰 번호와 이메일을 `POST /api/v1/auth/participant/password-reset`으로 보내고, backend가 등록 정보와 일치하면 비밀번호를 `1234`로 초기화하며 다음 로그인에서 최초 비밀번호 변경 화면을 강제한다.
 
-CSV 등록은 `POST /api/v1/researcher/participants/imports`에 `file` 필드로 UTF-8 CSV를 전송한다. 현재 프론트의 CSV 양식인 `이름,휴대폰번호,학교급,학년`을 유지하며, Excel 업로드는 backend에서 아직 지원하지 않는다. 응답의 `createdCount`, `skippedCount`, `errors`를 기존 등록 완료 안내에 표시한다.
+CSV 등록은 `POST /api/v1/researcher/participants/imports`에 `file` 필드로 UTF-8 CSV를 전송한다. 현재 프론트의 CSV 양식은 약식 비밀번호 재설정을 위해 `이름,휴대폰번호,학교급,학년,이메일`을 필수 열로 사용한다. Excel 업로드는 backend에서 아직 지원하지 않는다. 응답의 `createdCount`, `skippedCount`, `errors`를 기존 등록 완료 안내에 표시한다.
 
 ### 참여 신청 요청에 포함할 값
 
