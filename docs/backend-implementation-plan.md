@@ -124,6 +124,7 @@ API의 실제 URL과 JSON 필드명은 프론트 소스를 받은 뒤 기존 함
 - `survey_responses`: 참여자 ID, 설문 회차(`surveyRound`), 설문 버전(`surveyVersion`), 응답 전체, 제출시각. `participant_id + surveyRound + surveyVersion` 복합 인덱스.
 - `submission_jobs`: 최종 설문 제출 대기열. 제출 추적 ID, 멱등성 키, 상태, 작업 데이터, 재시도 횟수, 오류 사유, 생성/처리 시각을 저장한다. 처리 상태와 생성 시각의 복합 인덱스.
 - `chat_submissions`: 참여자 ID, 제출 시점(1차 후/4차 후), 입력 형식, 원본 링크 또는 본문, 정규화된 대화문, parser 상태·버전·경고, 제출시각.
+- `participant_reports`(tentative TODO): 참가자 개인 리포트 snapshot. 설문 제출 request에서 직접 계산하지 않고 별도 `report_generation` Queue job 또는 background worker가 lazy하게 생성한다. 후보 필드는 참여자 ID, 회차, 리포트 버전, 상태(`pending`, `processing`, `ready`, `failed`, `hidden`), 원본 설문 버전, 점수, chart data, 해석 섹션, 생성시각, 오류 사유다.
 - `notification_jobs`: 비밀번호 재설정 Gmail SMTP 이메일 발송 대기열. 수신 대상, 템플릿 유형, 상태, 재시도 횟수, 오류 사유, 생성/처리 시각을 저장한다. SMS는 별도 공급자 확정 뒤 확장한다.
 - `password_reset_tokens`: 만료시각을 가진 일회용 토큰. TTL 인덱스.
 - `audit_logs`: 연구자 승인, CSV 내보내기 같은 민감한 관리자 작업의 기록.
@@ -183,3 +184,4 @@ docs/         # 프론트 연동 계약과 운영 문서
 - 연구자 계정 생성·권한 부여 절차
 - 개인정보처리방침, 데이터 보존 기간, 삭제·백업 정책
 - 참여자와 연구자 도메인의 최종 분리 방식
+- 참가자 개인 리포트(tentative): MBTI 결과지처럼 요약 문구와 radar/radial chart, 영역별 해석을 제공할지, 어떤 척도와 점수 기준을 사용할지, `reportVersion`별 문구와 차트 구성을 어떻게 승인·보존할지

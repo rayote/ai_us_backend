@@ -243,3 +243,15 @@ CSV 등록은 `POST /api/v1/researcher/participants/imports`에 `file` 필드로
 - 회원가입에서 현재 선택한 탭과 다른 학년을 고르면 브라우저 기본 `confirm()`을 쓰지 말고, 기존 사이트 스타일과 맞는 커스텀 모달로 “전환할까요?”를 묻는다. “전환하기”는 상단 탭을 맞는 학교급으로 바꾸고, “다시 선택하기”는 학년 선택값을 비운다.
 - 참여자 로그인에서 응답의 `audienceSwitched`가 `true`이면 브라우저 기본 `alert()`를 쓰지 말고, 커스텀 모달로 “등록된 학교급에 맞춰 초등/중고등 페이지로 전환했어요”를 안내한다. 확인 버튼만 제공한다.
 - 전환 안내 후 설문 목록은 응답의 실제 `audience` 기준으로 열린다. `needsPasswordChange`가 `true`이면 탭 전환과 안내를 먼저 처리한 뒤 최초 비밀번호 변경 팝업을 표시한다.
+
+### FH-016: 참가자 개인 리포트 화면 설계 후보 - tentative
+
+상태: TODO 후보. 아직 분석 내용, 척도별 채점 규칙, 차트 구성, 문구가 확정되지 않았으므로 구현하지 않는다.
+
+- 목표는 연구자 통계 대시보드가 아니라 참가자 본인이 보는 개인 결과 리포트다. “탐사대원님이 제출하신 결과에 따르면...” 같은 해석 문구와 MBTI 결과지 같은 시각적 리포트 구성을 지향한다.
+- 예상 화면 구성은 요약 타이틀, 짧은 해석, radar/radial chart, bar/profile chart, 영역별 설명, 연구 결과 안내 문구다.
+- 리포트 생성은 설문 제출 request 안에서 처리하지 않는다. 제출 저장 완료 후 별도 `report_generation` Queue job 또는 background worker가 lazy하게 생성하고, 참가자 화면에는 “탐사 보고서를 준비 중이에요. 잠시 후 다시 확인해 주세요.” 같은 유예 안내를 표시한다.
+- backend는 나중에 `participant_reports` snapshot collection을 둘 수 있다. 후보 필드: `participantId`, `surveyRound`, `reportVersion`, `status`, `sourceSurveyVersions`, `scores`, `chartData`, `sections`, `generatedAt`, `error`.
+- frontend는 리포트가 `ready`일 때만 결과지를 렌더링하고, `pending`/`processing`이면 대기 안내를 보여준다. 조회 API는 본인 JWT로 본인 리포트만 볼 수 있게 한다.
+- 분석 기준이나 문구가 바뀔 수 있으므로 `reportVersion`을 반드시 둔다. 이미 참가자에게 보여준 리포트는 snapshot으로 보존하는 방향을 우선 검토한다.
+- 연구자에게 필요한 분석 결과는 운영 서비스에 통합하지 않고, 별도 오프라인 산출물로 전달하는 대안도 유지한다.
