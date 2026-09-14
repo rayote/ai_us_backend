@@ -294,7 +294,7 @@ Successful response: `201 Created`
 
 Failure responses:
 
-- `409 Conflict`: the participant phone number already has an application.
+- `409 Conflict`: the participant phone number already has an application, or it already belongs to a registered participant account. The response `detail` distinguishes these cases.
 - `422 Unprocessable Entity`: required fields, consent values, phone number, or email format are invalid.
 - `503 Service Unavailable`: MongoDB has not been configured or is unavailable.
 
