@@ -275,3 +275,15 @@ CSV 등록은 `POST /api/v1/researcher/participants/imports`에 `file` 필드로
 - 등록 helper는 각 part의 `surveyRound`가 있으면 그 값을 우선 사용하고, 없을 때만 `--survey-round` 기본값을 사용한다. 1회차와 2회차 정의가 섞여도 part별 회차가 보존되어야 한다.
 - 등록 후 `GET /api/v1/researcher/survey-definitions`와 연구자 화면의 설문 버전 select에서 새 `surveyRound`/`surveyVersion`/title이 보이는지 확인한다.
 - 새 설문이 등록되기 전에는 프론트 UI가 완성되어도 MongoDB 저장 준비 완료로 보지 않는다. 통합 확인은 참여자 제출, Queue `completed`, 연구자 미리보기, CSV 다운로드까지 포함한다.
+
+### FH-019: 일시적인 연결 문제 full-modal 안내
+
+- 프론트 작업 브랜치: `frontend/server-unavailable-modal`
+- 프론트 작업 커밋: `c2dfc74 Show temporary connection issue modal`
+- `index.html`과 `researcher.html`은 페이지 진입 후 `/health`를 1회 확인하고, backend 네트워크 실패 또는 5xx 응답이 발생하면 테마에 맞는 full-modal을 표시한다.
+- 모달 제목은 단정적인 “서버 점검 중”이 아니라 `일시적인 연결 문제가 있어요`로 유지한다.
+- 모달 본문은 “서버 점검 또는 일시적인 연결 문제로 요청을 처리하기 어렵고, 잠시 후 다시 접속해 달라”는 취지로 안내한다.
+- 409, 422 같은 사용자 입력/중복/검증 오류는 점검 모달로 처리하지 않고 각 화면의 기존 오류 메시지 흐름을 유지한다.
+- 401, 403은 기존 로그인 만료/권한 처리 흐름을 유지한다.
+- 같은 세션에서 모달이 과도하게 반복 표시되지 않도록 중복 표시 제한 플래그를 둔다.
+- 이후 Claude가 API 호출부를 추가할 때도 브라우저 기본 `alert()`/`confirm()`으로 서버 장애를 안내하지 말고, 이 full-modal 흐름을 우선 사용한다.

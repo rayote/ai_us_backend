@@ -282,6 +282,8 @@ Successful response: `201 Created`
 }
 ```
 
+The frontend may call this endpoint once on page load to detect temporary backend deployment or connection problems. If `/health` fails at the network level or returns a 5xx response, the frontend shows a non-blocking full-modal message such as `일시적인 연결 문제가 있어요`. User-input errors such as 409 or 422 are not treated as health failures.
+
 ## Submit participant application
 
 `POST /api/v1/applications`
