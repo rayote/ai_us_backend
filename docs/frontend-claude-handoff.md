@@ -1,303 +1,114 @@
-# 프론트엔드 Claude 전달 기록
+# 프론트엔드 Claude 연동 기준 및 변경 기록
 
-이 문서는 `ai_us` 프론트엔드 저장소를 작업하는 Claude에게 전달할 변경 요청을 버전별로 관리한다. 백엔드 API가 준비된 뒤 해당 버전 항목만 전달한다.
+`ai_us` 프론트엔드를 작업하는 Claude에게 전달할 현재 계약과 변경 이력이다. 새 작업은 아래 **현재 구현 계약**과 **작업 원칙**을 기본으로 하고, 필요한 경우에만 **향후 작업 후보**의 해당 항목을 함께 전달한다.
 
 ## 사용 방법
 
-1. 프론트 작업을 요청할 때 이 문서의 전달 ID와 전체 해당 항목을 Claude에 제공한다.
-2. Claude가 작업한 뒤 프론트 저장소의 커밋 ID를 해당 전달 ID 아래에 기록한다.
-3. 새 요청은 기존 항목을 수정하지 않고 다음 전달 ID로 추가한다.
-4. 이 문서의 기준 프론트 커밋과 다른 버전에서 작업할 때는 먼저 차이를 확인한다.
+1. 새 프론트 작업 시 이 문서의 공통 원칙과 관련 현재 계약, 필요한 향후 작업 후보를 함께 제공한다.
+2. Claude는 현재 `main`에서 새 브랜치를 만들고 작업한다. 완료 후 커밋 ID와 검증 결과를 전달한다.
+3. backend 담당자는 API 계약, MongoDB 정의, 배포 상태를 확인한 뒤 프론트 변경을 `main`에 병합한다.
+4. 새 요구사항은 완료된 전달 내용을 수정하지 않고, 아래 변경 이력 또는 향후 작업 후보에 추가한다.
 
 ## 공통 작업 원칙
 
-- 대상 저장소: `ai_us`
-- 기준 프론트 커밋: `f8f5e830d38bc88d3ead512a41805b7622984345`
-- 대상 파일: `index.html`, `researcher.html`
-- 기존 작업의 변경 추적 혼선을 줄이고 후속 Claude 작업의 연속성을 유지하기 위해, 순수 HTML/CSS/JavaScript 구조와 inline `<script>` 블록을 보존한 상태로 구현한다.
-- 디자인, 이미지, 문구, 화면 배치, 기존 CSS를 필요 없이 변경하지 않는다.
-- 외부 라이브러리와 프론트 빌드 도구를 추가하지 않는다.
-- MongoDB URI, API 비밀값, 연구자 계정 비밀번호는 프론트에 넣지 않는다.
-- API 기본 URL은 CloudType에 배포된 해당 환경의 backend 공개 URL만 사용한다. 개발용 무료 환경과 운영용 유료 환경의 URL·비밀값·데이터는 서로 분리한다.
-- API 오류 시 기존 화면 흐름을 유지하고, 성공하지 않은 작업을 성공한 것처럼 표시하지 않는다.
-- 참여 신청 API의 실패 메시지는 backend `detail`을 우선 표시한다. 특히 중복 신청과 이미 등록된 참여자 번호는 서로 다른 안내로 보여준다.
-- 참여자 로그인 요청에는 상단 토글의 UI 값(`kid` 또는 `teen`)을 API 분류값(`elementary` 또는 `secondary`)으로 변환한 `audience`를 함께 보낸다. backend가 계정 학교급과 비교하므로 프론트에서 임의로 우회하지 않는다.
+- 대상 저장소: `ai_us`. 주요 파일은 `index.html`, `researcher.html`이다.
+- 순수 HTML/CSS/JavaScript와 inline `<script>` 구조를 유지한다. 외부 라이브러리와 프론트 빌드 도구를 추가하지 않는다.
+- 기존 디자인, 이미지, 문구, 화면 배치, CSS는 요구사항에 필요한 범위에서만 바꾼다.
+- MongoDB URI, API 비밀값, JWT secret, 연구자 계정 비밀번호를 프론트에 넣지 않는다.
+- API 기본 URL은 CloudType에 배포된 해당 환경의 backend 공개 URL만 사용한다. 개발과 운영의 URL, 비밀값, 데이터는 분리한다.
+- API 실패 시 성공 화면이나 완료 상태로 이동하지 않는다. `detail` 오류 메시지를 우선 표시한다.
+- 서버 네트워크 오류나 5xx 응답은 기존의 `일시적인 연결 문제가 있어요` full-modal로 안내한다. 409/422는 기존 입력 오류 영역, 401/403은 로그인 만료/권한 흐름으로 처리한다.
+- 구현 뒤 `index.html`과 `researcher.html`의 inline JavaScript가 파싱되는지 확인하고, 기존 흐름을 훼손하지 않는다.
 
-## FH-001: API 연동 준비 사항
+## 현재 구현 계약
 
-상태: 병합 완료. 프론트 작업 브랜치 `backend/fh-001-api-integration`의 신청·로그인·신청 목록/승인·CSV 등록 연동이 `main`에 반영됐다.
+### 참여 신청과 로그인
 
-### 변경 대상
+- `POST /api/v1/applications`에 성별, 학교급·학년, 본인/보호자 휴대폰 번호, 이메일, 동의를 보낸다.
+- backend는 `documentRead`, `survey`, `participant`, `guardian` 동의가 모두 `true`인 신청만 받는다. `chat`은 선택 동의다.
+- 수동 승인 시 응답은 `status: "pending"`이며, 프론트는 기존 승인 대기 완료 화면을 보인다.
+- 자동 승인 시 응답은 `status: "approved"`, `accessToken`, `role: "participant"`, `needsPasswordChange: true`, `audience`, `chatConsent`를 포함한다. 프론트는 토큰과 참여자 정보를 일반 로그인과 동일하게 `sessionStorage`에 저장하고, 승인 대기 화면 대신 최초 비밀번호 변경 모달을 즉시 연다.
+- 참여자 로그인은 `POST /api/v1/auth/participant/login`에 `audience`를 함께 보낸다. 초등 UI 값은 `elementary`, 중고등 UI 값은 `secondary`로 변환한다.
+- 로그인 응답의 실제 `audience`가 현재 UI와 다르면 기존 커스텀 전환 모달을 보인 뒤 해당 대상 UI로 전환한다.
+- `needsPasswordChange: true`이면 설문 화면을 열기 전에 `POST /api/v1/auth/participant/password`로 최초 비밀번호를 변경한다.
+- 비밀번호 재설정은 `POST /api/v1/auth/participant/password-reset`에 휴대폰 번호와 이메일을 보내며, 성공하면 비밀번호는 `1234`로 초기화된다.
 
-| 파일 | 현재 위치 | 요청 |
+### 연구자 회원 신청 관리
+
+- `GET /api/v1/researcher/applications`와 `POST /api/v1/researcher/applications/approve`는 `admin`, `researcher` 모두 사용한다.
+- `GET /api/v1/researcher/application-settings`는 두 역할 모두 `autoApproval` 상태를 읽는다.
+- `PUT /api/v1/admin/application-settings`는 `admin`만 `{ "autoApproval": true | false }`로 변경할 수 있다. 연구자 화면은 일반 `researcher`에게 현재 상태를 읽기 전용으로 표시한다.
+- 자동 승인을 켜도 기존 `pending` 신청은 그대로 유지한다. 새 신청에만 적용된다.
+- CSV 등록은 `POST /api/v1/researcher/participants/imports`의 `file` field로 UTF-8 CSV를 전송한다. 필수 열은 `이름,휴대폰번호,학교급,학년,이메일`이다.
+
+### 설문 정의와 제출
+
+- 실제 설문 spec은 `index.html`의 `SURVEY_SETS`가 원본이다. `surveyRound`, `surveyVersion`, `audience`, `part`, `_meta.title`, 문항 key와 선택지 value는 연구진 확정값만 사용한다.
+- frontend 변경 후 backend 담당자가 `scripts/register_frontend_surveys.py` 또는 개발 DB 동기화 스크립트로 `survey_definitions`를 갱신한다. Claude는 MongoDB에 직접 접속하거나 definition을 직접 넣지 않는다.
+- 최종 설문 제출은 `POST /api/v1/survey-responses`에 `surveyRound`, `surveyVersion`, `answers`, `submissionId`를 전송한다. `GET /api/v1/submission-jobs/{submissionId}`가 `completed`일 때만 임시 저장을 삭제한다.
+- 설문 답변 key는 spec의 일반 문항 `key`, grid `rows[].key`, 조건부 `detail.field.key`/`other.field.key`를 그대로 사용한다.
+- 연구자 설문 버전 목록은 `GET /api/v1/researcher/survey-definitions`로 채운다. 결과 조회/CSV는 선택된 `surveyRound`와 `surveyVersion`을 그대로 전송한다.
+
+### AI 대화문 제출
+
+- 대화문 제출은 AI 대화문 제출 동의(`chatConsent`)가 있는 참여자에게만 열어 준다. 로그아웃 시 `chatConsent`도 삭제한다.
+- 링크/붙여넣기 본문은 `POST /api/v1/chat-submissions`에 `submissionPoint`, `sourceType`(`link` 또는 `text`), `rawInput`, `submissionId`를 보낸다.
+- ZIP 또는 이미지 첨부는 `POST /api/v1/chat-submissions/uploads`에 multipart `FormData`로 보낸다. fields는 `files`, `tool`, `submissionPoint`, `sourceType`(`file` 또는 `image`), `submissionId`다.
+- ZIP은 한 개만, 이미지는 JPG/PNG/WEBP/HEIC 최대 20개까지 허용한다. 파일당 25MB, 요청 전체 100MB 제한을 넘으면 backend의 422 오류를 표시한다.
+- 첨부 원본은 backend가 MongoDB GridFS `chat_uploads` bucket에 저장한다. ZIP 대화문 추출과 이미지 OCR은 아직 구현하지 않았으므로, 프론트에서 추출 완료처럼 표시하지 않는다.
+- 연구자 대화문 CSV는 `GET /api/v1/researcher/exports/chat-submissions`에 `submission_point`, 필요 시 `school_level`을 전송한다.
+
+## 운영 절차
+
+### 새 회차 설문 추가
+
+1. 공동연구 실무진/Claude가 확정된 spec을 `SURVEY_SETS`에 추가한다.
+2. backend 담당자가 최신 프론트를 받고 설문 definition을 등록 또는 교체한다.
+3. 연구자 설문 버전 목록과 화면 select에 회차, 버전, 제목이 보이는지 확인한다.
+4. 참여자 제출, Queue `completed`, 연구자 미리보기, CSV 다운로드까지 개발 환경에서 확인한다.
+
+### 환경 분리
+
+- 개발과 운영은 별도의 CloudType backend, MongoDB, Secret, JWT secret을 사용한다.
+- 개발 DB 접근 정보는 Git ignore된 backend `.env`에만 둔다. 운영 MongoDB 접속정보는 CloudType Secret으로 관리한다.
+- 운영 설문 definition 동기화는 배포 backend의 admin API를 우선 사용한다.
+
+## 향후 작업 후보
+
+### FH-016: 참가자 개인 리포트
+
+상태: 보류. 분석 기준, 척도별 채점 규칙, 차트, 해석 문구가 확정된 뒤 구현한다.
+
+- 설문 제출 요청에서 즉시 생성하지 않고 별도 Queue job으로 `participant_reports` snapshot을 생성한다.
+- 참가자는 본인 JWT로만 조회하며, `pending`/`processing`은 대기 안내, `ready`만 리포트를 표시한다.
+- 리포트 기준 변경을 위해 `reportVersion`과 원본 설문 버전을 보존한다.
+
+### FH-018: 회차별 설문 운영 보완
+
+상태: 운영 절차 적용 중.
+
+- 설문 문항을 같은 `surveyRound`/`surveyVersion`으로 교체해야 할 때는 backend 담당자가 검증된 replace 절차를 사용한다.
+- 이미 운영 응답이 존재할 때 문항 key나 CSV 열이 바뀌면 새 `surveyVersion`을 사용해야 하는지 연구진과 먼저 결정한다.
+
+### AI 대화문 후처리
+
+상태: 보류.
+
+- ZIP 내 서비스별 export 파서, 이미지 OCR, 원본 첨부 파일의 연구자 전용 다운로드 정책을 별도 요구사항으로 설계한다.
+- 대용량 파일이 장기간 누적되면 GridFS 백업 비용을 검토하고 S3 호환 object storage 이전을 검토한다.
+
+## 변경 이력
+
+| 항목 | 상태 | 핵심 결과 |
 | --- | --- | --- |
-| `index.html` | `AppStore.submitApplication` | 로컬 배열 저장 대신 참여 신청 API를 호출한다. |
-| `index.html` | 참여자·연구자 로그인 제출 처리 | 입력 검증 뒤 로그인 API를 호출하고, 성공한 역할에 따라 기존 화면 이동을 실행한다. |
-| `index.html` | `PasswordReset.sendResetLink` | 즉시 성공하는 데모 Promise 대신 비밀번호 재설정 요청 API를 호출한다. |
-| `researcher.html` | `applications` 배열과 `approve()` | 신청 목록 API를 불러오고, 선택/전체 승인을 승인 API로 처리한다. |
-| `researcher.html` | `confirmBtn` 파일 등록 | 선택한 원본 CSV 파일을 연구자 CSV 등록 API로 전송한다. |
-| `researcher.html` | 결과 다운로드 버튼 | 현재는 데모 상태 유지. 화면의 전체·학교급 필터와 backend의 단일 `surveyRound`·`surveyVersion` CSV 계약을 맞춘 뒤 별도 요청으로 연결한다. |
-
-참여자 로그인 API는 구현되었으며, 성공 응답의 `needsPasswordChange`가 `true`이면 설문 패널을 열기 전에 `FH-004`의 비밀번호 변경 화면을 표시한다. 연구자 로그인과 신청 목록·승인 API도 구현되었지만, 실제 CloudType backend URL을 정한 뒤에 함께 연결한다. 연구자 화면의 기존 관리 기능은 `admin`과 `researcher` 모두 사용할 수 있으며, 연구자 계정 생성은 backend의 admin 전용 API로만 처리한다.
-
-비밀번호 재설정은 Gmail 없이 약식으로 처리한다. 프론트는 참여자가 입력한 휴대폰 번호와 이메일을 `POST /api/v1/auth/participant/password-reset`으로 보내고, backend가 등록 정보와 일치하면 비밀번호를 `1234`로 초기화하며 다음 로그인에서 최초 비밀번호 변경 화면을 강제한다.
-
-CSV 등록은 `POST /api/v1/researcher/participants/imports`에 `file` 필드로 UTF-8 CSV를 전송한다. 현재 프론트의 CSV 양식은 약식 비밀번호 재설정을 위해 `이름,휴대폰번호,학교급,학년,이메일`을 필수 열로 사용한다. Excel 업로드는 backend에서 아직 지원하지 않는다. 응답의 `createdCount`, `skippedCount`, `errors`를 기존 등록 완료 안내에 표시한다.
-
-### 참여 신청 요청에 포함할 값
-
-현재 신청 화면은 동의를 화면에서 확인하지만, 요청 객체에는 일부 값만 넣는다. API 연동 때 아래 값을 모두 전송한다.
-
-- 성별, 학교급·학년, 참여자 휴대폰 번호, 보호자 휴대폰 번호, 이메일
-- 설명문 전체 확인 여부
-- 설문 참여 동의 여부
-- AI 대화문 제출 동의 여부
-- 본인 동의와 보호자 동의 여부
-
-정확한 JSON 필드명과 API URL은 백엔드의 API 계약 문서 확정본을 따른다.
-
-참여자 로그인 API의 응답 `needsPasswordChange`가 `true`이면 설문 패널을 열지 않고, `FH-004`의 최초 비밀번호 변경 화면을 먼저 표시한다.
-
-### FH-020: 자동 승인 상태와 즉시 로그인
-
-- 연구자 화면의 회원 신청 관리 상단은 `GET /api/v1/researcher/application-settings`로 `autoApproval` 상태를 표시한다. `admin`은 `PUT /api/v1/admin/application-settings`로 `{ "autoApproval": true | false }`를 전송해 상태를 바꿀 수 있고, 일반 `researcher`는 상태만 확인한다.
-- 자동 승인이 켜진 상태에서도 backend는 `documentRead`, `survey`, `participant`, `guardian` 필수 동의가 모두 `true`인 신청만 받는다.
-- `POST /api/v1/applications`가 `{ "status": "approved", "accessToken": "...", "role": "participant", "needsPasswordChange": true }`를 반환하면, 프론트는 토큰과 참여자 정보를 일반 로그인과 동일하게 sessionStorage에 저장하고 즉시 최초 비밀번호 변경 화면으로 이동한다. 이 경우 승인 대기 완료 화면을 표시하지 않는다.
-- 자동 승인이 꺼졌거나 `status`가 `pending`이면 기존 승인 대기 완료 화면을 유지한다.
-
-### FH-021: AI 대화문 파일 업로드
-
-- `CHAT_UPLOAD_READY`를 `true`로 설정하고, ZIP 또는 이미지 선택 후 `FormData`를 `POST /api/v1/chat-submissions/uploads`로 전송한다.
-- form field는 `files`(ZIP은 1개, 이미지는 복수 가능), `tool`, `submissionPoint`, `sourceType`(`file` 또는 `image`), `submissionId`다. participant bearer token은 Authorization header로 전송한다.
-- backend는 파일을 MongoDB GridFS `chat_uploads` bucket에 저장한다. ZIP은 하나만 허용되고, 이미지는 JPG/PNG/WEBP/HEIC 형식 최대 20개다. 파일당 25MB, 한 요청 총 100MB를 초과하면 `422` 응답을 표시한다.
-- 파일 저장이 성공하면 `202` 응답을 받고 제출 완료 메시지를 보여 준다. ZIP 대화문 추출과 이미지 OCR은 후속 작업이며, 현재는 원본 파일과 메타데이터만 보관한다.
-
-### 이번 전달에서 제외할 항목
-
-- 설문 문항 화면과 설문 최종 제출 UI
-- `localStorage` 임시 저장 및 재로그인 복원
-- 설문 Queue 제출 상태 조회
-- AI 대화문 입력 화면
-- 첫 로그인 비밀번호 변경 화면
-- 대화문 제출 형식 결정
-
-위 항목은 현재 프론트에 구현되어 있지 않으므로, 화면·API 계약이 준비된 뒤 별도 전달 ID로 요청한다.
-
-### 완료 기준
-
-- 기존 신청, 로그인, 연구자 관리 화면의 디자인과 이동 흐름이 유지된다.
-- 요청 중에는 같은 버튼을 반복 제출할 수 없다.
-- API 실패 시 기존 성공 화면이나 성공 상태로 이동하지 않는다.
-- 성공 시에만 현재의 완료 화면, 목록 갱신, 파일 다운로드를 수행한다.
-- 브라우저 개발자 도구에 MongoDB 접속 정보나 비밀값이 노출되지 않는다.
-
-### 작업 완료 기록
-
-- 프론트 작업 커밋: `3e21a19 Connect application management to backend API`
-- 검토 일자: 2026-09-07
-- Pull Request: `#1` 병합 완료 (`backend/fh-001-api-integration` → `main`), merge commit `8dfaee6e9274741da4ac5d5bf3dc15759021f14b`
-- 비고: backend 공개 URL을 사용해 신청·참여자/연구자 로그인·신청 목록/승인·참여자 CSV 등록을 연결했다. 설문/대화문 결과 다운로드, 최초 비밀번호 변경 화면, 비밀번호 재설정은 후속 요청으로 남긴다.
-
-## 다음 전달 예정 항목
-
-- `FH-002`: 설문 문항 화면, `localStorage` 임시 복원, Queue 제출·완료 상태 확인
-- `FH-003`: AI 대화문 입력·제출 화면과 Queue 연동
-- `FH-004`: 병합 완료. 공통 초기 비밀번호 `1234`로 로그인한 참여자에게만 표시하는 첫 로그인 비밀번호 변경 화면
-
-`FH-002`에서는 설문 최종 제출과 `localStorage` 키에 설문 회차 `surveyRound`와 설문 버전 `surveyVersion`을 함께 사용한다. 설문지가 다음 회차에 업데이트돼도 기존 임시 저장과 결과 데이터를 구분하기 위한 값이다.
-
-설문 문항이 확정되면 backend의 `admin`이 먼저 같은 `surveyRound`와 `surveyVersion`의 설문 정의를 등록한다. Claude는 정의의 문항 `key`를 최종 제출 요청의 `answers` 객체 키로 사용하며, CSV 열 순서는 backend의 설문 정의가 관리한다.
-
-문항이 많은 경우 설문 정의는 CSV 또는 Excel 원본에서 일괄 등록한다. Claude는 backend가 검토·등록한 설문 정의의 문항 `key`를 사용하며, Word·PDF 원본을 직접 추정해 문항 키를 만들지 않는다.
-
-설문 최종 제출은 `POST /api/v1/survey-responses`로 전송한다. `202 Accepted` 응답의 `submissionId`로 `GET /api/v1/submission-jobs/{submissionId}`를 확인하고, 상태가 `completed`일 때만 해당 `localStorage` 임시 저장을 삭제한다.
-
-### FH-002: 더미 설문 연동 확인
-
-- 프론트 작업 브랜치: `backend/fh-002-dummy-survey-sync`
-- 프론트 작업 커밋: `9448063 Add dummy survey queue integration`
-- Pull Request: `#6` 병합 완료 (`backend/fh-002-dummy-survey-sync` → `main`), merge commit `5ce5b44e6e7c3f31c38faf80bff1a7e23a530b84`
-- 후속 프론트 작업 커밋: `7233b83 Lock completed dummy survey`
-- 후속 Pull Request: `#7` 병합 완료 (`frontend/lock-completed-dummy-survey` → `main`), merge commit `230052552bbc89832227cfe538588b13f147bc19`
-- 선행 backend 커밋: `5edcd64 Fix survey definition MongoDB storage`
-- **TODO - 실제 설문으로 교체:** 현재 `설문 연동 확인` 모달과 `surveyRound: 1`, `surveyVersion: "demo-v1"`의 3문항은 개발 환경 확인용 더미 설문이다. 실제 연구 설문 문항·디자인이 준비되면 이 모달과 더미 문항을 제거하고, 확정된 회차·버전·문항 키를 사용한 실제 설문 화면으로 대체한다.
-- **중요 - 프론트 설문 완성만으로 MongoDB 저장은 완료되지 않는다.** 실제 설문 UI·문항을 만든 뒤에는 회차, 버전, 문항 키, CSV 열 이름, 순서가 담긴 문항 정의를 backend 담당자에게 전달한다. backend 담당자가 이를 `survey_definitions`에 등록·검증한 뒤, 프론트의 최종 제출 요청을 실제 MongoDB 저장 Queue와 연결한다.
-- 프론트 Claude는 실제 설문을 만들 때 임의의 더미 문항, 임의 `surveyRound`·`surveyVersion`, 임의 문항 `key`를 추가하거나 기존 더미 값을 실제 연구 데이터에 사용하지 않는다. 확정 문항 정의의 값을 받은 뒤에만 `answers` 객체와 제출 요청을 완성한다.
-- 인계 순서: 실제 설문 UI 초안 → 연구진 문항 확정 → 문항 정의 CSV/Excel 또는 JSON 전달 → backend 설문 정의 등록·검증 → 프론트 최종 제출 연동 → 개발 환경 통합 확인.
-- 실제 설문 화면으로 교체할 때도 아래 임시 저장·Queue 완료 확인 계약은 유지한다. 디자인·문항 UI만 교체하고 `surveyRound`, `surveyVersion`, `answers`, `submissionId` 요청 구조는 backend API 계약에 맞춘다.
-- 임시 저장 키는 참여자 휴대폰 번호, `surveyRound`, `surveyVersion`으로 구분한다.
-- 입력 변경과 30초 간격으로 `localStorage`에 저장하고, 다시 열면 임시 내용을 복원한다.
-- 최종 제출은 Queue에 접수한 뒤 `completed`일 때만 임시 저장을 삭제한다.
-- `completed` 뒤에는 해당 더미 설문의 입력과 제출 버튼을 잠가 30초 임시 저장 타이머나 중복 클릭이 새 제출을 만들지 않게 한다.
-- 현재는 동일 참여자·회차·버전의 최종 응답을 1건으로 제한한다. “다시 최종 제출하기”는 기존 응답 갱신 정책을 확정한 뒤 별도 요청으로 구현한다.
-- backend의 `demo-v1` 설문 정의 등록은 `csvColumn` alias 저장 수정이 배포된 뒤 수행한다.
-
-### FH-003: AI 대화문 제출
-
-대화문 제출 화면은 `submissionPoint`가 `afterRound1` 또는 `afterRound4`인 링크 또는 본문 입력을 `POST /api/v1/chat-submissions`로 전송한다. API 응답의 `submissionId`로 기존 제출 상태 조회 API를 확인한다. 이 기능은 대화문 제출 동의 참여자에게만 표시한다.
-
-- 요청 필드: `submissionPoint`, `sourceType` (`link` 또는 `text`), `rawInput`, 브라우저 생성 `submissionId`
-- 공유 링크는 현재 서비스별 parser가 없으므로, backend가 `placeholder` 상태로 보관한다. 프론트에서 추출 완료로 표시하지 않는다.
-- 복사 본문은 원문 그대로 전송한다. backend가 정규화와 경고 기록을 처리한다.
-- 기존 HTML·inline script 구조와 화면 디자인을 유지한다.
-
-### FH-004: 최초 비밀번호 변경
-
-- 프론트 작업 브랜치: `backend/fh-004-first-password-change`
-- 프론트 작업 커밋: `b29e70a Add first login password change flow`
-- Pull Request: `#2` 병합 완료 (`backend/fh-004-first-password-change` → `main`), merge commit `5b17062e6e20a9dfa37233e2cdfda3a81cf24f79`
-- 참여자 로그인 응답의 `needsPasswordChange`가 `true`이면 기존 설문 화면을 열지 않고 비밀번호 변경 모달을 표시한다.
-- 모달은 현재 비밀번호, 8자 이상 새 비밀번호, 확인 값을 입력받아 `POST /api/v1/auth/participant/password`로 전송한다.
-- backend 성공 응답 뒤에만 모달을 닫고 설문 화면으로 이동한다.
-
-### FH-005: 학교급 검증과 승인 오류 표시
-
-- 프론트 작업 브랜치: `backend/fh-005-audience-validation`
-- 프론트 작업 커밋: `1dd00d6 Validate participant school audience`, `2d975cb Use explicit school audience values`
-- Pull Request: `#3` 병합 완료 (`backend/fh-005-audience-validation` → `main`), merge commit `7f5786f35ae95d68bd41a6e3058152ca109ea55a`
-- 선행 backend 커밋: `9052351 Validate participant school audience`, `e23f530 Use explicit school audience values`
-- 참여자 로그인 요청에 초등학생 토글은 `audience: "elementary"`, 중고등학생 토글은 `audience: "secondary"`를 포함한다.
-- backend가 등록 학교급과 다른 모드를 거부하면 해당 오류 메시지를 기존 로그인 오류 영역에 표시한다.
-- 연구자 페이지의 API helper는 JSON body를 `JSON.stringify()`로 전송한다. 승인 요청 오류 객체나 배열을 그대로 `alert()`에 전달하지 않고, backend의 `detail` 또는 검증 메시지를 표시한다.
-
-### FH-006: 세션 종료와 중복 승인 처리
-
-- 프론트 작업 브랜치: `backend/fh-006-session-and-approval-fixes`
-- 프론트 작업 커밋: `5017731 Fix session handling and approval errors`
-- Pull Request: `#4` 병합 완료 (`backend/fh-006-session-and-approval-fixes` → `main`), merge commit `3f02934cb3d73907d4b9f00bd550a9c991d3f3de`
-- 선행 backend 커밋: `6acbb30 Fix session handling and duplicate approvals`
-- 참여자 로그아웃은 `ai_us_access_token`과 `ai_us_role`을 `sessionStorage`에서 삭제한 뒤 홈 화면으로 돌아간다.
-- `researcher.html`은 토큰이 없거나 `admin`·`researcher`가 아닌 역할이면 홈으로 이동한다. 정적 HTML 자체의 직접 접근은 막을 수 없지만, 민감 데이터 API는 backend가 JWT 역할을 검증한다.
-- 연구자 승인 API가 `409`과 이미 등록된 휴대폰 번호 메시지를 반환하면, 해당 신청을 자동 승인하지 않고 오류를 표시한다.
-- CSV 등록 참여자는 `participants`에 직접 생성되므로 회원 신청 관리 목록에는 나타나지 않는다. 웹 신청 참여자만 신청 목록에서 검토·승인한다.
-
-### FH-007: 연구자 로그아웃과 휴대폰 입력
-
-- 프론트 작업 브랜치: `frontend/fix-logout-and-phone-caret`
-- 프론트 작업 커밋: `1716b64 Fix logout and phone input caret`
-- Pull Request: `#5` 병합 완료 (`frontend/fix-logout-and-phone-caret` → `main`), merge commit `45724115ec2191cd83104f2faf516bbcfac692ce`
-- 연구자 로그아웃은 access token과 역할을 삭제한 뒤 홈으로 이동한다.
-- 참여자 휴대폰 번호 자동 하이픈 처리 중 입력 커서 위치를 유지한다.
-- CSV 등록은 이미 `participants.phone_normalized` 고유 인덱스와 `DuplicateKeyError` 처리로 중복 휴대폰 번호를 생성하지 않으며, 결과를 `skippedCount`로 반환한다.
-
-### FH-008: 연구자 관리 화면 실제 데이터 연동
-
-- 프론트 작업 브랜치: `backend/fh-008-researcher-reporting`
-- 프론트 작업 커밋: `71a9350 Connect researcher reporting to backend`
-- Pull Request: `#8` 병합 완료 (`backend/fh-008-researcher-reporting` → `main`), merge commit `13b5726e42b6fd422de230ea5ae91bbb082d50e1`
-- 선행 backend 커밋: `ce226b7 Add researcher participation reporting API`
-- `참여 현황`은 `GET /api/v1/researcher/participation-status`를 사용해 MongoDB의 참여자 학교급별 인원과 회차별 완료 인원을 표시한다.
-- `미참여자`는 `GET /api/v1/researcher/nonparticipants?survey_round=<round>&survey_version=<version>`을 사용한다. 현재 개발 화면은 `1`회차와 `demo-v1`을 대상으로 하며, 실제 설문 정의 등록 뒤 해당 버전 선택 UI로 대체한다.
-- 설문 결과 다운로드는 회차와 설문 버전을 명시해 `GET /api/v1/researcher/exports/survey-responses`의 CSV 응답을 내려받는다.
-- 설문 결과 미리보기는 `GET /api/v1/researcher/survey-response-previews`로 최근 최대 10건의 실제 MongoDB 응답 메타데이터를 표시한다. 선택 조건에 결과가 없으면 더미 행 대신 “해당 조건의 설문 응답이 없습니다”를 표시한다.
-- AI 대화문 결과 다운로드는 `GET /api/v1/researcher/exports/chat-submissions`에 제출 시점과 학교급 필터를 전송해 실제 CSV를 내려받는다.
-- 실제 설문 버전 목록 UI는 후속 작업이다.
-
-### FH-009: AI 대화문 결과 다운로드
-
-- 프론트 작업 브랜치: `backend/fh-009-chat-export`
-- 프론트 작업 커밋: `9fa5145 Connect chat export to backend`
-- Pull Request: `#9` 병합 완료 (`backend/fh-009-chat-export` → `main`), merge commit `a8adf19fe3dd365efe0d304c162b228fbc5a0bce`
-- 선행 backend 커밋: `b98205c Add filtered chat transcript exports`
-- 연구자 화면의 대화문 1/2 선택은 각각 `afterRound1`/`afterRound4`로 변환하고, 학교급 선택은 `school_level` query로 전송한다.
-- backend CSV에는 참여자 ID, 이름, 학교급, 학년, 원본 입력, 정규화 대화문, parser 상태·경고가 포함된다.
-
-### FH-010: 설문 응답 미리보기
-
-- 프론트 작업 브랜치: `backend/fh-010-survey-preview`
-- 프론트 작업 커밋: `c43e335 Preview survey responses from backend`
-- Pull Request: `#10` 병합 완료 (`backend/fh-010-survey-preview` → `main`), merge commit `7068766efcdaa0397636d3da33e73a4cb5b99f2e`
-- 선행 backend 커밋: `be18b3e Add survey response preview API`
-- 결과 다운로드 화면의 설문 응답 미리보기는 선택된 회차·설문 버전·학교급 조건의 실제 MongoDB 응답을 최대 10건 표시한다. 내부 MongoDB ObjectId 대신 연구자에게 익숙한 `아이디(휴대폰)`, `학교급`, `학년`을 표시한다.
-- 설문 CSV 다운로드에도 `아이디(휴대폰)`, `학교급`, `학년`을 포함하고 화면에서 선택한 학교급을 `school_level` query로 전송한다.
-- 설문 CSV의 `아이디(휴대폰)` 값은 Excel에서 앞자리 `0`이 사라지지 않도록 텍스트 수식으로 출력한다.
-- 응답이 없으면 더미 행 대신 “해당 조건의 설문 응답이 없습니다”를 표시한다.
-
-### FH-011: 설문 결과 참여자 프로필
-
-- 프론트 작업 브랜치: `backend/fh-011-survey-profile-export`
-- 프론트 작업 커밋: `74df11c Show participant profiles in survey results`
-- Pull Request: `#11` 병합 완료 (`backend/fh-011-survey-profile-export` → `main`), merge commit `8dda548a7ad51b318ba8dc849600f24ac469a754`
-- 선행 backend 커밋: `9d83ccc Include participant profiles in survey exports`
-- 설문 결과 미리보기와 CSV에는 내부 MongoDB ObjectId 대신 `아이디(휴대폰)`, `학교급`, `학년`을 포함한다.
-- 화면의 학교급 선택을 preview와 CSV export API의 `school_level` query에 전송한다.
-
-### FH-012: 실제 설문 샘플 spec 연동
-
-- 선행 backend 커밋: `ba6dc5a` 이후 보완. `POST /api/v1/admin/survey-definitions`가 `survey_t1_elem_sample.json`처럼 `scales[].questions[]` 구조를 가진 설문 JSON을 받을 수 있게 확장됐다.
-- backend는 `surveyRound`, `surveyVersion`, `audience`, 원본 `scales`/`_meta`/`_reviewNotes`를 MongoDB `survey_definitions.spec`에 보존하고, `scales[].questions[]`에서 응답 검증과 CSV export용 평면 `questions` 목록을 자동 생성한다. 일반 문항은 문항 `key`, `grid` 문항은 `rows[].key`, 조건부 보조 입력은 `detail.field.key` 또는 `other.field.key`가 실제 제출·검증 key로 등록된다.
-- Claude는 현재 `index.html`의 `surveyRound: 1`, `surveyVersion: "demo-v1"`, `q1/q2/q3` 더미 설문을 실제 설문으로 교체한다.
-- 초등용 1회차 샘플은 `surveyRound: 1`, `audience: "elementary"`, `surveyVersion: "t1-elem-v1-draft"`를 사용한다. 중고등용은 연구진이 별도 spec과 `surveyVersion`을 확정한 뒤 연결한다.
-- 최종 제출 `answers` 객체의 key는 frontend spec에 정의된 실제 answer key를 그대로 사용한다. 일반 문항은 문항 `key`, `grid` 문항은 각 행의 `rows[].key`, 조건부 보조 입력은 해당 field `key`를 사용한다. Claude가 임의로 문항 key, 회차, 버전, 선택지 값을 새로 만들지 않는다.
-- `_reviewNotes`에 표시된 이름·연락처·보호자 연락처·학년 중복 수집 여부는 연구진 결정 전까지 임의로 제거하거나 확정하지 않는다. 화면에 넣을 경우에도 제출 key와 값은 spec과 일치해야 한다.
-- `logic.type: "disqualifyIf"`, `required`, `options`, `scale`, `sensitive`, `scoring`은 원본 spec에 보존된다. 현재 backend의 최종 제출 검증은 등록된 문항 key 확인까지이므로, frontend는 필수 응답·선택지·screening 흐름을 화면에서 처리한다.
-- `phq9.q9`처럼 `sensitive: true`인 문항의 고위험 응답 알림/후속 조치는 별도 backend 작업이 필요하다. Claude는 이를 완료된 기능처럼 표시하지 않는다.
-- 기존 순수 HTML/CSS/JavaScript와 inline `<script>` 구조를 유지하고, 외부 빌드 도구를 추가하지 않는다.
-
-### FH-013: 대화문 제출 동의 UI 잠금 연동
-
-- 선행 backend 변경: 참여자 로그인 응답에 `chatConsent`가 추가됐다.
-- Claude는 `index.html`의 임시 `CHAT_CONSENT=true` 고정값을 제거하고, `POST /api/v1/auth/participant/login` 성공 응답의 `chatConsent`를 `sessionStorage`에 저장해 대화문 탭 열림/잠금 UI에 사용한다.
-- `chatConsent`가 `false`이면 대화문 제출 버튼을 표시하거나 제출 성공처럼 처리하지 않는다. backend도 `POST /api/v1/chat-submissions`에서 동의하지 않은 참여자를 거부하므로, 프론트는 이를 우회하지 않는다.
-- 로그아웃 시 access token, role, participant phone과 함께 저장한 `chatConsent` 값도 삭제한다.
-- 기존 대화문 제출 payload는 유지한다: `submissionPoint`, `sourceType`, `rawInput`, `submissionId`.
-
-### FH-014: 약식 비밀번호 재설정 연동
-
-- 선행 backend 변경: `POST /api/v1/auth/participant/password-reset`가 추가됐다.
-- Claude는 기존 데모 `PasswordReset.sendResetLink`와 이메일 링크 발송 문구를 제거하고, 휴대폰 번호와 이메일 입력값을 backend API로 전송한다.
-- 요청 body는 `{ "phone": "01012345678", "email": "participant@example.com" }`이다. 휴대폰 번호는 하이픈이 있어도 되지만 프론트에서 숫자 11자리 검증을 유지한다.
-- 성공하면 “초기 비밀번호 1234로 재설정되었습니다. 로그인 후 새 비밀번호로 변경해 주세요” 취지로 안내한다. 이메일 발송/메일 확인/링크 클릭처럼 보이는 문구를 쓰지 않는다.
-- 실패하면 등록 정보가 일치하지 않는다는 오류를 표시하고, 성공 화면으로 이동하지 않는다.
-
-### FH-015: 학교급 탭 자동전환 UX
-
-- 선행 backend 변경: 참여자 로그인은 선택 탭의 `audience`가 실제 등록 학교급과 달라도 비밀번호가 맞으면 성공한다. 응답의 `audience`는 실제 등록 학교급 기준이며, `requestedAudience`와 `audienceSwitched`가 함께 내려온다.
-- 상단의 초등/중고등/연구자 탭은 유지한다. 초등/중고등 탭은 홈 이미지 스왑과 설문 세트 선택에 계속 사용한다.
-- 회원가입에서 현재 선택한 탭과 다른 학년을 고르면 브라우저 기본 `confirm()`을 쓰지 말고, 기존 사이트 스타일과 맞는 커스텀 모달로 “전환할까요?”를 묻는다. “전환하기”는 상단 탭을 맞는 학교급으로 바꾸고, “다시 선택하기”는 학년 선택값을 비운다.
-- 참여자 로그인에서 응답의 `audienceSwitched`가 `true`이면 브라우저 기본 `alert()`를 쓰지 말고, 커스텀 모달로 “등록된 학교급에 맞춰 초등/중고등 페이지로 전환했어요”를 안내한다. 확인 버튼만 제공한다.
-- 전환 안내 후 설문 목록은 응답의 실제 `audience` 기준으로 열린다. `needsPasswordChange`가 `true`이면 탭 전환과 안내를 먼저 처리한 뒤 최초 비밀번호 변경 팝업을 표시한다.
-
-### FH-016: 참가자 개인 리포트 화면 설계 후보 - tentative
-
-상태: TODO 후보. 아직 분석 내용, 척도별 채점 규칙, 차트 구성, 문구가 확정되지 않았으므로 구현하지 않는다.
-
-- 목표는 연구자 통계 대시보드가 아니라 참가자 본인이 보는 개인 결과 리포트다. “탐사대원님이 제출하신 결과에 따르면...” 같은 해석 문구와 MBTI 결과지 같은 시각적 리포트 구성을 지향한다.
-- 예상 화면 구성은 요약 타이틀, 짧은 해석, radar/radial chart, bar/profile chart, 영역별 설명, 연구 결과 안내 문구다.
-- 리포트 생성은 설문 제출 request 안에서 처리하지 않는다. 제출 저장 완료 후 별도 `report_generation` Queue job 또는 background worker가 lazy하게 생성하고, 참가자 화면에는 “탐사 보고서를 준비 중이에요. 잠시 후 다시 확인해 주세요.” 같은 유예 안내를 표시한다.
-- backend는 나중에 `participant_reports` snapshot collection을 둘 수 있다. 후보 필드: `participantId`, `surveyRound`, `reportVersion`, `status`, `sourceSurveyVersions`, `scores`, `chartData`, `sections`, `generatedAt`, `error`.
-- frontend는 리포트가 `ready`일 때만 결과지를 렌더링하고, `pending`/`processing`이면 대기 안내를 보여준다. 조회 API는 본인 JWT로 본인 리포트만 볼 수 있게 한다.
-- 분석 기준이나 문구가 바뀔 수 있으므로 `reportVersion`을 반드시 둔다. 이미 참가자에게 보여준 리포트는 snapshot으로 보존하는 방향을 우선 검토한다.
-- 연구자에게 필요한 분석 결과는 운영 서비스에 통합하지 않고, 별도 오프라인 산출물로 전달하는 대안도 유지한다.
-
-### FH-017: 연구자 설문 버전 동적 조회
-
-- 선행 backend 변경: `GET /api/v1/researcher/survey-definitions`가 추가됐다. `admin` 또는 `researcher` bearer token으로 등록된 설문 정의 요약 목록을 조회한다.
-- 응답에는 `surveyRound`, `surveyVersion`, `audience`, `part`, `title`, `questionCount`, `createdAt`이 포함된다. `part`와 `title`은 설문 정의의 보존된 `spec`에서 가져온다.
-- `researcher.html`의 설문 결과 다운로드 영역은 더 이상 설문 버전 ID를 하드코딩하지 않고, 이 API 응답으로 `fVersion` select를 채운다.
-- 설문 버전을 선택하면 해당 정의의 `surveyRound`에 맞춰 회차 select를 자동으로 맞추고, 기존 미리보기/CSV 다운로드 API에는 선택된 `survey_round`와 `survey_version`을 그대로 보낸다.
-- 등록된 설문 정의가 없거나 조회 실패 시 성공처럼 표시하지 않고, select와 미리보기 영역에 실패/빈 상태를 표시한다.
-
-### FH-018: 2회차 이후 설문 추가 파이프라인 - operational/tentative
-
-상태: 운영 절차 후보. 2회차 이후 실제 설문 원본이 확정되면 이 절차를 따른다.
-
-- Claude/공동연구 실무진은 frontend `index.html`의 `SURVEY_SETS`에 새 설문 UI/spec을 추가할 수 있다. 단, `surveyRound`, `surveyVersion`, `audience`, `part`, `_meta.title`, 문항 `key`, 선택지 `value`는 연구진 확정값만 사용한다.
-- `SURVEY_SETS`에 들어가는 객체는 MongoDB `survey_definitions.spec`로 보존되는 원본 설문 구조다. DB에서 보이는 `spec` 하위 속성은 임의 내부값이 아니라 공동연구 실무진/Claude가 작성한 문항·척도·옵션·검토 메모·채점 힌트의 원본이다.
-- Claude는 MongoDB에 직접 접속하거나 `survey_definitions`를 직접 insert하지 않는다. DB URI/Secret을 프론트 작업자나 프론트 저장소에 노출하지 않는다.
-- frontend 작업이 끝나면 backend 담당자가 최신 `SURVEY_SETS`를 pull하고 `scripts/register_frontend_surveys.py`로 backend admin API를 통해 설문 정의를 등록한다. API 등록을 거쳐야 중복 key/order, grid `rows[].key`, `detail.field.key`, `other.field.key` 변환과 검증이 적용된다.
-- 등록 helper는 각 part의 `surveyRound`가 있으면 그 값을 우선 사용하고, 없을 때만 `--survey-round` 기본값을 사용한다. 1회차와 2회차 정의가 섞여도 part별 회차가 보존되어야 한다.
-- 등록 후 `GET /api/v1/researcher/survey-definitions`와 연구자 화면의 설문 버전 select에서 새 `surveyRound`/`surveyVersion`/title이 보이는지 확인한다.
-- 새 설문이 등록되기 전에는 프론트 UI가 완성되어도 MongoDB 저장 준비 완료로 보지 않는다. 통합 확인은 참여자 제출, Queue `completed`, 연구자 미리보기, CSV 다운로드까지 포함한다.
-
-### FH-019: 일시적인 연결 문제 full-modal 안내
-
-- 프론트 작업 브랜치: `frontend/server-unavailable-modal`
-- 프론트 작업 커밋: `c2dfc74 Show temporary connection issue modal`
-- `index.html`과 `researcher.html`은 페이지 진입 후 `/health`를 1회 확인하고, backend 네트워크 실패 또는 5xx 응답이 발생하면 테마에 맞는 full-modal을 표시한다.
-- 모달 제목은 단정적인 “서버 점검 중”이 아니라 `일시적인 연결 문제가 있어요`로 유지한다.
-- 모달 본문은 “서버 점검 또는 일시적인 연결 문제로 요청을 처리하기 어렵고, 잠시 후 다시 접속해 달라”는 취지로 안내한다.
-- 409, 422 같은 사용자 입력/중복/검증 오류는 점검 모달로 처리하지 않고 각 화면의 기존 오류 메시지 흐름을 유지한다.
-- 401, 403은 기존 로그인 만료/권한 처리 흐름을 유지한다.
-- 같은 세션에서 모달이 과도하게 반복 표시되지 않도록 중복 표시 제한 플래그를 둔다.
-- 이후 Claude가 API 호출부를 추가할 때도 브라우저 기본 `alert()`/`confirm()`으로 서버 장애를 안내하지 말고, 이 full-modal 흐름을 우선 사용한다.
+| FH-001 | 완료 | 신청, 로그인, 신청 승인, CSV 등록 API 연동 |
+| FH-002 | 완료 | 설문 Queue 제출, 임시 저장, 완료 잠금 연동 |
+| FH-003 | 완료 및 확장 | 링크/본문 대화문 제출 후 ZIP/이미지 GridFS 첨부 지원 |
+| FH-004 | 완료 | 최초 로그인 비밀번호 변경 |
+| FH-005~FH-007 | 완료 | 대상 전환, 세션/중복 승인, 입력 UX 보완 |
+| FH-008~FH-011 | 완료 | 연구자 현황, 미참여자, 설문/대화문 결과 조회 및 CSV |
+| FH-012~FH-015 | 완료 | 실제 설문 spec, 대화문 동의, 비밀번호 재설정, 대상 자동 전환 |
+| FH-017 | 완료 | 연구자 설문 버전 동적 조회 |
+| FH-019 | 완료 | 일시적 연결 문제 full-modal |
+| FH-020 | 완료 | MongoDB 자동 승인 설정 및 신청 직후 로그인 |
+| FH-021 | 완료 | ZIP/이미지 파일 첨부 및 GridFS 저장 |
