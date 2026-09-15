@@ -3,8 +3,8 @@ from __future__ import annotations
 from app.api.auth import require_admin
 from app.schemas.application import ApplicationSettings, ApplicationSettingsUpdate
 from app.schemas.auth import ResearcherCreate, ResearcherCreated
-from app.services.application_settings import ApplicationSettingsRepository
 from app.schemas.survey import SurveyDefinition, SurveyDefinitionCreate
+from app.services.application_settings import ApplicationSettingsRepository
 from app.services.auth import ResearcherAccountRepository, ResearcherAdministrationService
 from app.services.surveys import DuplicateSurveyDefinitionError, SurveyDefinitionRepository
 from fastapi import APIRouter, Depends, HTTPException, Request, status

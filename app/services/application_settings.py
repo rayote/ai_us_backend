@@ -5,11 +5,9 @@ from typing import Any, Protocol
 
 
 class ApplicationSettingsRepository(Protocol):
-    async def auto_approval_enabled(self) -> bool:
-        ...
+    async def auto_approval_enabled(self) -> bool: ...
 
-    async def set_auto_approval(self, enabled: bool, updated_by: str) -> bool:
-        ...
+    async def set_auto_approval(self, enabled: bool, updated_by: str) -> bool: ...
 
 
 class MongoApplicationSettingsRepository:

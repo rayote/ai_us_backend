@@ -3,11 +3,16 @@ from __future__ import annotations
 from typing import Literal
 
 from app.api.auth import require_researcher
-from app.schemas.application import ApplicationApproval, ApplicationApprovalCompleted, ApplicationRecord, ApplicationSettings
-from app.services.application_settings import ApplicationSettingsRepository
+from app.schemas.application import (
+    ApplicationApproval,
+    ApplicationApprovalCompleted,
+    ApplicationRecord,
+    ApplicationSettings,
+)
 from app.schemas.imports import ParticipantImportResult
 from app.schemas.reporting import NonparticipantReport, ParticipationStatus
 from app.schemas.survey import SurveyDefinitionSummary, SurveyResponsePreview
+from app.services.application_settings import ApplicationSettingsRepository
 from app.services.applications import ApplicationRepository
 from app.services.approvals import ApplicationApprovalService, ExistingParticipantError
 from app.services.auth import ParticipantAccountRepository

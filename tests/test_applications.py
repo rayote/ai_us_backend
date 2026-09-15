@@ -70,7 +70,9 @@ class InMemoryParticipantRepository(ParticipantAccountRepository):
     def __init__(self, existing_phone: str | None = None) -> None:
         self.accounts: dict[str, ParticipantAccount] = {}
         if existing_phone is not None:
-            self.accounts[existing_phone] = ParticipantAccount("participant-1", existing_phone, "hash", False, False, "초등")
+            self.accounts[existing_phone] = ParticipantAccount(
+                "participant-1", existing_phone, "hash", False, False, "초등"
+            )
 
     async def find_by_phone(self, phone: str) -> ParticipantAccount | None:
         return self.accounts.get(phone)
@@ -95,7 +97,13 @@ class InMemoryParticipantRepository(ParticipantAccountRepository):
         if phone in self.accounts:
             return False
         self.accounts[phone] = ParticipantAccount(
-            f"participant-{len(self.accounts) + 1}", phone, password_hash, True, chat_consent, school_level, email=email
+            f"participant-{len(self.accounts) + 1}",
+            phone,
+            password_hash,
+            True,
+            chat_consent,
+            school_level,
+            email=email,
         )
         return True
 

@@ -59,7 +59,9 @@ async def create_application(application: ApplicationCreate, request: Request) -
     if participant_repository is None:
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="승인 서비스를 준비 중입니다.")
     try:
-        approved_count = await ApplicationApprovalService(_repository(request), participant_repository).approve([application_id])
+        approved_count = await ApplicationApprovalService(_repository(request), participant_repository).approve(
+            [application_id]
+        )
     except ExistingParticipantError as error:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -67,7 +69,9 @@ async def create_application(application: ApplicationCreate, request: Request) -
         ) from error
     account = await participant_repository.find_by_phone(application.phone)
     if approved_count != 1 or account is None:
-        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="자동 승인 처리를 완료하지 못했습니다.")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="자동 승인 처리를 완료하지 못했습니다."
+        )
 
     app_settings = request.app.state.settings
     if app_settings.jwt_secret is None or len(app_settings.jwt_secret.encode()) < 32:
