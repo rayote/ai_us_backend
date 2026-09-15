@@ -63,6 +63,8 @@ MongoDB container    # CloudType 사전구성 컨테이너
 - 필수 Secret과 최초 배포 점검 절차는 [CloudType 배포 체크리스트](docs/cloudtype-deployment-checklist.md)를 따릅니다.
 - `.env.example`은 CloudType Configure 패널에 입력할 변수 이름의 참고 목록입니다. 실제 `.env`와 Secret은 저장소에 커밋하지 않습니다.
 
+로컬 개발에서는 `.env.example`을 복사해 `.env`를 만들고 MongoDB 및 `RESEARCHER_BOOTSTRAP_USERNAME`/`RESEARCHER_BOOTSTRAP_PASSWORD` 값을 설정합니다. `python-dotenv`가 앱과 관리 스크립트 시작 시 이를 자동으로 읽습니다. CloudType에서는 `.env` 대신 동일한 이름의 Secret을 사용합니다.
+
 Gmail SMTP는 비밀번호 재설정 이메일 기능을 활성화할 때만 설정합니다. 현재 Gmail Secret이 없어도 API와 Queue worker는 실행됩니다.
 
 ## 디렉터리

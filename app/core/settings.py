@@ -4,6 +4,10 @@ from dataclasses import dataclass
 from os import getenv
 from urllib.parse import quote
 
+from dotenv import load_dotenv
+
+load_dotenv()
+
 
 def _origins_from_environment(value: str) -> tuple[str, ...]:
     return tuple(origin.strip() for origin in value.split(",") if origin.strip())
