@@ -93,11 +93,21 @@ class InMemoryParticipants(ParticipantAccountRepository):
         chat_consent: bool = False,
         school_level: str | None = None,
         email: str | None = None,
+        guardian_phone: str | None = None,
+        sns: str | None = None,
     ) -> bool:
         if phone in self.accounts:
             return False
         self.accounts[phone] = ParticipantAccount(
-            phone, phone, password_hash, True, chat_consent, school_level, email=email
+            phone,
+            phone,
+            password_hash,
+            True,
+            chat_consent,
+            school_level,
+            email=email,
+            guardian_phone=guardian_phone,
+            sns=sns,
         )
         return True
 
@@ -180,6 +190,7 @@ def test_researcher_can_list_and_approve_applications() -> None:
     assert participants.accounts["01012345678"].must_change_password is True
     assert participants.accounts["01012345678"].chat_consent is False
     assert participants.accounts["01012345678"].email == "participant@example.com"
+    assert participants.accounts["01012345678"].guardian_phone == "01099999999"
 
 
 def test_participant_cannot_access_researcher_applications() -> None:

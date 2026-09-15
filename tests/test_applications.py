@@ -93,6 +93,8 @@ class InMemoryParticipantRepository(ParticipantAccountRepository):
         chat_consent: bool = False,
         school_level: str | None = None,
         email: str | None = None,
+        guardian_phone: str | None = None,
+        sns: str | None = None,
     ) -> bool:
         if phone in self.accounts:
             return False
@@ -104,6 +106,8 @@ class InMemoryParticipantRepository(ParticipantAccountRepository):
             chat_consent,
             school_level,
             email=email,
+            guardian_phone=guardian_phone,
+            sns=sns,
         )
         return True
 
@@ -157,12 +161,14 @@ def test_create_application_returns_pending_status() -> None:
 def test_create_application_auto_approves_and_returns_password_change_login() -> None:
     with _client(auto_approval=True) as client:
         response = client.post("/api/v1/applications", json=_application_payload())
+        account = client.app.state.participant_account_repository.accounts["01012345678"]
 
     assert response.status_code == 201
     assert response.json()["status"] == "approved"
     assert response.json()["accessToken"]
     assert response.json()["needsPasswordChange"] is True
     assert response.json()["audience"] == "secondary"
+    assert account.guardian_phone == "01098765432"
 
 
 def test_create_application_rejects_duplicate_phone_number() -> None:
