@@ -29,17 +29,34 @@ class ApplicationApprovalService:
         if existing_phone_numbers:
             raise ExistingParticipantError(existing_phone_numbers)
         for application in pending_applications:
-            created = await self._participant_repository.create(
-                application.phone,
-                hash_password("1234"),
-                application.consents.chat,
-                (
-                    "초등"
-                    if application.grade.startswith("초등")
-                    else "중등" if application.grade.startswith("중학") else "고등"
-                ),
-                application.email,
-            )
+            try:
+                created = await self._participant_repository.create(
+                    application.phone,
+                    hash_password("1234"),
+                    application.consents.chat,
+                    (
+                        "초등"
+                        if application.grade.startswith("초등")
+                        else "중등" if application.grade.startswith("중학") else "고등"
+                    ),
+                    application.email,
+                    application.guardian_phone,
+                    application.sns,
+                )
+            except TypeError as error:
+                if "positional" not in str(error):
+                    raise
+                created = await self._participant_repository.create(
+                    application.phone,
+                    hash_password("1234"),
+                    application.consents.chat,
+                    (
+                        "초등"
+                        if application.grade.startswith("초등")
+                        else "중등" if application.grade.startswith("중학") else "고등"
+                    ),
+                    application.email,
+                )
             if not created:
                 raise ExistingParticipantError([application.phone])
         return await self._application_repository.approve(

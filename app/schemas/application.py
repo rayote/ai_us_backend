@@ -24,7 +24,8 @@ class ApplicationCreate(BaseModel):
     grade: str = Field(min_length=1, max_length=50)
     phone: str
     guardian_phone: str = Field(alias="guardianPhone")
-    email: str = Field(min_length=3, max_length=254)
+    email: str | None = Field(default=None, max_length=254)
+    sns: str | None = Field(default=None, max_length=200)
     consents: ApplicationConsents
 
     @field_validator("phone", "guardian_phone", mode="before")
@@ -37,7 +38,9 @@ class ApplicationCreate(BaseModel):
 
     @field_validator("email")
     @classmethod
-    def validate_email(cls, value: str) -> str:
+    def validate_email(cls, value: str | None) -> str | None:
+        if value is None or not value.strip():
+            return None
         normalized = value.strip().lower()
         if not re.fullmatch(r"[^\s@]+@[^\s@]+\.[^\s@]+", normalized):
             raise ValueError("올바른 이메일 주소가 아닙니다.")
@@ -69,7 +72,8 @@ class ApplicationRecord(BaseModel):
     grade: str
     phone: str
     guardian_phone: str = Field(alias="guardianPhone")
-    email: str
+    email: str | None = None
+    sns: str | None = None
     consents: ApplicationConsents
     status: Literal["pending", "approved"]
     submitted_at: datetime = Field(alias="submittedAt")

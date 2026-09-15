@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import os
+import tempfile
 from typing import Literal
+from pathlib import Path
 
 from app.api.auth import require_researcher
 from app.schemas.application import (
@@ -9,7 +12,14 @@ from app.schemas.application import (
     ApplicationRecord,
     ApplicationSettings,
 )
-from app.schemas.chat import ChatSubmissionDeleted, ChatSubmissionSummary
+from app.schemas.chat import (
+    ChatDownloadJobAccepted,
+    ChatDownloadJobCreate,
+    ChatDownloadJobStatus,
+    ChatSubmissionDeleted,
+    ChatSubmissionPreview,
+    ChatSubmissionSummary,
+)
 from app.schemas.imports import ParticipantImportResult
 from app.schemas.reporting import NonparticipantReport, ParticipationStatus
 from app.schemas.survey import SurveyDefinitionSummary, SurveyResponsePreview
@@ -21,9 +31,12 @@ from app.services.chats import (
     ChatSubmissionManagementService,
     ChatSubmissionRepository,
     ChatUploadRepository,
+    build_chat_archive,
     chat_submissions_to_csv,
     submission_summary,
 )
+from app.services.chat_downloads import ChatDownloadArtifactRepository
+from app.services.jobs import JobCreate, JobRepository
 from app.services.imports import ParticipantImportService
 from app.services.reporting import ResearcherReportingService
 from app.services.surveys import SurveyDefinitionRepository, SurveyResponseRepository, survey_responses_to_csv
@@ -105,6 +118,20 @@ def _chat_submission_management_service(request: Request) -> ChatSubmissionManag
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="파일 관리 서비스를 준비 중입니다."
         )
     return ChatSubmissionManagementService(_chat_submission_repository(request), uploads)
+
+
+def _chat_download_artifact_repository(request: Request) -> ChatDownloadArtifactRepository:
+    repository = getattr(request.app.state, "chat_download_artifact_repository", None)
+    if repository is None:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="파일 다운로드 서비스를 준비 중입니다.")
+    return repository
+
+
+def _job_repository(request: Request) -> JobRepository:
+    repository = getattr(request.app.state, "job_repository", None)
+    if repository is None:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="다운로드 작업 서비스를 준비 중입니다.")
+    return repository
 
 
 def _reporting_service(request: Request) -> ResearcherReportingService:
@@ -292,6 +319,134 @@ async def export_chat_submissions(
         content="\ufeff" + csv_text,
         media_type="text/csv; charset=utf-8",
         headers={"Content-Disposition": f'attachment; filename="chat-submissions-{point_name}.csv"'},
+    )
+
+
+@router.get("/chat-submission-previews", response_model=list[ChatSubmissionPreview])
+async def chat_submission_previews(
+    request: Request,
+    submission_point: Literal["afterRound1", "afterRound4"] | None = None,
+    school_level: Literal["초등", "중등", "고등"] | None = None,
+    _: str = Depends(require_researcher),
+) -> list[ChatSubmissionPreview]:
+    participants: ParticipantAccountRepository | None = getattr(
+        request.app.state, "participant_account_repository", None
+    )
+    if participants is None:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="참여자 정보를 준비 중입니다.")
+    profiles = {
+        participant.participant_id: (participant.phone, participant.school_level, participant.grade)
+        for participant in await participants.list_participants()
+    }
+    submissions = await _chat_submission_repository(request).list_submissions(submission_point)
+    rows: list[ChatSubmissionPreview] = []
+    for submission in reversed(submissions):
+        profile = profiles.get(submission.participant_id, ("-", None, None))
+        if school_level is not None and profile[1] != school_level:
+            continue
+        rows.append(
+            ChatSubmissionPreview(
+                submissionId=submission.submission_id,
+                participantPhone=profile[0],
+                schoolLevel=profile[1],
+                grade=profile[2],
+                submissionPoint=submission.submission_point,
+                sourceType=submission.source_type,
+                tool=submission.tool,
+                filenames=[attachment.filename for attachment in submission.attachments],
+                attachmentCount=len(submission.attachments),
+                submittedAt=submission.submitted_at,
+            )
+        )
+    return rows[:100]
+
+
+@router.get("/chat-submissions/files/{submission_id}/download")
+async def download_chat_submission_files(
+    submission_id: str,
+    request: Request,
+    _: str = Depends(require_researcher),
+) -> Response:
+    submissions = await _chat_submission_repository(request).list_submissions()
+    submission = next((item for item in submissions if item.submission_id == submission_id), None)
+    if submission is None or not submission.attachments:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="다운로드할 제출 파일을 찾을 수 없습니다.")
+    uploads: ChatUploadRepository | None = getattr(request.app.state, "chat_upload_repository", None)
+    if uploads is None:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="파일 다운로드 서비스를 준비 중입니다.")
+    fd, temp_name = tempfile.mkstemp(suffix=".zip")
+    os.close(fd)
+    archive_path = Path(temp_name)
+    try:
+        await build_chat_archive([submission], uploads, archive_path)
+        content = archive_path.read_bytes()
+    finally:
+        archive_path.unlink(missing_ok=True)
+    return Response(
+        content=content,
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="chat-submission-{submission_id}.zip"'},
+    )
+
+
+@router.post("/chat-submissions/download-jobs", response_model=ChatDownloadJobAccepted, status_code=status.HTTP_202_ACCEPTED)
+async def create_chat_download_job(
+    request_data: ChatDownloadJobCreate,
+    request: Request,
+    _: str = Depends(require_researcher),
+) -> ChatDownloadJobAccepted:
+    job_key = os.urandom(16).hex()
+    job = await _job_repository(request).enqueue(
+        JobCreate(
+            job_type="chat_download",
+            idempotency_key=job_key,
+            payload={
+                "jobKey": job_key,
+                "submissionIds": request_data.submission_ids,
+                "submissionPoint": request_data.submission_point,
+                "schoolLevel": request_data.school_level,
+            },
+        )
+    )
+    return ChatDownloadJobAccepted(jobId=job.id, status=job.status)
+
+
+@router.get("/chat-submissions/download-jobs/{job_id}", response_model=ChatDownloadJobStatus)
+async def get_chat_download_job(
+    job_id: str,
+    request: Request,
+    _: str = Depends(require_researcher),
+) -> ChatDownloadJobStatus:
+    job = await _job_repository(request).get(job_id)
+    if job is None or job.job_type != "chat_download":
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="다운로드 작업을 찾을 수 없습니다.")
+    artifact = await _chat_download_artifact_repository(request).get(job.idempotency_key)
+    return ChatDownloadJobStatus(
+        jobId=job.id,
+        status=job.status,
+        error=job.error,
+        downloadUrl=str(request.url_for("download_chat_job_file", job_id=job.id)) if artifact else None,
+    )
+
+
+@router.get("/chat-submissions/download-jobs/{job_id}/file", name="download_chat_job_file")
+async def download_chat_job_file(
+    job_id: str,
+    request: Request,
+    _: str = Depends(require_researcher),
+) -> Response:
+    job = await _job_repository(request).get(job_id)
+    if job is None or job.job_type != "chat_download":
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="다운로드 작업을 찾을 수 없습니다.")
+    artifact = await _chat_download_artifact_repository(request).get(job.idempotency_key)
+    uploads: ChatUploadRepository | None = getattr(request.app.state, "chat_download_upload_repository", None)
+    if artifact is None or uploads is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="다운로드 파일이 아직 준비되지 않았습니다.")
+    filename, content, _ = await uploads.read_bytes(artifact.file_id)
+    return Response(
+        content=content,
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
 
 

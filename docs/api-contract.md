@@ -139,6 +139,8 @@ Successful response: `202 Accepted`
 
 The frontend keeps its `localStorage` draft until the status endpoint reports `completed`. It then deletes the draft and locks that survey round/version against another automatic submission. A future explicit resubmission feature requires a separate update policy; the current response storage treats a participant, round, and version as one final response.
 
+When part 1 completes, the frontend may immediately open part 2 when that definition is available. When part 2 completes, it may switch to the chat submission tab for participants whose `chatConsent` is true.
+
 ## Get survey submission status
 
 `GET /api/v1/submission-jobs/{submissionId}`
@@ -193,6 +195,10 @@ Both endpoints require the participant who owns the submission. The participant 
 
 This endpoint accepts an `admin` or `researcher` bearer token. It returns a UTF-8 BOM CSV containing active submissions only: participant ID, name, school level, grade, original input, normalized transcript, parser status, parser version, and parser warnings. The optional `submission_point` is `afterRound1` or `afterRound4`; the optional `school_level` is `초등`, `중등`, or `고등`.
 
+`GET /api/v1/researcher/chat-submission-previews` returns active chat submissions for the researcher preview table, filtered by optional `submission_point` and `school_level` parameters. It includes participant phone, school level, grade, tool, source type, filenames, attachment count, and submitted time.
+
+`GET /api/v1/researcher/chat-submissions/files/{submissionId}/download` downloads one submission's original attachments as a ZIP. `POST /api/v1/researcher/chat-submissions/download-jobs` creates an asynchronous ZIP job for selected `submissionIds` or the submitted filters. Poll `GET /api/v1/researcher/chat-submissions/download-jobs/{jobId}`; when `completed`, download the archive from its `downloadUrl`. Bulk jobs use the `chat_download` queue type and preserve each submission in its own folder.
+
 ## Researcher login
 
 `POST /api/v1/auth/researcher/login`
@@ -207,6 +213,12 @@ This endpoint accepts an `admin` or `researcher` bearer token. It returns a UTF-
 The response is a `200 OK` bearer token response with `role` set to either `admin` or `researcher` and `needsPasswordChange` set to `false`.
 
 The first account is created with the `admin` role only when both `RESEARCHER_BOOTSTRAP_USERNAME` and `RESEARCHER_BOOTSTRAP_PASSWORD` are configured as CloudType Secrets. This bootstrap account is inserted once and is not overwritten on later backend restarts.
+
+## Participant contact and password reset
+
+Participant applications accept optional `email` and `sns` strings. `guardianPhone` remains required. Password reset accepts `{ "phone": "...", "guardianPhone": "..." }` and resets the password only when both participant and guardian phone numbers match the participant account. The old email reset fields are retained only as a compatibility path for existing clients.
+
+Participant CSV import requires `이름`, `휴대폰번호`, `보호자휴대폰`, `학교급`, and `학년`; `이메일` and `SNS` are optional columns.
 
 ## Researcher application management
 

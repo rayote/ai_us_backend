@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from pathlib import Path
 from collections.abc import AsyncIterator
 from typing import Any
 
@@ -85,6 +86,38 @@ class AsyncGridFSBucket:
         from bson import ObjectId
 
         await asyncio.to_thread(self._bucket.delete, ObjectId(file_id))
+
+    async def download_to_path(self, file_id: str, target: Path) -> dict[str, Any]:
+        from bson import ObjectId
+
+        def download() -> dict[str, Any]:
+            stream = self._bucket.open_download_stream(ObjectId(file_id))
+            with target.open("wb") as output:
+                while True:
+                    chunk = stream.read(1024 * 1024)
+                    if not chunk:
+                        break
+                    output.write(chunk)
+            return {"filename": stream.name, "metadata": stream.metadata or {}}
+
+        return await asyncio.to_thread(download)
+
+    async def upload_file(self, filename: str, source: Path, metadata: dict[str, Any]) -> str:
+        def upload() -> Any:
+            with source.open("rb") as input_file:
+                return self._bucket.upload_from_stream(filename, input_file, metadata=metadata)
+
+        file_id = await asyncio.to_thread(upload)
+        return str(file_id)
+
+    async def read_bytes(self, file_id: str) -> tuple[str, bytes, dict[str, Any]]:
+        from bson import ObjectId
+
+        def read() -> tuple[str, bytes, dict[str, Any]]:
+            stream = self._bucket.open_download_stream(ObjectId(file_id))
+            return stream.name, stream.read(), stream.metadata or {}
+
+        return await asyncio.to_thread(read)
 
 
 class MongoDatabase:

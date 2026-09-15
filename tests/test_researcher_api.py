@@ -262,8 +262,8 @@ def test_researcher_can_import_participants_from_csv() -> None:
             headers={"Authorization": f"Bearer {_researcher_token(client)}"},
             files={
                 "file": (
-                    "participants.csv",
-                    "이름,휴대폰번호,학교급,학년,이메일\n홍길동,010-1234-5678,초등,4,user@example.com\n",
+                        "participants.csv",
+                        "이름,휴대폰번호,보호자휴대폰,학교급,학년,이메일\n홍길동,010-1234-5678,010-9999-9999,초등,4,user@example.com\n",
                     "text/csv",
                 )
             },

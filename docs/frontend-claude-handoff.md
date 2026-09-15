@@ -32,7 +32,9 @@
 - 참여자 로그인은 `POST /api/v1/auth/participant/login`에 `audience`를 함께 보낸다. 초등 UI 값은 `elementary`, 중고등 UI 값은 `secondary`로 변환한다.
 - 로그인 응답의 실제 `audience`가 현재 UI와 다르면 기존 커스텀 전환 모달을 보인 뒤 해당 대상 UI로 전환한다.
 - `needsPasswordChange: true`이면 설문 화면을 열기 전에 `POST /api/v1/auth/participant/password`로 최초 비밀번호를 변경한다.
-- 비밀번호 재설정은 `POST /api/v1/auth/participant/password-reset`에 휴대폰 번호와 이메일을 보내며, 성공하면 비밀번호는 `1234`로 초기화된다.
+- 비밀번호 재설정은 `POST /api/v1/auth/participant/password-reset`에 본인 휴대폰과 보호자 휴대폰을 보내며, 성공하면 비밀번호는 `1234`로 초기화된다.
+- 신청 정보는 본인 휴대폰과 보호자 휴대폰을 필수로 받고, 이메일과 SNS는 선택사항으로 보낸다. SNS 예시는 `인스타그램 @insta_user, 페이스북 faceuser`처럼 안내한다.
+- 비밀번호 재설정은 `phone`과 `guardianPhone` 조합을 사용한다. 운영 frontend는 이메일을 비밀번호 복구 조건으로 사용하지 않는다.
 
 ### 연구자 회원 신청 관리
 
@@ -41,6 +43,7 @@
 - `PUT /api/v1/admin/application-settings`는 `admin`만 `{ "autoApproval": true | false }`로 변경할 수 있다. 연구자 화면은 일반 `researcher`에게 현재 상태를 읽기 전용으로 표시한다.
 - 자동 승인을 켜도 기존 `pending` 신청은 그대로 유지한다. 새 신청에만 적용된다.
 - CSV 등록은 `POST /api/v1/researcher/participants/imports`의 `file` field로 UTF-8 CSV를 전송한다. 필수 열은 `이름,휴대폰번호,학교급,학년,이메일`이다.
+- CSV 등록 필수 열은 `이름,휴대폰번호,보호자휴대폰,학교급,학년`이며 `이메일,SNS`는 선택 열이다. 연구자 신청/참여자 표와 CSV에는 이메일과 SNS를 함께 표시한다.
 
 ### 설문 정의와 제출
 
@@ -52,6 +55,7 @@
 - 최종 설문 제출은 `POST /api/v1/survey-responses`에 `surveyRound`, `surveyVersion`, `answers`, `submissionId`를 전송한다. `GET /api/v1/submission-jobs/{submissionId}`가 `completed`일 때만 임시 저장을 삭제한다.
 - 설문 답변 key는 spec의 일반 문항 `key`, grid `rows[].key`, 조건부 `detail.field.key`/`other.field.key`를 그대로 사용한다.
 - 연구자 설문 버전 목록은 `GET /api/v1/researcher/survey-definitions`로 채운다. 결과 조회/CSV는 선택된 `surveyRound`와 `surveyVersion`을 그대로 전송한다.
+- 파트 1 제출 완료 후 파트 2 definition이 있으면 파트 2를 자동으로 열고, 파트 2 제출 완료 후 `chatConsent`가 true이면 대화문 제출 탭으로 전환한다.
 
 ### AI 대화문 제출
 
@@ -64,6 +68,8 @@
 - 참가자가 `삭제 요청`을 확인하면 `POST /api/v1/chat-submissions/{submissionId}/deletion-request`를 호출하고 상태를 `삭제 요청됨`으로 회색 표시한다. `삭제 요청 취소`는 `POST /api/v1/chat-submissions/{submissionId}/restore`를 호출한다.
 - 연구자 파일 관리 화면은 `GET /api/v1/researcher/chat-submissions/files?status_filter=deletion_requested`에서 요청 항목을 조회한다. `파일 삭제`는 되돌릴 수 없다는 확인 뒤 `DELETE /api/v1/researcher/chat-submissions/files/{submissionId}`를 호출한다. 실제 삭제가 끝난 항목은 참가자 내역에 표시하지 않는다.
 - 연구자 대화문 CSV는 `GET /api/v1/researcher/exports/chat-submissions`에 `submission_point`, 필요 시 `school_level`을 전송한다.
+- 연구자 결과 다운로드의 대화문 미리보기는 `GET /api/v1/researcher/chat-submission-previews`로 실제 DB와 동기화한다. 각 첨부 제출은 `GET /api/v1/researcher/chat-submissions/files/{submissionId}/download`로 개별 원본 ZIP을 받을 수 있다.
+- 선택 파일 또는 현재 필터 전체 파일은 `POST /api/v1/researcher/chat-submissions/download-jobs`로 비동기 ZIP 생성을 요청하고, 상태 polling 후 완료된 `downloadUrl`을 사용한다. 삭제 요청 상태는 기본 다운로드에서 제외한다.
 
 ## 운영 절차
 

@@ -17,6 +17,7 @@ class InMemoryParticipantAccountRepository(ParticipantAccountRepository):
             True,
             "초등",
             email="participant@example.com",
+            guardian_phone="01099999999",
         )
 
     async def find_by_phone(self, phone: str) -> ParticipantAccount | None:
@@ -43,8 +44,8 @@ class InMemoryParticipantAccountRepository(ParticipantAccountRepository):
         )
         return True
 
-    async def reset_password_by_phone_email(self, phone: str, email: str, password_hash: str) -> bool:
-        if phone != self.account.phone or email != self.account.email:
+    async def reset_password_by_phone_guardian(self, phone: str, guardian_phone: str, password_hash: str) -> bool:
+        if phone != self.account.phone or guardian_phone != self.account.guardian_phone:
             return False
         self.account = ParticipantAccount(
             self.account.participant_id,
@@ -54,8 +55,12 @@ class InMemoryParticipantAccountRepository(ParticipantAccountRepository):
             self.account.chat_consent,
             self.account.school_level,
             email=self.account.email,
+            guardian_phone=self.account.guardian_phone,
         )
         return True
+
+    async def reset_password_by_phone_email(self, phone: str, email: str, password_hash: str) -> bool:
+        return False
 
 
 def _client() -> TestClient:
@@ -127,7 +132,7 @@ def test_participant_password_reset_restores_default_password_and_requires_chang
     with _client() as client:
         response = client.post(
             "/api/v1/auth/participant/password-reset",
-            json={"phone": "010-1234-5678", "email": "PARTICIPANT@example.com"},
+            json={"phone": "010-1234-5678", "guardianPhone": "010-9999-9999"},
         )
         login = client.post(
             "/api/v1/auth/participant/login",
@@ -140,11 +145,11 @@ def test_participant_password_reset_restores_default_password_and_requires_chang
     assert login.json()["needsPasswordChange"] is True
 
 
-def test_participant_password_reset_rejects_unmatched_email() -> None:
+def test_participant_password_reset_rejects_unmatched_guardian_phone() -> None:
     with _client() as client:
         response = client.post(
             "/api/v1/auth/participant/password-reset",
-            json={"phone": "01012345678", "email": "other@example.com"},
+            json={"phone": "01012345678", "guardianPhone": "01011112222"},
         )
 
     assert response.status_code == 404

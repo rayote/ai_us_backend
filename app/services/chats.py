@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import csv
 import io
+import tempfile
+import zipfile
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -28,27 +30,45 @@ class InvalidChatUploadError(Exception):
 
 
 class ChatSubmissionRepository(Protocol):
-    async def create_submission(self, submission: ChatSubmissionRecord) -> None: ...
+    async def create_submission(self, submission: ChatSubmissionRecord) -> None:
+        ...
 
     async def list_submissions(
         self, submission_point: str | None = None, status: str = "active"
-    ) -> list[ChatSubmissionRecord]: ...
+    ) -> list[ChatSubmissionRecord]:
+        ...
 
-    async def list_for_participant(self, participant_id: str) -> list[ChatSubmissionRecord]: ...
+    async def list_for_participant(self, participant_id: str) -> list[ChatSubmissionRecord]:
+        ...
 
-    async def request_deletion(self, submission_id: str, participant_id: str) -> bool: ...
+    async def request_deletion(self, submission_id: str, participant_id: str) -> bool:
+        ...
 
-    async def restore_deletion(self, submission_id: str, participant_id: str) -> bool: ...
+    async def restore_deletion(self, submission_id: str, participant_id: str) -> bool:
+        ...
 
-    async def get_for_deletion(self, submission_id: str) -> ChatSubmissionRecord | None: ...
+    async def get_for_deletion(self, submission_id: str) -> ChatSubmissionRecord | None:
+        ...
 
-    async def remove(self, submission_id: str) -> bool: ...
+    async def remove(self, submission_id: str) -> bool:
+        ...
 
 
 class ChatUploadRepository(Protocol):
-    async def upload(self, filename: str, data: bytes, metadata: dict[str, Any]) -> str: ...
+    async def upload(self, filename: str, data: bytes, metadata: dict[str, Any]) -> str:
+        ...
 
-    async def delete(self, file_id: str) -> None: ...
+    async def delete(self, file_id: str) -> None:
+        ...
+
+    async def download_to_path(self, file_id: str, target: Path) -> dict[str, Any]:
+        ...
+
+    async def upload_file(self, filename: str, source: Path, metadata: dict[str, Any]) -> str:
+        ...
+
+    async def read_bytes(self, file_id: str) -> tuple[str, bytes, dict[str, Any]]:
+        ...
 
 
 @dataclass(frozen=True)
@@ -273,12 +293,38 @@ class ChatUploadService:
             file = files[0]
             if Path(file.filename).suffix.lower() != ".zip" or not file.data.startswith(b"PK"):
                 raise InvalidChatUploadError("유효한 ZIP 파일만 제출할 수 있습니다.")
-        elif any(
-            Path(file.filename).suffix.lower() not in self._IMAGE_SUFFIXES
-            or not file.content_type.startswith("image/")
-            for file in files
-        ):
+        elif any(self._invalid_image(file) for file in files):
             raise InvalidChatUploadError("JPG, PNG, WEBP, HEIC 이미지 파일만 제출할 수 있습니다.")
+
+    def _invalid_image(self, file: ChatUploadFile) -> bool:
+        suffix_valid = Path(file.filename).suffix.lower() in self._IMAGE_SUFFIXES
+        return not suffix_valid or not file.content_type.startswith("image/")
+
+
+async def build_chat_archive(
+    submissions: list[ChatSubmissionRecord],
+    uploads: ChatUploadRepository,
+    archive_path: Path,
+) -> int:
+    count = 0
+    used_names: set[str] = set()
+    with zipfile.ZipFile(archive_path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+        with tempfile.TemporaryDirectory(prefix="chat-download-") as temp_dir:
+            temp_path = Path(temp_dir)
+            for submission in submissions:
+                if submission.status != "active" or not submission.attachments:
+                    continue
+                folder = submission.submission_id or submission.participant_id
+                for attachment in submission.attachments:
+                    target = temp_path / f"{count}-{Path(attachment.filename).name}"
+                    await uploads.download_to_path(attachment.file_id, target)
+                    filename = f"{folder}/{Path(attachment.filename).name}"
+                    if filename in used_names:
+                        filename = f"{folder}/{count}-{Path(attachment.filename).name}"
+                    used_names.add(filename)
+                    archive.write(target, arcname=filename)
+                    count += 1
+    return count
 
 
 class ChatSubmissionManagementService:

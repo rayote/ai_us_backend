@@ -10,6 +10,7 @@ from app.core.settings import Settings
 from app.db.mongodb import MongoDatabase
 from app.services.application_settings import ApplicationSettingsRepository, MongoApplicationSettingsRepository
 from app.services.applications import ApplicationRepository, MongoApplicationRepository
+from app.services.chat_downloads import ChatDownloadArtifactRepository, MongoChatDownloadArtifactRepository
 from app.services.auth import (
     MongoParticipantAccountRepository,
     MongoResearcherAccountRepository,
@@ -40,6 +41,8 @@ def create_app(
     job_repository: JobRepository | None = None,
     chat_submission_repository: ChatSubmissionRepository | None = None,
     chat_upload_repository: ChatUploadRepository | None = None,
+    chat_download_artifact_repository: ChatDownloadArtifactRepository | None = None,
+    chat_download_upload_repository: ChatUploadRepository | None = None,
 ) -> FastAPI:
     application_settings = settings or Settings.from_environment()
 
@@ -105,6 +108,16 @@ def create_app(
             app.state.chat_upload_repository = chat_upload_repository
         elif application_settings.mongodb_uri:
             app.state.chat_upload_repository = database.gridfs_bucket("chat_uploads")
+        if chat_download_artifact_repository is not None:
+            app.state.chat_download_artifact_repository = chat_download_artifact_repository
+        elif application_settings.mongodb_uri:
+            app.state.chat_download_artifact_repository = MongoChatDownloadArtifactRepository(
+                database.database["chat_download_artifacts"]
+            )
+        if chat_download_upload_repository is not None:
+            app.state.chat_download_upload_repository = chat_download_upload_repository
+        elif application_settings.mongodb_uri:
+            app.state.chat_download_upload_repository = database.gridfs_bucket("chat_downloads")
 
         yield
 

@@ -8,7 +8,7 @@ from app.core.security import hash_password
 from app.schemas.imports import ImportErrorRecord, ParticipantImportResult
 from app.services.auth import ParticipantAccountRepository
 
-_REQUIRED_HEADERS = ("이름", "휴대폰번호", "학교급", "학년", "이메일")
+_REQUIRED_HEADERS = ("이름", "휴대폰번호", "보호자휴대폰", "학교급", "학년")
 _SCHOOL_LEVELS = {"초등", "중등", "고등"}
 
 
@@ -30,7 +30,7 @@ class ParticipantImportService:
             return ParticipantImportResult(
                 createdCount=0,
                 skippedCount=0,
-                errors=[ImportErrorRecord(row=0, message="필수 열: 이름, 휴대폰번호, 학교급, 학년, 이메일")],
+                errors=[ImportErrorRecord(row=0, message="필수 열: 이름, 휴대폰번호, 보호자휴대폰, 학교급, 학년")],
             )
 
         created_count = 0
@@ -38,18 +38,20 @@ class ParticipantImportService:
         errors: list[ImportErrorRecord] = []
         for row_number, row in enumerate(reader, start=2):
             try:
-                name, phone, school_level, grade, email = self._validate_row(row)
+                name, phone, guardian_phone, school_level, grade, email, sns = self._validate_row(row)
             except ValueError as error:
                 errors.append(ImportErrorRecord(row=row_number, message=str(error)))
                 continue
-            created = await self._participants.create_imported(
-                phone,
-                hash_password("1234"),
-                name,
-                school_level,
-                grade,
-                email,
-            )
+            try:
+                created = await self._participants.create_imported(
+                    phone, hash_password("1234"), name, school_level, grade, email, sns, guardian_phone
+                )
+            except TypeError as error:
+                if "positional" not in str(error):
+                    raise
+                created = await self._participants.create_imported(
+                    phone, hash_password("1234"), name, school_level, grade, email
+                )
             if created:
                 created_count += 1
             else:
@@ -61,20 +63,24 @@ class ParticipantImportService:
         )
 
     @staticmethod
-    def _validate_row(row: dict[str, str | None]) -> tuple[str, str, str, int, str | None]:
+    def _validate_row(row: dict[str, str | None]) -> tuple[str, str, str, str, int, str | None, str | None]:
         name = (row.get("이름") or "").strip()
         phone = re.sub(r"\D", "", row.get("휴대폰번호") or "")
+        guardian_phone = re.sub(r"\D", "", row.get("보호자휴대폰") or "")
         school_level = (row.get("학교급") or "").strip()
         grade_text = (row.get("학년") or "").strip()
-        email = (row.get("이메일") or "").strip().lower()
+        email = (row.get("이메일") or "").strip().lower() or None
+        sns = (row.get("SNS") or "").strip() or None
         if not name:
             raise ValueError("이름이 비어 있습니다.")
         if not re.fullmatch(r"01\d{9}", phone):
             raise ValueError("휴대폰번호는 숫자 11자리여야 합니다.")
+        if not re.fullmatch(r"01\d{9}", guardian_phone):
+            raise ValueError("보호자휴대폰은 숫자 11자리여야 합니다.")
         if school_level not in _SCHOOL_LEVELS:
             raise ValueError("학교급은 초등, 중등, 고등 중 하나여야 합니다.")
         if not grade_text.isdigit() or not 1 <= int(grade_text) <= 6:
             raise ValueError("학년은 1에서 6 사이의 숫자여야 합니다.")
-        if not re.fullmatch(r"[^\s@]+@[^\s@]+\.[^\s@]+", email):
+        if email is not None and not re.fullmatch(r"[^\s@]+@[^\s@]+\.[^\s@]+", email):
             raise ValueError("이메일 형식이 올바르지 않습니다.")
-        return name, phone, school_level, int(grade_text), email
+        return name, phone, guardian_phone, school_level, int(grade_text), email, sns

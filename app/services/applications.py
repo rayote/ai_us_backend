@@ -36,7 +36,8 @@ def _application_record(document: dict[str, Any]) -> ApplicationRecord:
         grade=document["grade"],
         phone=document["phone"],
         guardianPhone=document["guardian_phone"],
-        email=document["email"],
+        email=document.get("email"),
+        sns=document.get("sns"),
         consents=document["consents"],
         status=document["status"],
         submittedAt=document["submitted_at"],
@@ -53,10 +54,15 @@ class MongoApplicationRepository:
         document.update(
             {
                 "phone_normalized": application.phone,
+                "guardian_phone": application.guardian_phone,
                 "status": "pending",
                 "submitted_at": datetime.now(UTC),
             }
         )
+        if application.email is not None:
+            document["email"] = application.email
+        if application.sns is not None:
+            document["sns"] = application.sns
 
         try:
             result = await self._collection.insert_one(document)

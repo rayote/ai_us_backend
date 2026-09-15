@@ -19,16 +19,25 @@ class ParticipantAccount:
     name: str | None = None
     grade: int | None = None
     email: str | None = None
+    guardian_phone: str | None = None
+    sns: str | None = None
 
 
 class ParticipantAccountRepository(Protocol):
-    async def find_by_phone(self, phone: str) -> ParticipantAccount | None: ...
+    async def find_by_phone(self, phone: str) -> ParticipantAccount | None:
+        ...
 
-    async def find_by_id(self, participant_id: str) -> ParticipantAccount | None: ...
+    async def find_by_id(self, participant_id: str) -> ParticipantAccount | None:
+        ...
 
-    async def update_password(self, participant_id: str, password_hash: str) -> bool: ...
+    async def update_password(self, participant_id: str, password_hash: str) -> bool:
+        ...
 
-    async def reset_password_by_phone_email(self, phone: str, email: str, password_hash: str) -> bool: ...
+    async def reset_password_by_phone_guardian(self, phone: str, guardian_phone: str, password_hash: str) -> bool:
+        ...
+
+    async def reset_password_by_phone_email(self, phone: str, email: str, password_hash: str) -> bool:
+        ...
 
     async def create(
         self,
@@ -37,7 +46,10 @@ class ParticipantAccountRepository(Protocol):
         chat_consent: bool = False,
         school_level: str | None = None,
         email: str | None = None,
-    ) -> bool: ...
+        guardian_phone: str | None = None,
+        sns: str | None = None,
+    ) -> bool:
+        ...
 
     async def create_imported(
         self,
@@ -47,9 +59,13 @@ class ParticipantAccountRepository(Protocol):
         school_level: str,
         grade: int,
         email: str | None = None,
-    ) -> bool: ...
+        sns: str | None = None,
+        guardian_phone: str | None = None,
+    ) -> bool:
+        ...
 
-    async def list_participants(self) -> list[ParticipantAccount]: ...
+    async def list_participants(self) -> list[ParticipantAccount]:
+        ...
 
 
 class MongoParticipantAccountRepository:
@@ -78,12 +94,21 @@ class MongoParticipantAccountRepository:
             name=document.get("name"),
             grade=document.get("grade"),
             email=document.get("email"),
+            guardian_phone=document.get("guardian_phone"),
+            sns=document.get("sns"),
         )
 
     async def update_password(self, participant_id: str, password_hash: str) -> bool:
         result = await self._collection.update_one(
             {"_id": ObjectId(participant_id), "role": "participant"},
             {"$set": {"password_hash": password_hash, "must_change_password": False}},
+        )
+        return result.modified_count == 1
+
+    async def reset_password_by_phone_guardian(self, phone: str, guardian_phone: str, password_hash: str) -> bool:
+        result = await self._collection.update_one(
+            {"phone_normalized": phone, "guardian_phone": guardian_phone, "role": "participant"},
+            {"$set": {"password_hash": password_hash, "must_change_password": True}},
         )
         return result.modified_count == 1
 
@@ -101,6 +126,8 @@ class MongoParticipantAccountRepository:
         chat_consent: bool = False,
         school_level: str | None = None,
         email: str | None = None,
+        guardian_phone: str | None = None,
+        sns: str | None = None,
     ) -> bool:
         document = {
             "phone_normalized": phone,
@@ -112,6 +139,10 @@ class MongoParticipantAccountRepository:
         }
         if email is not None:
             document["email"] = email
+        if sns is not None:
+            document["sns"] = sns
+        if guardian_phone is not None:
+            document["guardian_phone"] = guardian_phone
         try:
             await self._collection.insert_one(document)
         except DuplicateKeyError:
@@ -119,7 +150,15 @@ class MongoParticipantAccountRepository:
         return True
 
     async def create_imported(
-        self, phone: str, password_hash: str, name: str, school_level: str, grade: int, email: str | None = None
+        self,
+        phone: str,
+        password_hash: str,
+        name: str,
+        school_level: str,
+        grade: int,
+        email: str | None = None,
+        sns: str | None = None,
+        guardian_phone: str | None = None,
     ) -> bool:
         document = {
             "phone_normalized": phone,
@@ -133,6 +172,10 @@ class MongoParticipantAccountRepository:
         }
         if email is not None:
             document["email"] = email
+        if sns is not None:
+            document["sns"] = sns
+        if guardian_phone is not None:
+            document["guardian_phone"] = guardian_phone
         try:
             await self._collection.insert_one(document)
         except DuplicateKeyError:
@@ -153,11 +196,14 @@ class ResearcherAccount:
 
 
 class ResearcherAccountRepository(Protocol):
-    async def find_by_username(self, username: str) -> ResearcherAccount | None: ...
+    async def find_by_username(self, username: str) -> ResearcherAccount | None:
+        ...
 
-    async def ensure_bootstrap(self, username: str, password_hash: str) -> None: ...
+    async def ensure_bootstrap(self, username: str, password_hash: str) -> None:
+        ...
 
-    async def create(self, username: str, password_hash: str, role: str) -> str | None: ...
+    async def create(self, username: str, password_hash: str, role: str) -> str | None:
+        ...
 
 
 class MongoResearcherAccountRepository:
@@ -218,10 +264,16 @@ class ParticipantAuthenticationService:
         if not await self._repository.update_password(participant_id, hash_password(new_password)):
             raise InvalidCredentialsError
 
-    async def reset_password(self, phone: str, email: str) -> None:
+    async def reset_password(self, phone: str, guardian_phone: str | None = None, email: str | None = None) -> None:
         from app.core.security import hash_password
 
-        if not await self._repository.reset_password_by_phone_email(phone, email, hash_password("1234")):
+        if guardian_phone is not None:
+            matched = await self._repository.reset_password_by_phone_guardian(phone, guardian_phone, hash_password("1234"))
+        elif email is not None:
+            matched = await self._repository.reset_password_by_phone_email(phone, email, hash_password("1234"))
+        else:
+            matched = False
+        if not matched:
             raise InvalidCredentialsError
 
 

@@ -72,3 +72,34 @@ class ChatSubmissionSummary(BaseModel):
 
 class ChatSubmissionDeleted(BaseModel):
     status: Literal["deleted"]
+
+
+class ChatSubmissionPreview(BaseModel):
+    submission_id: str = Field(alias="submissionId")
+    participant_phone: str = Field(alias="participantPhone")
+    school_level: str | None = Field(default=None, alias="schoolLevel")
+    grade: int | None = None
+    submission_point: ChatSubmissionPoint = Field(alias="submissionPoint")
+    source_type: ChatSourceType = Field(alias="sourceType")
+    tool: str | None = None
+    filenames: list[str]
+    attachment_count: int = Field(alias="attachmentCount")
+    submitted_at: datetime = Field(alias="submittedAt")
+
+
+class ChatDownloadJobCreate(BaseModel):
+    submission_ids: list[str] = Field(default_factory=list, alias="submissionIds", max_length=1000)
+    submission_point: ChatSubmissionPoint | None = Field(default=None, alias="submissionPoint")
+    school_level: Literal["초등", "중등", "고등"] | None = Field(default=None, alias="schoolLevel")
+
+
+class ChatDownloadJobAccepted(BaseModel):
+    job_id: str = Field(alias="jobId")
+    status: str
+
+
+class ChatDownloadJobStatus(BaseModel):
+    job_id: str = Field(alias="jobId")
+    status: str
+    error: str | None = None
+    download_url: str | None = Field(default=None, alias="downloadUrl")

@@ -1,10 +1,15 @@
 from __future__ import annotations
 
 import asyncio
+import os
+import tempfile
+from pathlib import Path
 
 from app.core.settings import Settings
 from app.db.mongodb import MongoDatabase
-from app.services.chats import MongoChatSubmissionRepository, store_chat_submission
+from app.services.chats import MongoChatSubmissionRepository, build_chat_archive, store_chat_submission
+from app.services.chat_downloads import MongoChatDownloadArtifactRepository, new_artifact
+from app.services.auth import MongoParticipantAccountRepository
 from app.services.jobs import MongoJobRepository, QueueWorker
 from app.services.submissions import store_survey_response
 from app.services.surveys import MongoSurveyDefinitionRepository, MongoSurveyResponseRepository
@@ -20,11 +25,47 @@ async def run_worker() -> None:
     definitions = MongoSurveyDefinitionRepository(database.database["survey_definitions"])
     responses = MongoSurveyResponseRepository(database.database["survey_responses"])
     chat_submissions = MongoChatSubmissionRepository(database.database["chat_submissions"])
+    chat_download_artifacts = MongoChatDownloadArtifactRepository(database.database["chat_download_artifacts"])
+    participants = MongoParticipantAccountRepository(database.database["participants"])
+
+    async def build_chat_download(payload: dict[str, object]) -> None:
+        submissions = await chat_submissions.list_submissions(
+            str(payload.get("submissionPoint")) if payload.get("submissionPoint") else None
+        )
+        selected_ids = {str(value) for value in payload.get("submissionIds", []) if isinstance(value, str)}
+        if selected_ids:
+            submissions = [submission for submission in submissions if submission.submission_id in selected_ids]
+        school_level = payload.get("schoolLevel")
+        if isinstance(school_level, str):
+            profiles = {
+                participant.participant_id: participant.school_level
+                for participant in await participants.list_participants()
+            }
+            submissions = [
+                submission for submission in submissions if profiles.get(submission.participant_id) == school_level
+            ]
+        fd, archive_name = tempfile.mkstemp(suffix=".zip")
+        os.close(fd)
+        archive_path = Path(archive_name)
+        try:
+            count = await build_chat_archive(submissions, database.gridfs_bucket("chat_uploads"), archive_path)
+            if count == 0:
+                raise ValueError("선택한 제출에 다운로드할 첨부 파일이 없습니다.")
+            file_id = await database.gridfs_bucket("chat_downloads").upload_file(
+                f"chat-submissions-{payload['jobKey']}.zip", archive_path, {"job_key": payload["jobKey"]}
+            )
+            size = archive_path.stat().st_size
+            await chat_download_artifacts.create(
+                new_artifact(str(payload["jobKey"]), file_id, f"chat-submissions-{payload['jobKey']}.zip", size)
+            )
+        finally:
+            archive_path.unlink(missing_ok=True)
     worker = QueueWorker(
         MongoJobRepository(database.database["submission_jobs"]),
         {
             "survey_response": lambda payload: store_survey_response(payload, definitions, responses),
             "chat_submission": lambda payload: store_chat_submission(payload, chat_submissions),
+            "chat_download": build_chat_download,
         },
     )
     await worker.recover()
