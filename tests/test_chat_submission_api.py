@@ -4,7 +4,7 @@ from datetime import UTC, datetime
 from app.core.security import hash_password
 from app.core.settings import Settings
 from app.main import create_app
-from app.schemas.chat import ParsedTranscript, ChatSubmissionRecord
+from app.schemas.chat import ChatSubmissionRecord, ParsedTranscript
 from app.schemas.jobs import Job, JobCreate
 from app.services.auth import (
     ParticipantAccount,

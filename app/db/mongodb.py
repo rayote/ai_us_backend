@@ -89,7 +89,7 @@ class AsyncGridFSBucket:
 
 class MongoDatabase:
     def __init__(self, mongodb_uri: str, database_name: str) -> None:
-        self._client = MongoClient(mongodb_uri)
+        self._client = MongoClient(mongodb_uri, tz_aware=True)
         self._raw_database = self._client[database_name]
         self.database = AsyncDatabase(self._raw_database)
 
