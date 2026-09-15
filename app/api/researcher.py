@@ -3,7 +3,8 @@ from __future__ import annotations
 from typing import Literal
 
 from app.api.auth import require_researcher
-from app.schemas.application import ApplicationApproval, ApplicationApprovalCompleted, ApplicationRecord
+from app.schemas.application import ApplicationApproval, ApplicationApprovalCompleted, ApplicationRecord, ApplicationSettings
+from app.services.application_settings import ApplicationSettingsRepository
 from app.schemas.imports import ParticipantImportResult
 from app.schemas.reporting import NonparticipantReport, ParticipationStatus
 from app.schemas.survey import SurveyDefinitionSummary, SurveyResponsePreview
@@ -25,6 +26,15 @@ def _application_repository(request: Request) -> ApplicationRepository:
     if repository is None:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="신청 관리 서비스를 준비 중입니다."
+        )
+    return repository
+
+
+def _application_settings_repository(request: Request) -> ApplicationSettingsRepository:
+    repository = getattr(request.app.state, "application_settings_repository", None)
+    if repository is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="신청 설정 서비스를 준비 중입니다."
         )
     return repository
 
@@ -111,6 +121,14 @@ async def approve_applications(
             detail=f"이미 등록된 참여자 휴대폰 번호입니다: {', '.join(error.phone_numbers)}",
         ) from error
     return ApplicationApprovalCompleted(approvedCount=approved_count)
+
+
+@router.get("/application-settings", response_model=ApplicationSettings)
+async def get_application_settings(
+    request: Request,
+    _: str = Depends(require_researcher),
+) -> ApplicationSettings:
+    return ApplicationSettings(autoApproval=await _application_settings_repository(request).auto_approval_enabled())
 
 
 @router.post("/participants/imports", response_model=ParticipantImportResult)

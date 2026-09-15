@@ -1,6 +1,9 @@
+from datetime import UTC, datetime
+
 from app.core.settings import Settings
 from app.main import create_app
-from app.schemas.application import ApplicationCreate
+from app.schemas.application import ApplicationCreate, ApplicationRecord
+from app.services.application_settings import ApplicationSettingsRepository
 from app.services.applications import ApplicationRepository, DuplicateApplicationError, object_id
 from app.services.auth import ParticipantAccount, ParticipantAccountRepository
 from fastapi.testclient import TestClient
@@ -9,22 +12,68 @@ from fastapi.testclient import TestClient
 class InMemoryApplicationRepository(ApplicationRepository):
     def __init__(self) -> None:
         self._phone_numbers: set[str] = set()
+        self.records: dict[str, ApplicationRecord] = {}
 
     async def create(self, application: ApplicationCreate) -> str:
         if application.phone in self._phone_numbers:
             raise DuplicateApplicationError
         self._phone_numbers.add(application.phone)
-        return object_id()
+        application_id = object_id()
+        self.records[application_id] = ApplicationRecord(
+            applicationId=application_id,
+            gender=application.gender,
+            grade=application.grade,
+            phone=application.phone,
+            guardianPhone=application.guardian_phone,
+            email=application.email,
+            consents=application.consents,
+            status="pending",
+            submittedAt=datetime.now(UTC),
+        )
+        return application_id
+
+    async def list_applications(self, school_level: str | None = None) -> list[ApplicationRecord]:
+        return list(self.records.values())
+
+    async def get_pending(self, application_ids: list[str]) -> list[ApplicationRecord]:
+        return [
+            self.records[application_id]
+            for application_id in application_ids
+            if application_id in self.records and self.records[application_id].status == "pending"
+        ]
+
+    async def approve(self, application_ids: list[str]) -> int:
+        approved = 0
+        for application_id in application_ids:
+            record = self.records.get(application_id)
+            if record is not None and record.status == "pending":
+                self.records[application_id] = record.model_copy(
+                    update={"status": "approved", "approved_at": datetime.now(UTC)}
+                )
+                approved += 1
+        return approved
+
+
+class InMemoryApplicationSettings(ApplicationSettingsRepository):
+    def __init__(self, auto_approval: bool = False) -> None:
+        self.auto_approval = auto_approval
+
+    async def auto_approval_enabled(self) -> bool:
+        return self.auto_approval
+
+    async def set_auto_approval(self, enabled: bool, updated_by: str) -> bool:
+        self.auto_approval = enabled
+        return enabled
 
 
 class InMemoryParticipantRepository(ParticipantAccountRepository):
     def __init__(self, existing_phone: str | None = None) -> None:
-        self.existing_phone = existing_phone
+        self.accounts: dict[str, ParticipantAccount] = {}
+        if existing_phone is not None:
+            self.accounts[existing_phone] = ParticipantAccount("participant-1", existing_phone, "hash", False, False, "초등")
 
     async def find_by_phone(self, phone: str) -> ParticipantAccount | None:
-        if phone == self.existing_phone:
-            return ParticipantAccount("participant-1", phone, "hash", False, False, "초등")
-        return None
+        return self.accounts.get(phone)
 
     async def find_by_id(self, participant_id: str) -> ParticipantAccount | None:
         return None
@@ -43,7 +92,12 @@ class InMemoryParticipantRepository(ParticipantAccountRepository):
         school_level: str | None = None,
         email: str | None = None,
     ) -> bool:
-        return False
+        if phone in self.accounts:
+            return False
+        self.accounts[phone] = ParticipantAccount(
+            f"participant-{len(self.accounts) + 1}", phone, password_hash, True, chat_consent, school_level, email=email
+        )
+        return True
 
     async def create_imported(
         self, phone: str, password_hash: str, name: str, school_level: str, grade: int, email: str | None = None
@@ -54,12 +108,13 @@ class InMemoryParticipantRepository(ParticipantAccountRepository):
         return []
 
 
-def _client(existing_participant_phone: str | None = None) -> TestClient:
-    settings = Settings("test", None, "ai_us_test", ())
+def _client(existing_participant_phone: str | None = None, auto_approval: bool = False) -> TestClient:
+    settings = Settings("test", None, "ai_us_test", (), "test-secret-at-least-thirty-two-bytes")
     return TestClient(
         create_app(
             settings,
             application_repository=InMemoryApplicationRepository(),
+            application_settings_repository=InMemoryApplicationSettings(auto_approval),
             participant_account_repository=InMemoryParticipantRepository(existing_participant_phone),
         )
     )
@@ -89,6 +144,17 @@ def test_create_application_returns_pending_status() -> None:
     assert response.status_code == 201
     assert response.json()["status"] == "pending"
     assert len(response.json()["applicationId"]) == 24
+
+
+def test_create_application_auto_approves_and_returns_password_change_login() -> None:
+    with _client(auto_approval=True) as client:
+        response = client.post("/api/v1/applications", json=_application_payload())
+
+    assert response.status_code == 201
+    assert response.json()["status"] == "approved"
+    assert response.json()["accessToken"]
+    assert response.json()["needsPasswordChange"] is True
+    assert response.json()["audience"] == "secondary"
 
 
 def test_create_application_rejects_duplicate_phone_number() -> None:

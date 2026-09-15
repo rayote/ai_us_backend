@@ -5,6 +5,7 @@ from app.core.security import hash_password
 from app.core.settings import Settings
 from app.main import create_app
 from app.schemas.application import ApplicationConsents, ApplicationCreate, ApplicationRecord
+from app.services.application_settings import ApplicationSettingsRepository
 from app.services.applications import ApplicationRepository
 from app.services.auth import (
     ParticipantAccount,
@@ -55,6 +56,18 @@ class InMemoryApplications(ApplicationRepository):
                 )
                 approved += 1
         return approved
+
+
+class InMemoryApplicationSettings(ApplicationSettingsRepository):
+    def __init__(self) -> None:
+        self.auto_approval = False
+
+    async def auto_approval_enabled(self) -> bool:
+        return self.auto_approval
+
+    async def set_auto_approval(self, enabled: bool, updated_by: str) -> bool:
+        self.auto_approval = enabled
+        return enabled
 
 
 class InMemoryParticipants(ParticipantAccountRepository):
@@ -124,6 +137,7 @@ def _client() -> tuple[TestClient, InMemoryParticipants]:
             create_app(
                 Settings("test", None, "ai_us_test", (), "test-secret-at-least-thirty-two-bytes", 60),
                 application_repository=InMemoryApplications(),
+                application_settings_repository=InMemoryApplicationSettings(),
                 participant_account_repository=participants,
                 researcher_account_repository=InMemoryResearchers(),
             )
@@ -204,6 +218,26 @@ def test_admin_can_access_researcher_application_management() -> None:
         )
 
     assert response.status_code == 200
+
+
+def test_researcher_can_view_but_only_admin_can_change_auto_approval() -> None:
+    client, _ = _client()
+    with client:
+        researcher_headers = {"Authorization": f"Bearer {_researcher_token(client)}"}
+        admin_headers = {"Authorization": f"Bearer {_admin_token(client)}"}
+        initial_response = client.get("/api/v1/researcher/application-settings", headers=researcher_headers)
+        update_response = client.put(
+            "/api/v1/admin/application-settings", headers=admin_headers, json={"autoApproval": True}
+        )
+        refreshed_response = client.get("/api/v1/researcher/application-settings", headers=researcher_headers)
+        blocked_response = client.put(
+            "/api/v1/admin/application-settings", headers=researcher_headers, json={"autoApproval": False}
+        )
+
+    assert initial_response.json() == {"autoApproval": False}
+    assert update_response.json() == {"autoApproval": True}
+    assert refreshed_response.json() == {"autoApproval": True}
+    assert blocked_response.status_code == 403
 
 
 def test_researcher_cannot_approve_application_for_existing_participant() -> None:

@@ -58,6 +58,13 @@ CSV 등록은 `POST /api/v1/researcher/participants/imports`에 `file` 필드로
 
 참여자 로그인 API의 응답 `needsPasswordChange`가 `true`이면 설문 패널을 열지 않고, `FH-004`의 최초 비밀번호 변경 화면을 먼저 표시한다.
 
+### FH-020: 자동 승인 상태와 즉시 로그인
+
+- 연구자 화면의 회원 신청 관리 상단은 `GET /api/v1/researcher/application-settings`로 `autoApproval` 상태를 표시한다. `admin`은 `PUT /api/v1/admin/application-settings`로 `{ "autoApproval": true | false }`를 전송해 상태를 바꿀 수 있고, 일반 `researcher`는 상태만 확인한다.
+- 자동 승인이 켜진 상태에서도 backend는 `documentRead`, `survey`, `participant`, `guardian` 필수 동의가 모두 `true`인 신청만 받는다.
+- `POST /api/v1/applications`가 `{ "status": "approved", "accessToken": "...", "role": "participant", "needsPasswordChange": true }`를 반환하면, 프론트는 토큰과 참여자 정보를 일반 로그인과 동일하게 sessionStorage에 저장하고 즉시 최초 비밀번호 변경 화면으로 이동한다. 이 경우 승인 대기 완료 화면을 표시하지 않는다.
+- 자동 승인이 꺼졌거나 `status`가 `pending`이면 기존 승인 대기 완료 화면을 유지한다.
+
 ### 이번 전달에서 제외할 항목
 
 - 설문 문항 화면과 설문 최종 제출 UI

@@ -189,6 +189,26 @@ The first account is created with the `admin` role only when both `RESEARCHER_BO
 
 Both endpoints accept either an `admin` or `researcher` bearer token.
 
+### Automatic approval setting
+
+`GET /api/v1/researcher/application-settings` returns the current automatic approval state for both `admin` and `researcher` roles.
+
+```json
+{
+  "autoApproval": false
+}
+```
+
+`PUT /api/v1/admin/application-settings` requires an `admin` bearer token and changes the state.
+
+```json
+{
+  "autoApproval": true
+}
+```
+
+The setting is stored in MongoDB and defaults to `false` when it has not yet been set. When enabled, a new application that satisfies all required consent fields is immediately approved, receives a participant account with initial password `1234`, and the application response contains a participant bearer token with `needsPasswordChange: true`. The frontend must immediately show the first-password-change screen before permitting survey access. Existing pending applications remain pending.
+
 `GET /api/v1/researcher/applications?school_level=elementary`
 
 The optional `school_level` accepts `elementary`, `middle`, or `high`. The response is a list of application records.

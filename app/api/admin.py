@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 from app.api.auth import require_admin
+from app.schemas.application import ApplicationSettings, ApplicationSettingsUpdate
 from app.schemas.auth import ResearcherCreate, ResearcherCreated
+from app.services.application_settings import ApplicationSettingsRepository
 from app.schemas.survey import SurveyDefinition, SurveyDefinitionCreate
 from app.services.auth import ResearcherAccountRepository, ResearcherAdministrationService
 from app.services.surveys import DuplicateSurveyDefinitionError, SurveyDefinitionRepository
@@ -24,6 +26,15 @@ def _survey_definition_repository(request: Request) -> SurveyDefinitionRepositor
     if repository is None:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="설문 정의 서비스를 준비 중입니다."
+        )
+    return repository
+
+
+def _application_settings_repository(request: Request) -> ApplicationSettingsRepository:
+    repository = getattr(request.app.state, "application_settings_repository", None)
+    if repository is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="신청 설정 서비스를 준비 중입니다."
         )
     return repository
 
@@ -68,3 +79,15 @@ async def replace_survey_definition(
             detail="경로의 surveyRound/surveyVersion과 요청 본문이 일치해야 합니다.",
         )
     return await _survey_definition_repository(request).replace(definition)
+
+
+@router.put("/application-settings", response_model=ApplicationSettings)
+async def update_application_settings(
+    settings_update: ApplicationSettingsUpdate,
+    request: Request,
+    admin_id: str = Depends(require_admin),
+) -> ApplicationSettings:
+    enabled = await _application_settings_repository(request).set_auto_approval(
+        settings_update.auto_approval, admin_id
+    )
+    return ApplicationSettings(autoApproval=enabled)

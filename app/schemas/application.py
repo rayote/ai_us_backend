@@ -46,7 +46,21 @@ class ApplicationCreate(BaseModel):
 
 class ApplicationCreated(BaseModel):
     application_id: str = Field(alias="applicationId")
-    status: Literal["pending"]
+    status: Literal["pending", "approved"]
+    access_token: str | None = Field(default=None, alias="accessToken")
+    token_type: Literal["bearer"] | None = Field(default=None, alias="tokenType")
+    role: Literal["participant"] | None = None
+    needs_password_change: bool | None = Field(default=None, alias="needsPasswordChange")
+    audience: Literal["elementary", "secondary"] | None = None
+    chat_consent: bool | None = Field(default=None, alias="chatConsent")
+
+
+class ApplicationSettings(BaseModel):
+    auto_approval: bool = Field(alias="autoApproval")
+
+
+class ApplicationSettingsUpdate(ApplicationSettings):
+    pass
 
 
 class ApplicationRecord(BaseModel):

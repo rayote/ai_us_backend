@@ -8,6 +8,7 @@ from app.api.auth import router as auth_router
 from app.api.researcher import router as researcher_router
 from app.core.settings import Settings
 from app.db.mongodb import MongoDatabase
+from app.services.application_settings import ApplicationSettingsRepository, MongoApplicationSettingsRepository
 from app.services.applications import ApplicationRepository, MongoApplicationRepository
 from app.services.auth import (
     MongoParticipantAccountRepository,
@@ -31,6 +32,7 @@ from fastapi.middleware.cors import CORSMiddleware
 def create_app(
     settings: Settings | None = None,
     application_repository: ApplicationRepository | None = None,
+    application_settings_repository: ApplicationSettingsRepository | None = None,
     participant_account_repository: ParticipantAccountRepository | None = None,
     researcher_account_repository: ResearcherAccountRepository | None = None,
     survey_definition_repository: SurveyDefinitionRepository | None = None,
@@ -53,6 +55,12 @@ def create_app(
             )
             await database.connect()
             app.state.application_repository = MongoApplicationRepository(database.database["applications"])
+        if application_settings_repository is not None:
+            app.state.application_settings_repository = application_settings_repository
+        elif application_settings.mongodb_uri:
+            app.state.application_settings_repository = MongoApplicationSettingsRepository(
+                database.database["application_settings"]
+            )
         if participant_account_repository is not None:
             app.state.participant_account_repository = participant_account_repository
         elif application_settings.mongodb_uri:
@@ -105,7 +113,7 @@ def create_app(
             CORSMiddleware,
             allow_origins=list(application_settings.frontend_origins),
             allow_credentials=True,
-            allow_methods=["GET", "POST"],
+            allow_methods=["GET", "POST", "PUT"],
             allow_headers=["Authorization", "Content-Type"],
         )
 

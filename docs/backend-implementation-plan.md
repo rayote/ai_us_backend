@@ -96,6 +96,8 @@ API의 실제 URL과 JSON 필드명은 프론트 소스를 받은 뒤 기존 함
 | 기능 | 메서드와 경로 | 기존 프론트 연결 지점 |
 | --- | --- | --- |
 | 참여 신청 | `POST /api/v1/applications` | `AppStore.submitApplication` |
+| 자동 승인 상태 조회 | `GET /api/v1/researcher/application-settings` | 회원 신청 관리 상단 상태 표시 (`admin`, `researcher`) |
+| 자동 승인 설정 | `PUT /api/v1/admin/application-settings` | 회원 신청 관리 상단 토글 (`admin` 전용) |
 | 참여자 로그인 | `POST /api/v1/auth/participant/login` | 로그인 모달 |
 | 연구자 로그인 | `POST /api/v1/auth/researcher/login` | 연구자 로그인 모달 |
 | 연구자 계정 생성 | `POST /api/v1/admin/researchers` | 관리자 전용 기능, 연구자 화면 추가 시 연동 |
@@ -117,6 +119,7 @@ API의 실제 URL과 JSON 필드명은 프론트 소스를 받은 뒤 기존 함
 ## 5. MongoDB 컬렉션 초안
 
 - `applications`: 신규 신청과 승인 상태. 휴대폰 번호 정규화 값에 고유 인덱스.
+- `application_settings`: 자동 승인 상태를 저장하는 단일 설정 문서. 설정이 없으면 자동 승인은 비활성화되며, 마지막 변경 시각과 admin ID를 함께 기록한다.
 - `participants`: 승인된 참여자 계정, 역할, 비밀번호 해시, 최초 비밀번호 변경 필요 여부.
 - `researchers`: 연구자 계정과 역할.
 - `survey_definitions`: 설문 회차(`surveyRound`), 설문 버전(`surveyVersion`), 대상(`audience`), 문항 키, 문항 순서, CSV 열 이름을 저장한다. 실제 설문 초안처럼 `scales[].questions[]` 구조를 가진 JSON은 원본 spec을 함께 보존하고, 회차별 문항이 변경되어도 기존 CSV 열 순서를 보존하는 기준으로 평면 문항 목록을 생성한다.
