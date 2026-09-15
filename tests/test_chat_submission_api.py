@@ -12,7 +12,7 @@ from app.services.auth import (
     ResearcherAccount,
     ResearcherAccountRepository,
 )
-from app.services.chats import ChatSubmissionRepository, store_chat_submission
+from app.services.chats import ChatSubmissionRepository, ChatUploadRepository, store_chat_submission
 from app.services.jobs import JobRepository, QueueWorker
 from fastapi.testclient import TestClient
 
@@ -103,6 +103,19 @@ class InMemoryChatSubmissions(ChatSubmissionRepository):
         return self.submissions
 
 
+class InMemoryChatUploads(ChatUploadRepository):
+    def __init__(self) -> None:
+        self.files: dict[str, tuple[str, bytes, dict[str, object]]] = {}
+
+    async def upload(self, filename: str, data: bytes, metadata: dict[str, object]) -> str:
+        file_id = str(len(self.files) + 1)
+        self.files[file_id] = (filename, data, metadata)
+        return file_id
+
+    async def delete(self, file_id: str) -> None:
+        self.files.pop(file_id, None)
+
+
 class InMemoryResearchers(ResearcherAccountRepository):
     def __init__(self) -> None:
         self.account = ResearcherAccount(
@@ -119,21 +132,23 @@ class InMemoryResearchers(ResearcherAccountRepository):
         return None
 
 
-def _app(chat_consent: bool) -> tuple[object, InMemoryJobs, InMemoryChatSubmissions]:
+def _app(chat_consent: bool) -> tuple[object, InMemoryJobs, InMemoryChatSubmissions, InMemoryChatUploads]:
     jobs = InMemoryJobs()
     submissions = InMemoryChatSubmissions()
+    uploads = InMemoryChatUploads()
     app = create_app(
         Settings("test", None, "ai_us_test", (), "test-secret-at-least-thirty-two-bytes", 60),
         participant_account_repository=InMemoryParticipants(chat_consent),
         researcher_account_repository=InMemoryResearchers(),
         job_repository=jobs,
         chat_submission_repository=submissions,
+        chat_upload_repository=uploads,
     )
-    return app, jobs, submissions
+    return app, jobs, submissions, uploads
 
 
 def test_consented_participant_submission_is_parsed_and_saved() -> None:
-    app, jobs, submissions = _app(True)
+    app, jobs, submissions, _ = _app(True)
     with TestClient(app) as client:
         login = client.post(
             "/api/v1/auth/participant/login",
@@ -161,7 +176,7 @@ def test_consented_participant_submission_is_parsed_and_saved() -> None:
 
 
 def test_participant_without_chat_consent_cannot_submit() -> None:
-    app, _, _ = _app(False)
+    app, _, _, _ = _app(False)
     with TestClient(app) as client:
         login = client.post(
             "/api/v1/auth/participant/login",
@@ -182,7 +197,7 @@ def test_participant_without_chat_consent_cannot_submit() -> None:
 
 
 def test_researcher_can_export_completed_chat_submission() -> None:
-    app, jobs, submissions = _app(True)
+    app, jobs, submissions, _ = _app(True)
     with TestClient(app) as client:
         participant_login = client.post(
             "/api/v1/auth/participant/login",
@@ -213,3 +228,53 @@ def test_researcher_can_export_completed_chat_submission() -> None:
     assert submit.status_code == 202
     assert export.status_code == 200
     assert "마지막 대화" in export.text
+
+
+def test_consented_participant_can_upload_zip_and_multiple_images() -> None:
+    app, _, submissions, uploads = _app(True)
+    with TestClient(app) as client:
+        login = client.post(
+            "/api/v1/auth/participant/login",
+            json={"phone": "01012345678", "password": "password-2026", "audience": "elementary"},
+        )
+        headers = {"Authorization": f"Bearer {login.json()['accessToken']}"}
+        zip_response = client.post(
+            "/api/v1/chat-submissions/uploads",
+            headers=headers,
+            data={"tool": "chatgpt", "submissionPoint": "afterRound1", "sourceType": "file", "submissionId": "zip-1"},
+            files={"files": ("chat-export.zip", b"PK\x03\x04example", "application/zip")},
+        )
+        image_response = client.post(
+            "/api/v1/chat-submissions/uploads",
+            headers=headers,
+            data={"tool": "zeta", "submissionPoint": "afterRound4", "sourceType": "image", "submissionId": "image-1"},
+            files=[
+                ("files", ("chat-1.png", b"png-data", "image/png")),
+                ("files", ("chat-2.jpg", b"jpg-data", "image/jpeg")),
+            ],
+        )
+
+    assert zip_response.json() == {"submissionId": "zip-1", "status": "completed"}
+    assert image_response.json() == {"submissionId": "image-1", "status": "completed"}
+    assert len(uploads.files) == 3
+    assert submissions.submissions[0].attachments[0].filename == "chat-export.zip"
+    assert [attachment.filename for attachment in submissions.submissions[1].attachments] == ["chat-1.png", "chat-2.jpg"]
+
+
+def test_chat_upload_rejects_invalid_file_type() -> None:
+    app, _, _, uploads = _app(True)
+    with TestClient(app) as client:
+        login = client.post(
+            "/api/v1/auth/participant/login",
+            json={"phone": "01012345678", "password": "password-2026", "audience": "elementary"},
+        )
+        response = client.post(
+            "/api/v1/chat-submissions/uploads",
+            headers={"Authorization": f"Bearer {login.json()['accessToken']}"},
+            data={"tool": "chatgpt", "submissionPoint": "afterRound1", "sourceType": "file", "submissionId": "bad-1"},
+            files={"files": ("not-a-zip.txt", b"text", "text/plain")},
+        )
+
+    assert response.status_code == 422
+    assert "ZIP" in response.json()["detail"]
+    assert uploads.files == {}

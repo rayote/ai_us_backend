@@ -4,6 +4,7 @@ import asyncio
 from collections.abc import AsyncIterator
 from typing import Any
 
+from gridfs import GridFSBucket
 from pymongo import ASCENDING, MongoClient
 
 
@@ -69,10 +70,28 @@ class AsyncDatabase:
         return AsyncCollection(self._database[name])
 
 
+class AsyncGridFSBucket:
+    def __init__(self, database: Any, bucket_name: str) -> None:
+        self._bucket = GridFSBucket(database, bucket_name=bucket_name)
+
+    async def upload(self, filename: str, data: bytes, metadata: dict[str, Any]) -> str:
+        file_id = await asyncio.to_thread(self._bucket.upload_from_stream, filename, data, metadata=metadata)
+        return str(file_id)
+
+    async def delete(self, file_id: str) -> None:
+        from bson import ObjectId
+
+        await asyncio.to_thread(self._bucket.delete, ObjectId(file_id))
+
+
 class MongoDatabase:
     def __init__(self, mongodb_uri: str, database_name: str) -> None:
         self._client = MongoClient(mongodb_uri)
-        self.database = AsyncDatabase(self._client[database_name])
+        self._raw_database = self._client[database_name]
+        self.database = AsyncDatabase(self._raw_database)
+
+    def gridfs_bucket(self, bucket_name: str) -> AsyncGridFSBucket:
+        return AsyncGridFSBucket(self._raw_database, bucket_name)
 
     async def connect(self) -> None:
         await asyncio.to_thread(self._client.admin.command, "ping")

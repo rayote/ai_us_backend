@@ -3,9 +3,9 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, Field, HttpUrl
+from pydantic import BaseModel, Field
 
-ChatSourceType = Literal["link", "text"]
+ChatSourceType = Literal["link", "text", "file", "image"]
 ChatSubmissionPoint = Literal["afterRound1", "afterRound4"]
 ParseStatus = Literal["parsed", "placeholder", "warning"]
 
@@ -35,6 +35,13 @@ class ChatSubmissionAccepted(BaseModel):
     status: str
 
 
+class ChatAttachment(BaseModel):
+    file_id: str = Field(alias="fileId")
+    filename: str
+    content_type: str = Field(alias="contentType")
+    size: int
+
+
 class ChatSubmissionRecord(BaseModel):
     participant_id: str = Field(alias="participantId")
     submission_point: ChatSubmissionPoint = Field(alias="submissionPoint")
@@ -42,3 +49,4 @@ class ChatSubmissionRecord(BaseModel):
     raw_input: str = Field(alias="rawInput")
     transcript: ParsedTranscript
     submitted_at: datetime = Field(alias="submittedAt")
+    attachments: list[ChatAttachment] = Field(default_factory=list)

@@ -164,6 +164,19 @@ This endpoint requires a participant bearer token and is available only to parti
 
 The backend stores `rawInput` separately from the normalized transcript. The current dummy parser normalizes pasted-text speaker labels. A valid shared link receives `placeholder` parser status until a service-specific parser is added; it is not treated as extracted transcript text.
 
+## Upload AI chat files
+
+`POST /api/v1/chat-submissions/uploads` accepts `multipart/form-data` and requires a participant bearer token with AI chat submission consent. It stores original file bytes in the MongoDB GridFS bucket `chat_uploads`; `chat_submissions` keeps only the submission metadata and GridFS file IDs.
+
+Required form fields are `files`, `tool`, `submissionPoint`, `sourceType`, and `submissionId`. Use `sourceType=file` for one ZIP file and `sourceType=image` for one or more screenshots. ZIP files must have a `.zip` extension and ZIP signature. Allowed screenshots are JPG, PNG, WEBP, and HEIC.
+
+- ZIP: exactly one file
+- Images: at most 20 files
+- Each file: at most 25 MB
+- Total request files: at most 100 MB
+
+The endpoint returns `202 Accepted` with the supplied `submissionId` and `completed` status when the files and metadata have been stored. Attached original files are retained for researcher review; transcript extraction and OCR are not performed yet.
+
 ## Export AI chat transcripts
 
 `GET /api/v1/researcher/exports/chat-submissions?submission_point=afterRound1`

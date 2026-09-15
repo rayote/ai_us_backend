@@ -65,6 +65,13 @@ CSV 등록은 `POST /api/v1/researcher/participants/imports`에 `file` 필드로
 - `POST /api/v1/applications`가 `{ "status": "approved", "accessToken": "...", "role": "participant", "needsPasswordChange": true }`를 반환하면, 프론트는 토큰과 참여자 정보를 일반 로그인과 동일하게 sessionStorage에 저장하고 즉시 최초 비밀번호 변경 화면으로 이동한다. 이 경우 승인 대기 완료 화면을 표시하지 않는다.
 - 자동 승인이 꺼졌거나 `status`가 `pending`이면 기존 승인 대기 완료 화면을 유지한다.
 
+### FH-021: AI 대화문 파일 업로드
+
+- `CHAT_UPLOAD_READY`를 `true`로 설정하고, ZIP 또는 이미지 선택 후 `FormData`를 `POST /api/v1/chat-submissions/uploads`로 전송한다.
+- form field는 `files`(ZIP은 1개, 이미지는 복수 가능), `tool`, `submissionPoint`, `sourceType`(`file` 또는 `image`), `submissionId`다. participant bearer token은 Authorization header로 전송한다.
+- backend는 파일을 MongoDB GridFS `chat_uploads` bucket에 저장한다. ZIP은 하나만 허용되고, 이미지는 JPG/PNG/WEBP/HEIC 형식 최대 20개다. 파일당 25MB, 한 요청 총 100MB를 초과하면 `422` 응답을 표시한다.
+- 파일 저장이 성공하면 `202` 응답을 받고 제출 완료 메시지를 보여 준다. ZIP 대화문 추출과 이미지 OCR은 후속 작업이며, 현재는 원본 파일과 메타데이터만 보관한다.
+
 ### 이번 전달에서 제외할 항목
 
 - 설문 문항 화면과 설문 최종 제출 UI
