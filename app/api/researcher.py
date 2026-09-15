@@ -433,7 +433,7 @@ async def get_chat_download_job(
         jobId=job.id,
         status=job.status,
         error=job.error,
-        downloadUrl=str(request.url_for("download_chat_job_file", job_id=job.id)) if artifact else None,
+        downloadUrl=f"/api/v1/researcher/chat-submissions/download-jobs/{job.id}/file" if artifact else None,
     )
 
 
