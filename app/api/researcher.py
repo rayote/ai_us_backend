@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Literal
 
 from app.api.auth import require_researcher
+from app.schemas.chat import ChatSubmissionDeleted, ChatSubmissionSummary
 from app.schemas.application import (
     ApplicationApproval,
     ApplicationApprovalCompleted,
@@ -16,7 +17,13 @@ from app.services.application_settings import ApplicationSettingsRepository
 from app.services.applications import ApplicationRepository
 from app.services.approvals import ApplicationApprovalService, ExistingParticipantError
 from app.services.auth import ParticipantAccountRepository
-from app.services.chats import ChatSubmissionRepository, chat_submissions_to_csv
+from app.services.chats import (
+    ChatSubmissionManagementService,
+    ChatSubmissionRepository,
+    ChatUploadRepository,
+    chat_submissions_to_csv,
+    submission_summary,
+)
 from app.services.imports import ParticipantImportService
 from app.services.reporting import ResearcherReportingService
 from app.services.surveys import SurveyDefinitionRepository, SurveyResponseRepository, survey_responses_to_csv
@@ -89,6 +96,13 @@ def _chat_submission_repository(request: Request) -> ChatSubmissionRepository:
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="대화문 결과 서비스를 준비 중입니다."
         )
     return repository
+
+
+def _chat_submission_management_service(request: Request) -> ChatSubmissionManagementService:
+    uploads: ChatUploadRepository | None = getattr(request.app.state, "chat_upload_repository", None)
+    if uploads is None:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="파일 관리 서비스를 준비 중입니다.")
+    return ChatSubmissionManagementService(_chat_submission_repository(request), uploads)
 
 
 def _reporting_service(request: Request) -> ResearcherReportingService:
@@ -277,3 +291,27 @@ async def export_chat_submissions(
         media_type="text/csv; charset=utf-8",
         headers={"Content-Disposition": f'attachment; filename="chat-submissions-{point_name}.csv"'},
     )
+
+
+@router.get("/chat-submissions/files", response_model=list[ChatSubmissionSummary])
+async def list_chat_submission_files(
+    request: Request,
+    status_filter: Literal["active", "deletion_requested"] = "deletion_requested",
+    _: str = Depends(require_researcher),
+) -> list[ChatSubmissionSummary]:
+    submissions = await _chat_submission_repository(request).list_submissions(status=status_filter)
+    return [
+        ChatSubmissionSummary.model_validate(submission_summary(submission, include_participant=True))
+        for submission in reversed(submissions)
+    ]
+
+
+@router.delete("/chat-submissions/files/{submission_id}", response_model=ChatSubmissionDeleted)
+async def delete_requested_chat_submission(
+    submission_id: str,
+    request: Request,
+    _: str = Depends(require_researcher),
+) -> ChatSubmissionDeleted:
+    if not await _chat_submission_management_service(request).delete_requested_submission(submission_id):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="삭제 요청된 파일 제출 내역을 찾을 수 없습니다.")
+    return ChatSubmissionDeleted(status="deleted")

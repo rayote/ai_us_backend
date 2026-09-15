@@ -126,7 +126,8 @@ API의 실제 URL과 JSON 필드명은 프론트 소스를 받은 뒤 기존 함
 - 초기 개발 중 `csv_column`으로 저장된 문항 정의도 읽을 수 있게 유지하고, 새 정의는 API 계약과 같은 `csvColumn` 형식으로 저장한다.
 - `survey_responses`: 참여자 ID, 설문 회차(`surveyRound`), 설문 버전(`surveyVersion`), 응답 전체, 제출시각. `participant_id + surveyRound + surveyVersion` 복합 인덱스.
 - `submission_jobs`: 최종 설문 제출 대기열. 제출 추적 ID, 멱등성 키, 상태, 작업 데이터, 재시도 횟수, 오류 사유, 생성/처리 시각을 저장한다. 처리 상태와 생성 시각의 복합 인덱스.
-- `chat_submissions`: 참여자 ID, 제출 시점(1차 후/4차 후), 입력 형식, 원본 링크 또는 본문, 정규화된 대화문, parser 상태·버전·경고, 제출시각.
+- `chat_submissions`: 참여자 ID, 제출 시점(1차 후/4차 후), 입력 형식, AI 도구, 원본 링크 또는 본문, 첨부 파일 메타데이터, 정규화된 대화문, parser 상태·버전·경고, 제출시각, 상태(`active`, `deletion_requested`). 삭제 요청은 상태와 `deletion_requested_at`만 기록하고 원본 파일은 유지한다.
+- `chat_uploads.files`/`chat_uploads.chunks`: GridFS bucket. ZIP 또는 이미지 원본을 저장하며, 연구자가 삭제 요청된 제출을 실제 삭제할 때 연결된 파일과 chunk를 함께 삭제한다.
 - `participant_reports`(tentative TODO): 참가자 개인 리포트 snapshot. 설문 제출 request에서 직접 계산하지 않고 별도 `report_generation` Queue job 또는 background worker가 lazy하게 생성한다. 후보 필드는 참여자 ID, 회차, 리포트 버전, 상태(`pending`, `processing`, `ready`, `failed`, `hidden`), 원본 설문 버전, 점수, chart data, 해석 섹션, 생성시각, 오류 사유다.
 - `notification_jobs`: 비밀번호 재설정 Gmail SMTP 이메일 발송 대기열. 수신 대상, 템플릿 유형, 상태, 재시도 횟수, 오류 사유, 생성/처리 시각을 저장한다. SMS는 별도 공급자 확정 뒤 확장한다.
 - `password_reset_tokens`: 만료시각을 가진 일회용 토큰. TTL 인덱스.

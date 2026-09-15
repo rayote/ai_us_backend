@@ -99,8 +99,59 @@ class InMemoryChatSubmissions(ChatSubmissionRepository):
     async def create_submission(self, submission: ChatSubmissionRecord) -> None:
         self.submissions.append(submission)
 
-    async def list_submissions(self, submission_point: str | None = None) -> list[ChatSubmissionRecord]:
-        return self.submissions
+    async def list_submissions(self, submission_point: str | None = None, status: str = "active") -> list[ChatSubmissionRecord]:
+        return [
+            submission
+            for submission in self.submissions
+            if (submission_point is None or submission.submission_point == submission_point)
+            and submission.status == status
+        ]
+
+    async def list_for_participant(self, participant_id: str) -> list[ChatSubmissionRecord]:
+        return [submission for submission in self.submissions if submission.participant_id == participant_id]
+
+    async def request_deletion(self, submission_id: str, participant_id: str) -> bool:
+        for index, submission in enumerate(self.submissions):
+            if (
+                submission.submission_id == submission_id
+                and submission.participant_id == participant_id
+                and submission.status == "active"
+            ):
+                self.submissions[index] = submission.model_copy(
+                    update={"status": "deletion_requested", "deletion_requested_at": datetime.now(UTC)}
+                )
+                return True
+        return False
+
+    async def restore_deletion(self, submission_id: str, participant_id: str) -> bool:
+        for index, submission in enumerate(self.submissions):
+            if (
+                submission.submission_id == submission_id
+                and submission.participant_id == participant_id
+                and submission.status == "deletion_requested"
+            ):
+                self.submissions[index] = submission.model_copy(
+                    update={"status": "active", "deletion_requested_at": None}
+                )
+                return True
+        return False
+
+    async def get_for_deletion(self, submission_id: str) -> ChatSubmissionRecord | None:
+        return next(
+            (
+                submission
+                for submission in self.submissions
+                if submission.submission_id == submission_id and submission.status == "deletion_requested"
+            ),
+            None,
+        )
+
+    async def remove(self, submission_id: str) -> bool:
+        for index, submission in enumerate(self.submissions):
+            if submission.submission_id == submission_id and submission.status == "deletion_requested":
+                self.submissions.pop(index)
+                return True
+        return False
 
 
 class InMemoryChatUploads(ChatUploadRepository):
@@ -280,4 +331,45 @@ def test_chat_upload_rejects_invalid_file_type() -> None:
 
     assert response.status_code == 422
     assert "ZIP" in response.json()["detail"]
+    assert uploads.files == {}
+
+
+def test_participant_can_manage_history_and_researcher_deletes_requested_upload() -> None:
+    app, _, submissions, uploads = _app(True)
+    with TestClient(app) as client:
+        participant_login = client.post(
+            "/api/v1/auth/participant/login",
+            json={"phone": "01012345678", "password": "password-2026", "audience": "elementary"},
+        )
+        participant_headers = {"Authorization": f"Bearer {participant_login.json()['accessToken']}"}
+        client.post(
+            "/api/v1/chat-submissions/uploads",
+            headers=participant_headers,
+            data={"tool": "chatgpt", "submissionPoint": "afterRound1", "sourceType": "file", "submissionId": "history-1"},
+            files={"files": ("history.zip", b"PK\x03\x04example", "application/zip")},
+        )
+        history = client.get("/api/v1/chat-submissions/mine", headers=participant_headers)
+        submission_id = history.json()[0]["submissionId"]
+        request_deletion = client.post(
+            f"/api/v1/chat-submissions/{submission_id}/deletion-request", headers=participant_headers
+        )
+        restore = client.post(f"/api/v1/chat-submissions/{submission_id}/restore", headers=participant_headers)
+        client.post(f"/api/v1/chat-submissions/{submission_id}/deletion-request", headers=participant_headers)
+        researcher_login = client.post(
+            "/api/v1/auth/researcher/login",
+            json={"username": "researcher", "password": "researcher-password"},
+        )
+        researcher_headers = {"Authorization": f"Bearer {researcher_login.json()['accessToken']}"}
+        requested = client.get("/api/v1/researcher/chat-submissions/files", headers=researcher_headers)
+        deleted = client.delete(f"/api/v1/researcher/chat-submissions/files/{submission_id}", headers=researcher_headers)
+        final_history = client.get("/api/v1/chat-submissions/mine", headers=participant_headers)
+
+    assert history.json()[0]["filenames"] == ["history.zip"]
+    assert history.json()[0]["status"] == "active"
+    assert request_deletion.json()["status"] == "deletion_requested"
+    assert restore.json()["status"] == "active"
+    assert requested.json()[0]["submissionId"] == submission_id
+    assert deleted.json() == {"status": "deleted"}
+    assert final_history.json() == []
+    assert submissions.submissions == []
     assert uploads.files == {}

@@ -54,6 +54,9 @@ class AsyncCollection:
     async def find_one_and_update(self, filters: dict[str, Any], update: dict[str, Any], **kwargs: Any) -> Any:
         return await asyncio.to_thread(self._collection.find_one_and_update, filters, update, **kwargs)
 
+    async def delete_one(self, filters: dict[str, Any]) -> Any:
+        return await asyncio.to_thread(self._collection.delete_one, filters)
+
 
 def _next_document(cursor: Any) -> dict[str, Any] | None:
     try:

@@ -177,11 +177,21 @@ Required form fields are `files`, `tool`, `submissionPoint`, `sourceType`, and `
 
 The endpoint returns `202 Accepted` with the supplied `submissionId` and `completed` status when the files and metadata have been stored. Attached original files are retained for researcher review; transcript extraction and OCR are not performed yet.
 
+## Manage AI chat submissions
+
+`GET /api/v1/chat-submissions/mine` returns the authenticated participant's submissions in descending submission-time order. The response contains only `submissionId`, `submissionPoint`, `sourceType`, `tool`, filenames, `submittedAt`, and `status`; it does not expose GridFS file IDs or transcript content.
+
+The participant can request deletion with `POST /api/v1/chat-submissions/{submissionId}/deletion-request`. This changes only the metadata status to `deletion_requested`; GridFS files remain available for researcher review. `POST /api/v1/chat-submissions/{submissionId}/restore` cancels that request before physical deletion.
+
+Both endpoints require the participant who owns the submission. The participant UI displays `deletion_requested` as `삭제 요청됨`; after research staff physically delete it, the item no longer appears in the participant history.
+
+`GET /api/v1/researcher/chat-submissions/files?status_filter=deletion_requested` lets an `admin` or `researcher` list file submissions for management. `DELETE /api/v1/researcher/chat-submissions/files/{submissionId}` physically deletes only a `deletion_requested` submission and all of its linked GridFS files. This operation cannot be restored.
+
 ## Export AI chat transcripts
 
 `GET /api/v1/researcher/exports/chat-submissions?submission_point=afterRound1`
 
-This endpoint accepts an `admin` or `researcher` bearer token. It returns a UTF-8 BOM CSV containing the participant ID, name, school level, grade, original input, normalized transcript, parser status, parser version, and parser warnings. The optional `submission_point` is `afterRound1` or `afterRound4`; the optional `school_level` is `초등`, `중등`, or `고등`.
+This endpoint accepts an `admin` or `researcher` bearer token. It returns a UTF-8 BOM CSV containing active submissions only: participant ID, name, school level, grade, original input, normalized transcript, parser status, parser version, and parser warnings. The optional `submission_point` is `afterRound1` or `afterRound4`; the optional `school_level` is `초등`, `중등`, or `고등`.
 
 ## Researcher login
 

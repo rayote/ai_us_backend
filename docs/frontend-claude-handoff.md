@@ -56,6 +56,9 @@
 - ZIP 또는 이미지 첨부는 `POST /api/v1/chat-submissions/uploads`에 multipart `FormData`로 보낸다. fields는 `files`, `tool`, `submissionPoint`, `sourceType`(`file` 또는 `image`), `submissionId`다.
 - ZIP은 한 개만, 이미지는 JPG/PNG/WEBP/HEIC 최대 20개까지 허용한다. 파일당 25MB, 요청 전체 100MB 제한을 넘으면 backend의 422 오류를 표시한다.
 - 첨부 원본은 backend가 MongoDB GridFS `chat_uploads` bucket에 저장한다. ZIP 대화문 추출과 이미지 OCR은 아직 구현하지 않았으므로, 프론트에서 추출 완료처럼 표시하지 않는다.
+- 대화문 탭의 `제출 내역`은 `GET /api/v1/chat-submissions/mine`으로 최신순 목록을 표시한다. 목록에는 도구, 제출 방식, 파일명, 상태만 표시하며 GridFS file ID나 원문은 표시하지 않는다.
+- 참가자가 `삭제 요청`을 확인하면 `POST /api/v1/chat-submissions/{submissionId}/deletion-request`를 호출하고 상태를 `삭제 요청됨`으로 회색 표시한다. `삭제 요청 취소`는 `POST /api/v1/chat-submissions/{submissionId}/restore`를 호출한다.
+- 연구자 파일 관리 화면은 `GET /api/v1/researcher/chat-submissions/files?status_filter=deletion_requested`에서 요청 항목을 조회한다. `파일 삭제`는 되돌릴 수 없다는 확인 뒤 `DELETE /api/v1/researcher/chat-submissions/files/{submissionId}`를 호출한다. 실제 삭제가 끝난 항목은 참가자 내역에 표시하지 않는다.
 - 연구자 대화문 CSV는 `GET /api/v1/researcher/exports/chat-submissions`에 `submission_point`, 필요 시 `school_level`을 전송한다.
 
 ## 운영 절차
@@ -96,6 +99,7 @@
 
 - ZIP 내 서비스별 export 파서, 이미지 OCR, 원본 첨부 파일의 연구자 전용 다운로드 정책을 별도 요구사항으로 설계한다.
 - 대용량 파일이 장기간 누적되면 GridFS 백업 비용을 검토하고 S3 호환 object storage 이전을 검토한다.
+- 기존 GridFS 파일 제출의 `tool`/`status` 메타데이터가 없는 경우 backend 담당자는 `scripts/backfill_chat_submission_metadata.py`로 GridFS metadata에서 도구 값을 보정한다.
 
 ## 변경 이력
 

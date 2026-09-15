@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field
 ChatSourceType = Literal["link", "text", "file", "image"]
 ChatSubmissionPoint = Literal["afterRound1", "afterRound4"]
 ParseStatus = Literal["parsed", "placeholder", "warning"]
+ChatSubmissionStatus = Literal["active", "deletion_requested"]
 
 
 class TranscriptMessage(BaseModel):
@@ -43,10 +44,29 @@ class ChatAttachment(BaseModel):
 
 
 class ChatSubmissionRecord(BaseModel):
+    submission_id: str | None = Field(default=None, alias="submissionId")
     participant_id: str = Field(alias="participantId")
     submission_point: ChatSubmissionPoint = Field(alias="submissionPoint")
     source_type: ChatSourceType = Field(alias="sourceType")
+    tool: str | None = None
     raw_input: str = Field(alias="rawInput")
     transcript: ParsedTranscript
     submitted_at: datetime = Field(alias="submittedAt")
     attachments: list[ChatAttachment] = Field(default_factory=list)
+    status: ChatSubmissionStatus = "active"
+    deletion_requested_at: datetime | None = Field(default=None, alias="deletionRequestedAt")
+
+
+class ChatSubmissionSummary(BaseModel):
+    submission_id: str = Field(alias="submissionId")
+    participant_id: str | None = Field(default=None, alias="participantId")
+    submission_point: ChatSubmissionPoint = Field(alias="submissionPoint")
+    source_type: ChatSourceType = Field(alias="sourceType")
+    tool: str | None = None
+    filenames: list[str]
+    submitted_at: datetime = Field(alias="submittedAt")
+    status: ChatSubmissionStatus
+
+
+class ChatSubmissionDeleted(BaseModel):
+    status: Literal["deleted"]

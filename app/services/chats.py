@@ -7,6 +7,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Protocol
 
+from bson import ObjectId
 from app.schemas.chat import ChatAttachment, ChatSubmissionCreate, ChatSubmissionRecord, ParsedTranscript
 from app.schemas.jobs import Job, JobCreate
 from app.services.auth import ParticipantAccountRepository
@@ -29,7 +30,19 @@ class InvalidChatUploadError(Exception):
 class ChatSubmissionRepository(Protocol):
     async def create_submission(self, submission: ChatSubmissionRecord) -> None: ...
 
-    async def list_submissions(self, submission_point: str | None = None) -> list[ChatSubmissionRecord]: ...
+    async def list_submissions(
+        self, submission_point: str | None = None, status: str = "active"
+    ) -> list[ChatSubmissionRecord]: ...
+
+    async def list_for_participant(self, participant_id: str) -> list[ChatSubmissionRecord]: ...
+
+    async def request_deletion(self, submission_id: str, participant_id: str) -> bool: ...
+
+    async def restore_deletion(self, submission_id: str, participant_id: str) -> bool: ...
+
+    async def get_for_deletion(self, submission_id: str) -> ChatSubmissionRecord | None: ...
+
+    async def remove(self, submission_id: str) -> bool: ...
 
 
 class ChatUploadRepository(Protocol):
@@ -50,33 +63,84 @@ class MongoChatSubmissionRepository:
         self._collection = collection
 
     async def create_submission(self, submission: ChatSubmissionRecord) -> None:
-        await self._collection.insert_one(
-            {
-                "participant_id": submission.participant_id,
-                "submission_point": submission.submission_point,
-                "source_type": submission.source_type,
-                "raw_input": submission.raw_input,
-                "transcript": submission.transcript.model_dump(),
-                "submitted_at": submission.submitted_at,
-                "attachments": [attachment.model_dump(by_alias=True) for attachment in submission.attachments],
-            }
-        )
+        document = {
+            "participant_id": submission.participant_id,
+            "submission_point": submission.submission_point,
+            "source_type": submission.source_type,
+            "raw_input": submission.raw_input,
+            "transcript": submission.transcript.model_dump(),
+            "submitted_at": submission.submitted_at,
+            "attachments": [attachment.model_dump(by_alias=True) for attachment in submission.attachments],
+            "status": submission.status,
+        }
+        if submission.submission_id is not None:
+            document["client_submission_id"] = submission.submission_id
+        if submission.tool is not None:
+            document["tool"] = submission.tool
+        await self._collection.insert_one(document)
 
-    async def list_submissions(self, submission_point: str | None = None) -> list[ChatSubmissionRecord]:
-        filters = {"submission_point": submission_point} if submission_point else {}
+    async def list_submissions(self, submission_point: str | None = None, status: str = "active") -> list[ChatSubmissionRecord]:
+        filters: dict[str, Any] = (
+            {"$or": [{"status": "active"}, {"status": {"$exists": False}}]}
+            if status == "active"
+            else {"status": status}
+        )
+        if submission_point:
+            filters["submission_point"] = submission_point
         cursor = self._collection.find(filters).sort("submitted_at", 1)
-        return [
-            ChatSubmissionRecord(
-                participantId=str(document["participant_id"]),
-                submissionPoint=document["submission_point"],
-                sourceType=document["source_type"],
-                rawInput=document["raw_input"],
-                transcript=document["transcript"],
-                submittedAt=document["submitted_at"],
-                attachments=document.get("attachments", []),
-            )
-            async for document in cursor
-        ]
+        return [_record_from_document(document) async for document in cursor]
+
+    async def list_for_participant(self, participant_id: str) -> list[ChatSubmissionRecord]:
+        cursor = self._collection.find({"participant_id": participant_id}).sort("submitted_at", -1)
+        return [_record_from_document(document) async for document in cursor]
+
+    async def request_deletion(self, submission_id: str, participant_id: str) -> bool:
+        result = await self._collection.update_one(
+            {
+                "_id": _object_id_or_none(submission_id),
+                "participant_id": participant_id,
+                "$or": [{"status": "active"}, {"status": {"$exists": False}}],
+            },
+            {"$set": {"status": "deletion_requested", "deletion_requested_at": datetime.now(UTC)}},
+        )
+        return result.modified_count == 1
+
+    async def restore_deletion(self, submission_id: str, participant_id: str) -> bool:
+        result = await self._collection.update_one(
+            {"_id": _object_id_or_none(submission_id), "participant_id": participant_id, "status": "deletion_requested"},
+            {"$set": {"status": "active"}, "$unset": {"deletion_requested_at": ""}},
+        )
+        return result.modified_count == 1
+
+    async def get_for_deletion(self, submission_id: str) -> ChatSubmissionRecord | None:
+        document = await self._collection.find_one(
+            {"_id": _object_id_or_none(submission_id), "status": "deletion_requested"}
+        )
+        return _record_from_document(document) if document else None
+
+    async def remove(self, submission_id: str) -> bool:
+        result = await self._collection.delete_one({"_id": _object_id_or_none(submission_id), "status": "deletion_requested"})
+        return result.deleted_count == 1
+
+
+def _object_id_or_none(value: str) -> ObjectId | None:
+    return ObjectId(value) if ObjectId.is_valid(value) else None
+
+
+def _record_from_document(document: dict[str, Any]) -> ChatSubmissionRecord:
+    return ChatSubmissionRecord(
+        submissionId=str(document["_id"]),
+        participantId=str(document["participant_id"]),
+        submissionPoint=document["submission_point"],
+        sourceType=document["source_type"],
+        tool=document.get("tool"),
+        rawInput=document["raw_input"],
+        transcript=document["transcript"],
+        submittedAt=document["submitted_at"],
+        attachments=document.get("attachments", []),
+        status=document.get("status", "active"),
+        deletionRequestedAt=document.get("deletion_requested_at"),
+    )
 
 
 class ChatSubmissionService:
@@ -103,6 +167,7 @@ class ChatSubmissionService:
                     "submissionPoint": submission.submission_point,
                     "sourceType": submission.source_type,
                     "rawInput": submission.raw_input,
+                    "submissionId": submission.submission_id,
                 },
             )
         )
@@ -130,6 +195,7 @@ class ChatUploadService:
         submission_point: str,
         source_type: str,
         tool: str,
+        submission_id: str,
         files: list[ChatUploadFile],
     ) -> None:
         participant = await self._participants.find_by_id(participant_id)
@@ -159,9 +225,11 @@ class ChatUploadService:
                 )
             await self._submissions.create_submission(
                 ChatSubmissionRecord(
+                    submissionId=submission_id,
                     participantId=participant_id,
                     submissionPoint=submission_point,
                     sourceType=source_type,
+                    tool=tool,
                     rawInput=", ".join(attachment.filename for attachment in attachments),
                     transcript=ParsedTranscript(
                         status="placeholder",
@@ -205,6 +273,41 @@ class ChatUploadService:
             raise InvalidChatUploadError("JPG, PNG, WEBP, HEIC 이미지 파일만 제출할 수 있습니다.")
 
 
+class ChatSubmissionManagementService:
+    def __init__(self, submissions: ChatSubmissionRepository, uploads: ChatUploadRepository) -> None:
+        self._submissions = submissions
+        self._uploads = uploads
+
+    async def request_deletion(self, submission_id: str, participant_id: str) -> bool:
+        return await self._submissions.request_deletion(submission_id, participant_id)
+
+    async def restore_deletion(self, submission_id: str, participant_id: str) -> bool:
+        return await self._submissions.restore_deletion(submission_id, participant_id)
+
+    async def delete_requested_submission(self, submission_id: str) -> bool:
+        submission = await self._submissions.get_for_deletion(submission_id)
+        if submission is None:
+            return False
+        for attachment in submission.attachments:
+            await self._uploads.delete(attachment.file_id)
+        return await self._submissions.remove(submission_id)
+
+
+def submission_summary(submission: ChatSubmissionRecord, include_participant: bool = False) -> dict[str, object]:
+    summary: dict[str, object] = {
+        "submissionId": submission.submission_id,
+        "submissionPoint": submission.submission_point,
+        "sourceType": submission.source_type,
+        "tool": submission.tool,
+        "filenames": [attachment.filename for attachment in submission.attachments],
+        "submittedAt": submission.submitted_at,
+        "status": submission.status,
+    }
+    if include_participant:
+        summary["participantId"] = submission.participant_id
+    return summary
+
+
 async def store_chat_submission(payload: dict[str, object], repository: ChatSubmissionRepository) -> None:
     source_type = payload["sourceType"]
     raw_input = payload["rawInput"]
@@ -215,6 +318,7 @@ async def store_chat_submission(payload: dict[str, object], repository: ChatSubm
 
     await repository.create_submission(
         ChatSubmissionRecord(
+            submissionId=str(payload.get("submissionId") or "") or None,
             participantId=str(payload["participantId"]),
             submissionPoint=submission_point,
             sourceType=source_type,
