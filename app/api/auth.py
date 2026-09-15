@@ -170,7 +170,9 @@ async def change_participant_password(
 @router.post("/participant/password-reset", response_model=PasswordResetCompleted)
 async def reset_participant_password(password_reset: PasswordResetRequest, request: Request) -> PasswordResetCompleted:
     try:
-        await _service(request).reset_password(password_reset.phone, password_reset.guardian_phone, password_reset.email)
+        await _service(request).reset_password(
+            password_reset.phone, password_reset.guardian_phone, password_reset.email
+        )
     except InvalidCredentialsError as error:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="등록 정보가 일치하지 않습니다.") from error
     return PasswordResetCompleted(status="completed")

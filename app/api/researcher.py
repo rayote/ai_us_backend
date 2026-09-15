@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import os
 import tempfile
-from typing import Literal
 from pathlib import Path
+from typing import Literal
 
 from app.api.auth import require_researcher
 from app.schemas.application import (
@@ -27,6 +27,7 @@ from app.services.application_settings import ApplicationSettingsRepository
 from app.services.applications import ApplicationRepository
 from app.services.approvals import ApplicationApprovalService, ExistingParticipantError
 from app.services.auth import ParticipantAccountRepository
+from app.services.chat_downloads import ChatDownloadArtifactRepository
 from app.services.chats import (
     ChatSubmissionManagementService,
     ChatSubmissionRepository,
@@ -35,9 +36,8 @@ from app.services.chats import (
     chat_submissions_to_csv,
     submission_summary,
 )
-from app.services.chat_downloads import ChatDownloadArtifactRepository
-from app.services.jobs import JobCreate, JobRepository
 from app.services.imports import ParticipantImportService
+from app.services.jobs import JobCreate, JobRepository
 from app.services.reporting import ResearcherReportingService
 from app.services.surveys import SurveyDefinitionRepository, SurveyResponseRepository, survey_responses_to_csv
 from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile, status
@@ -123,14 +123,18 @@ def _chat_submission_management_service(request: Request) -> ChatSubmissionManag
 def _chat_download_artifact_repository(request: Request) -> ChatDownloadArtifactRepository:
     repository = getattr(request.app.state, "chat_download_artifact_repository", None)
     if repository is None:
-        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="파일 다운로드 서비스를 준비 중입니다.")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="파일 다운로드 서비스를 준비 중입니다."
+        )
     return repository
 
 
 def _job_repository(request: Request) -> JobRepository:
     repository = getattr(request.app.state, "job_repository", None)
     if repository is None:
-        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="다운로드 작업 서비스를 준비 중입니다.")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="다운로드 작업 서비스를 준비 중입니다."
+        )
     return repository
 
 
@@ -373,7 +377,9 @@ async def download_chat_submission_files(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="다운로드할 제출 파일을 찾을 수 없습니다.")
     uploads: ChatUploadRepository | None = getattr(request.app.state, "chat_upload_repository", None)
     if uploads is None:
-        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="파일 다운로드 서비스를 준비 중입니다.")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="파일 다운로드 서비스를 준비 중입니다."
+        )
     fd, temp_name = tempfile.mkstemp(suffix=".zip")
     os.close(fd)
     archive_path = Path(temp_name)
@@ -389,7 +395,9 @@ async def download_chat_submission_files(
     )
 
 
-@router.post("/chat-submissions/download-jobs", response_model=ChatDownloadJobAccepted, status_code=status.HTTP_202_ACCEPTED)
+@router.post(
+    "/chat-submissions/download-jobs", response_model=ChatDownloadJobAccepted, status_code=status.HTTP_202_ACCEPTED
+)
 async def create_chat_download_job(
     request_data: ChatDownloadJobCreate,
     request: Request,
@@ -420,7 +428,7 @@ async def get_chat_download_job(
     job = await _job_repository(request).get(job_id)
     if job is None or job.job_type != "chat_download":
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="다운로드 작업을 찾을 수 없습니다.")
-    artifact = await _chat_download_artifact_repository(request).get(job.idempotency_key)
+    artifact = await _chat_download_artifact_repository(request).get(job.idempotency_key) if job.status == "completed" else None
     return ChatDownloadJobStatus(
         jobId=job.id,
         status=job.status,

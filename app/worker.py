@@ -7,9 +7,9 @@ from pathlib import Path
 
 from app.core.settings import Settings
 from app.db.mongodb import MongoDatabase
-from app.services.chats import MongoChatSubmissionRepository, build_chat_archive, store_chat_submission
-from app.services.chat_downloads import MongoChatDownloadArtifactRepository, new_artifact
 from app.services.auth import MongoParticipantAccountRepository
+from app.services.chat_downloads import MongoChatDownloadArtifactRepository, new_artifact
+from app.services.chats import MongoChatSubmissionRepository, build_chat_archive, store_chat_submission
 from app.services.jobs import MongoJobRepository, QueueWorker
 from app.services.submissions import store_survey_response
 from app.services.surveys import MongoSurveyDefinitionRepository, MongoSurveyResponseRepository
@@ -60,6 +60,7 @@ async def run_worker() -> None:
             )
         finally:
             archive_path.unlink(missing_ok=True)
+
     worker = QueueWorker(
         MongoJobRepository(database.database["submission_jobs"]),
         {

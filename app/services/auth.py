@@ -24,20 +24,15 @@ class ParticipantAccount:
 
 
 class ParticipantAccountRepository(Protocol):
-    async def find_by_phone(self, phone: str) -> ParticipantAccount | None:
-        ...
+    async def find_by_phone(self, phone: str) -> ParticipantAccount | None: ...
 
-    async def find_by_id(self, participant_id: str) -> ParticipantAccount | None:
-        ...
+    async def find_by_id(self, participant_id: str) -> ParticipantAccount | None: ...
 
-    async def update_password(self, participant_id: str, password_hash: str) -> bool:
-        ...
+    async def update_password(self, participant_id: str, password_hash: str) -> bool: ...
 
-    async def reset_password_by_phone_guardian(self, phone: str, guardian_phone: str, password_hash: str) -> bool:
-        ...
+    async def reset_password_by_phone_guardian(self, phone: str, guardian_phone: str, password_hash: str) -> bool: ...
 
-    async def reset_password_by_phone_email(self, phone: str, email: str, password_hash: str) -> bool:
-        ...
+    async def reset_password_by_phone_email(self, phone: str, email: str, password_hash: str) -> bool: ...
 
     async def create(
         self,
@@ -48,8 +43,7 @@ class ParticipantAccountRepository(Protocol):
         email: str | None = None,
         guardian_phone: str | None = None,
         sns: str | None = None,
-    ) -> bool:
-        ...
+    ) -> bool: ...
 
     async def create_imported(
         self,
@@ -61,11 +55,9 @@ class ParticipantAccountRepository(Protocol):
         email: str | None = None,
         sns: str | None = None,
         guardian_phone: str | None = None,
-    ) -> bool:
-        ...
+    ) -> bool: ...
 
-    async def list_participants(self) -> list[ParticipantAccount]:
-        ...
+    async def list_participants(self) -> list[ParticipantAccount]: ...
 
 
 class MongoParticipantAccountRepository:
@@ -196,14 +188,11 @@ class ResearcherAccount:
 
 
 class ResearcherAccountRepository(Protocol):
-    async def find_by_username(self, username: str) -> ResearcherAccount | None:
-        ...
+    async def find_by_username(self, username: str) -> ResearcherAccount | None: ...
 
-    async def ensure_bootstrap(self, username: str, password_hash: str) -> None:
-        ...
+    async def ensure_bootstrap(self, username: str, password_hash: str) -> None: ...
 
-    async def create(self, username: str, password_hash: str, role: str) -> str | None:
-        ...
+    async def create(self, username: str, password_hash: str, role: str) -> str | None: ...
 
 
 class MongoResearcherAccountRepository:
@@ -268,7 +257,9 @@ class ParticipantAuthenticationService:
         from app.core.security import hash_password
 
         if guardian_phone is not None:
-            matched = await self._repository.reset_password_by_phone_guardian(phone, guardian_phone, hash_password("1234"))
+            matched = await self._repository.reset_password_by_phone_guardian(
+                phone, guardian_phone, hash_password("1234")
+            )
         elif email is not None:
             matched = await self._repository.reset_password_by_phone_email(phone, email, hash_password("1234"))
         else:

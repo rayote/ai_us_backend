@@ -31,7 +31,15 @@ class InMemoryParticipantAccounts(ParticipantAccountRepository):
         return False
 
     async def create_imported(
-        self, phone: str, password_hash: str, name: str, school_level: str, grade: int, email: str | None = None, sns: str | None = None, guardian_phone: str | None = None
+        self,
+        phone: str,
+        password_hash: str,
+        name: str,
+        school_level: str,
+        grade: int,
+        email: str | None = None,
+        sns: str | None = None,
+        guardian_phone: str | None = None,
     ) -> bool:
         if phone in self.imported:
             return False
@@ -60,7 +68,11 @@ def test_import_creates_valid_rows_and_reports_invalid_rows() -> None:
 def test_import_allows_missing_optional_contact_columns() -> None:
     service = ParticipantImportService(InMemoryParticipantAccounts())
 
-    result = asyncio.run(service.import_csv("이름,휴대폰번호,보호자휴대폰,학교급,학년\n홍길동,010-1234-5678,010-9999-9999,초등,4\n".encode()))
+    result = asyncio.run(
+        service.import_csv(
+            "이름,휴대폰번호,보호자휴대폰,학교급,학년\n홍길동,010-1234-5678,010-9999-9999,초등,4\n".encode()
+        )
+    )
 
     assert result.created_count == 1
 

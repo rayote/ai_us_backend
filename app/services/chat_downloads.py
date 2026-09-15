@@ -17,11 +17,9 @@ class ChatDownloadArtifact(BaseModel):
 
 
 class ChatDownloadArtifactRepository(Protocol):
-    async def create(self, artifact: ChatDownloadArtifact) -> None:
-        ...
+    async def create(self, artifact: ChatDownloadArtifact) -> None: ...
 
-    async def get(self, job_id: str) -> ChatDownloadArtifact | None:
-        ...
+    async def get(self, job_id: str) -> ChatDownloadArtifact | None: ...
 
 
 class MongoChatDownloadArtifactRepository:

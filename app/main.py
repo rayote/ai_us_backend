@@ -10,13 +10,13 @@ from app.core.settings import Settings
 from app.db.mongodb import MongoDatabase
 from app.services.application_settings import ApplicationSettingsRepository, MongoApplicationSettingsRepository
 from app.services.applications import ApplicationRepository, MongoApplicationRepository
-from app.services.chat_downloads import ChatDownloadArtifactRepository, MongoChatDownloadArtifactRepository
 from app.services.auth import (
     MongoParticipantAccountRepository,
     MongoResearcherAccountRepository,
     ParticipantAccountRepository,
     ResearcherAccountRepository,
 )
+from app.services.chat_downloads import ChatDownloadArtifactRepository, MongoChatDownloadArtifactRepository
 from app.services.chats import ChatSubmissionRepository, ChatUploadRepository, MongoChatSubmissionRepository
 from app.services.jobs import JobRepository, MongoJobRepository
 from app.services.submissions import store_survey_response
