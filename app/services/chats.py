@@ -27,19 +27,15 @@ class InvalidChatUploadError(Exception):
 
 
 class ChatSubmissionRepository(Protocol):
-    async def create_submission(self, submission: ChatSubmissionRecord) -> None:
-        ...
+    async def create_submission(self, submission: ChatSubmissionRecord) -> None: ...
 
-    async def list_submissions(self, submission_point: str | None = None) -> list[ChatSubmissionRecord]:
-        ...
+    async def list_submissions(self, submission_point: str | None = None) -> list[ChatSubmissionRecord]: ...
 
 
 class ChatUploadRepository(Protocol):
-    async def upload(self, filename: str, data: bytes, metadata: dict[str, Any]) -> str:
-        ...
+    async def upload(self, filename: str, data: bytes, metadata: dict[str, Any]) -> str: ...
 
-    async def delete(self, file_id: str) -> None:
-        ...
+    async def delete(self, file_id: str) -> None: ...
 
 
 @dataclass(frozen=True)
@@ -157,7 +153,9 @@ class ChatUploadService:
                     },
                 )
                 attachments.append(
-                    ChatAttachment(fileId=file_id, filename=filename, contentType=file.content_type, size=len(file.data))
+                    ChatAttachment(
+                        fileId=file_id, filename=filename, contentType=file.content_type, size=len(file.data)
+                    )
                 )
             await self._submissions.create_submission(
                 ChatSubmissionRecord(
@@ -200,7 +198,8 @@ class ChatUploadService:
             if Path(file.filename).suffix.lower() != ".zip" or not file.data.startswith(b"PK"):
                 raise InvalidChatUploadError("유효한 ZIP 파일만 제출할 수 있습니다.")
         elif any(
-            Path(file.filename).suffix.lower() not in self._IMAGE_SUFFIXES or not file.content_type.startswith("image/")
+            Path(file.filename).suffix.lower() not in self._IMAGE_SUFFIXES
+            or not file.content_type.startswith("image/")
             for file in files
         ):
             raise InvalidChatUploadError("JPG, PNG, WEBP, HEIC 이미지 파일만 제출할 수 있습니다.")

@@ -31,11 +31,15 @@ def _submission_service(request: Request) -> ChatSubmissionService:
 
 
 def _upload_service(request: Request) -> ChatUploadService:
-    participants: ParticipantAccountRepository | None = getattr(request.app.state, "participant_account_repository", None)
+    participants: ParticipantAccountRepository | None = getattr(
+        request.app.state, "participant_account_repository", None
+    )
     submissions: ChatSubmissionRepository | None = getattr(request.app.state, "chat_submission_repository", None)
     uploads: ChatUploadRepository | None = getattr(request.app.state, "chat_upload_repository", None)
     if participants is None or submissions is None or uploads is None:
-        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="파일 제출 서비스를 준비 중입니다.")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="파일 제출 서비스를 준비 중입니다."
+        )
     return ChatUploadService(participants, submissions, uploads)
 
 

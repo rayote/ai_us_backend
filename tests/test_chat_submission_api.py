@@ -258,7 +258,10 @@ def test_consented_participant_can_upload_zip_and_multiple_images() -> None:
     assert image_response.json() == {"submissionId": "image-1", "status": "completed"}
     assert len(uploads.files) == 3
     assert submissions.submissions[0].attachments[0].filename == "chat-export.zip"
-    assert [attachment.filename for attachment in submissions.submissions[1].attachments] == ["chat-1.png", "chat-2.jpg"]
+    assert [attachment.filename for attachment in submissions.submissions[1].attachments] == [
+        "chat-1.png",
+        "chat-2.jpg",
+    ]
 
 
 def test_chat_upload_rejects_invalid_file_type() -> None:
