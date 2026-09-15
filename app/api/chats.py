@@ -6,8 +6,8 @@ from app.schemas.chat import ChatSubmissionAccepted, ChatSubmissionCreate, ChatS
 from app.services.auth import ParticipantAccountRepository
 from app.services.chats import (
     ChatConsentRequiredError,
-    ChatSubmissionRepository,
     ChatSubmissionManagementService,
+    ChatSubmissionRepository,
     ChatSubmissionService,
     ChatUploadFile,
     ChatUploadRepository,
@@ -49,7 +49,9 @@ def _management_service(request: Request) -> ChatSubmissionManagementService:
     submissions: ChatSubmissionRepository | None = getattr(request.app.state, "chat_submission_repository", None)
     uploads: ChatUploadRepository | None = getattr(request.app.state, "chat_upload_repository", None)
     if submissions is None or uploads is None:
-        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="대화문 관리 서비스를 준비 중입니다.")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="대화문 관리 서비스를 준비 중입니다."
+        )
     return ChatSubmissionManagementService(submissions, uploads)
 
 
@@ -108,7 +110,9 @@ async def list_my_chat_submissions(
 ) -> list[ChatSubmissionSummary]:
     submissions: ChatSubmissionRepository | None = getattr(request.app.state, "chat_submission_repository", None)
     if submissions is None:
-        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="대화문 관리 서비스를 준비 중입니다.")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="대화문 관리 서비스를 준비 중입니다."
+        )
     return [
         ChatSubmissionSummary.model_validate(submission_summary(submission))
         for submission in await submissions.list_for_participant(participant_id)
@@ -125,7 +129,12 @@ async def request_chat_submission_deletion(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="삭제 요청할 제출 내역을 찾을 수 없습니다.")
     submissions: ChatSubmissionRepository = request.app.state.chat_submission_repository
     submission = next(
-        (item for item in await submissions.list_for_participant(participant_id) if item.submission_id == submission_id), None
+        (
+            item
+            for item in await submissions.list_for_participant(participant_id)
+            if item.submission_id == submission_id
+        ),
+        None,
     )
     if submission is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="삭제 요청할 제출 내역을 찾을 수 없습니다.")
@@ -142,7 +151,12 @@ async def restore_chat_submission(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="되돌릴 삭제 요청 내역을 찾을 수 없습니다.")
     submissions: ChatSubmissionRepository = request.app.state.chat_submission_repository
     submission = next(
-        (item for item in await submissions.list_for_participant(participant_id) if item.submission_id == submission_id), None
+        (
+            item
+            for item in await submissions.list_for_participant(participant_id)
+            if item.submission_id == submission_id
+        ),
+        None,
     )
     if submission is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="되돌릴 삭제 요청 내역을 찾을 수 없습니다.")

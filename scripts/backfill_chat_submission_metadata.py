@@ -15,7 +15,9 @@ if str(PROJECT_ROOT) not in sys.path:
 def main() -> int:
     from app.core.settings import Settings
 
-    parser = argparse.ArgumentParser(description="Backfill status and tool metadata for existing chat file submissions.")
+    parser = argparse.ArgumentParser(
+        description="Backfill status and tool metadata for existing chat file submissions."
+    )
     parser.add_argument("--mongodb-uri")
     parser.add_argument("--database-name")
     parser.add_argument("--dry-run", action="store_true")

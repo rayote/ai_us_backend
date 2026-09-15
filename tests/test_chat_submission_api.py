@@ -4,7 +4,7 @@ from datetime import UTC, datetime
 from app.core.security import hash_password
 from app.core.settings import Settings
 from app.main import create_app
-from app.schemas.chat import ChatSubmissionRecord
+from app.schemas.chat import ParsedTranscript, ChatSubmissionRecord
 from app.schemas.jobs import Job, JobCreate
 from app.services.auth import (
     ParticipantAccount,
@@ -99,7 +99,9 @@ class InMemoryChatSubmissions(ChatSubmissionRepository):
     async def create_submission(self, submission: ChatSubmissionRecord) -> None:
         self.submissions.append(submission)
 
-    async def list_submissions(self, submission_point: str | None = None, status: str = "active") -> list[ChatSubmissionRecord]:
+    async def list_submissions(
+        self, submission_point: str | None = None, status: str = "active"
+    ) -> list[ChatSubmissionRecord]:
         return [
             submission
             for submission in self.submissions
@@ -247,6 +249,21 @@ def test_participant_without_chat_consent_cannot_submit() -> None:
     assert response.status_code == 403
 
 
+def test_legacy_snake_case_transcript_fields_are_accepted() -> None:
+    transcript = ParsedTranscript.model_validate(
+        {
+            "status": "placeholder",
+            "parser_version": "attachment-v1",
+            "messages": [],
+            "plain_text": "",
+            "warnings": ["원본 파일"],
+        }
+    )
+
+    assert transcript.parser_version == "attachment-v1"
+    assert transcript.plain_text == ""
+
+
 def test_researcher_can_export_completed_chat_submission() -> None:
     app, jobs, submissions, _ = _app(True)
     with TestClient(app) as client:
@@ -345,7 +362,12 @@ def test_participant_can_manage_history_and_researcher_deletes_requested_upload(
         client.post(
             "/api/v1/chat-submissions/uploads",
             headers=participant_headers,
-            data={"tool": "chatgpt", "submissionPoint": "afterRound1", "sourceType": "file", "submissionId": "history-1"},
+            data={
+                "tool": "chatgpt",
+                "submissionPoint": "afterRound1",
+                "sourceType": "file",
+                "submissionId": "history-1",
+            },
             files={"files": ("history.zip", b"PK\x03\x04example", "application/zip")},
         )
         history = client.get("/api/v1/chat-submissions/mine", headers=participant_headers)
@@ -361,7 +383,9 @@ def test_participant_can_manage_history_and_researcher_deletes_requested_upload(
         )
         researcher_headers = {"Authorization": f"Bearer {researcher_login.json()['accessToken']}"}
         requested = client.get("/api/v1/researcher/chat-submissions/files", headers=researcher_headers)
-        deleted = client.delete(f"/api/v1/researcher/chat-submissions/files/{submission_id}", headers=researcher_headers)
+        deleted = client.delete(
+            f"/api/v1/researcher/chat-submissions/files/{submission_id}", headers=researcher_headers
+        )
         final_history = client.get("/api/v1/chat-submissions/mine", headers=participant_headers)
 
     assert history.json()[0]["filenames"] == ["history.zip"]

@@ -7,12 +7,12 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Protocol
 
-from bson import ObjectId
 from app.schemas.chat import ChatAttachment, ChatSubmissionCreate, ChatSubmissionRecord, ParsedTranscript
 from app.schemas.jobs import Job, JobCreate
 from app.services.auth import ParticipantAccountRepository
 from app.services.jobs import JobRepository
 from app.services.transcripts import parse_transcript
+from bson import ObjectId
 
 
 class ChatConsentRequiredError(Exception):
@@ -79,7 +79,9 @@ class MongoChatSubmissionRepository:
             document["tool"] = submission.tool
         await self._collection.insert_one(document)
 
-    async def list_submissions(self, submission_point: str | None = None, status: str = "active") -> list[ChatSubmissionRecord]:
+    async def list_submissions(
+        self, submission_point: str | None = None, status: str = "active"
+    ) -> list[ChatSubmissionRecord]:
         filters: dict[str, Any] = (
             {"$or": [{"status": "active"}, {"status": {"$exists": False}}]}
             if status == "active"
@@ -107,7 +109,11 @@ class MongoChatSubmissionRepository:
 
     async def restore_deletion(self, submission_id: str, participant_id: str) -> bool:
         result = await self._collection.update_one(
-            {"_id": _object_id_or_none(submission_id), "participant_id": participant_id, "status": "deletion_requested"},
+            {
+                "_id": _object_id_or_none(submission_id),
+                "participant_id": participant_id,
+                "status": "deletion_requested",
+            },
             {"$set": {"status": "active"}, "$unset": {"deletion_requested_at": ""}},
         )
         return result.modified_count == 1
@@ -119,7 +125,9 @@ class MongoChatSubmissionRepository:
         return _record_from_document(document) if document else None
 
     async def remove(self, submission_id: str) -> bool:
-        result = await self._collection.delete_one({"_id": _object_id_or_none(submission_id), "status": "deletion_requested"})
+        result = await self._collection.delete_one(
+            {"_id": _object_id_or_none(submission_id), "status": "deletion_requested"}
+        )
         return result.deleted_count == 1
 
 

@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 ChatSourceType = Literal["link", "text", "file", "image"]
 ChatSubmissionPoint = Literal["afterRound1", "afterRound4"]
@@ -17,6 +17,8 @@ class TranscriptMessage(BaseModel):
 
 
 class ParsedTranscript(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
     status: ParseStatus
     parser_version: str = Field(alias="parserVersion")
     messages: list[TranscriptMessage]

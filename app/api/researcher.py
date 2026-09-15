@@ -3,13 +3,13 @@ from __future__ import annotations
 from typing import Literal
 
 from app.api.auth import require_researcher
-from app.schemas.chat import ChatSubmissionDeleted, ChatSubmissionSummary
 from app.schemas.application import (
     ApplicationApproval,
     ApplicationApprovalCompleted,
     ApplicationRecord,
     ApplicationSettings,
 )
+from app.schemas.chat import ChatSubmissionDeleted, ChatSubmissionSummary
 from app.schemas.imports import ParticipantImportResult
 from app.schemas.reporting import NonparticipantReport, ParticipationStatus
 from app.schemas.survey import SurveyDefinitionSummary, SurveyResponsePreview
@@ -101,7 +101,9 @@ def _chat_submission_repository(request: Request) -> ChatSubmissionRepository:
 def _chat_submission_management_service(request: Request) -> ChatSubmissionManagementService:
     uploads: ChatUploadRepository | None = getattr(request.app.state, "chat_upload_repository", None)
     if uploads is None:
-        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="파일 관리 서비스를 준비 중입니다.")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="파일 관리 서비스를 준비 중입니다."
+        )
     return ChatSubmissionManagementService(_chat_submission_repository(request), uploads)
 
 
@@ -313,5 +315,7 @@ async def delete_requested_chat_submission(
     _: str = Depends(require_researcher),
 ) -> ChatSubmissionDeleted:
     if not await _chat_submission_management_service(request).delete_requested_submission(submission_id):
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="삭제 요청된 파일 제출 내역을 찾을 수 없습니다.")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="삭제 요청된 파일 제출 내역을 찾을 수 없습니다."
+        )
     return ChatSubmissionDeleted(status="deleted")
