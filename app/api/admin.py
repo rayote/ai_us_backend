@@ -52,3 +52,19 @@ async def create_survey_definition(
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT, detail="이미 등록된 설문 회차와 버전입니다."
         ) from error
+
+
+@router.put("/survey-definitions/{survey_round}/{survey_version}", response_model=SurveyDefinition)
+async def replace_survey_definition(
+    survey_round: int,
+    survey_version: str,
+    definition: SurveyDefinitionCreate,
+    request: Request,
+    _: str = Depends(require_admin),
+) -> SurveyDefinition:
+    if definition.survey_round != survey_round or definition.survey_version != survey_version:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="경로의 surveyRound/surveyVersion과 요청 본문이 일치해야 합니다.",
+        )
+    return await _survey_definition_repository(request).replace(definition)

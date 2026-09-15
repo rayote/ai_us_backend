@@ -49,6 +49,18 @@ class InMemorySurveyDefinitions(SurveyDefinitionRepository):
         self.definitions[(created.survey_round, created.survey_version)] = created
         return created
 
+    async def replace(self, definition: SurveyDefinitionCreate) -> SurveyDefinition:
+        replaced = SurveyDefinition(
+            surveyRound=definition.survey_round,
+            surveyVersion=definition.survey_version,
+            audience=definition.audience,
+            questions=definition.questions,
+            spec=definition.raw_spec,
+            createdAt=datetime.now(UTC),
+        )
+        self.definitions[(replaced.survey_round, replaced.survey_version)] = replaced
+        return replaced
+
     async def get(self, survey_round: int, survey_version: str) -> SurveyDefinition | None:
         return self.definitions.get((survey_round, survey_version))
 
@@ -164,6 +176,39 @@ def test_researcher_cannot_register_survey_definition() -> None:
     assert response.status_code == 403
 
 
+def test_admin_can_replace_existing_survey_definition() -> None:
+    with _client() as client:
+        admin_token = _token(client, "admin", "admin-password")
+        headers = {"Authorization": f"Bearer {admin_token}"}
+        client.post("/api/v1/admin/survey-definitions", headers=headers, json=_definition_payload())
+
+        updated_payload = dict(_definition_payload())
+        updated_payload["questions"] = [
+            {"key": "q1", "csvColumn": "첫 번째 문항(수정)", "order": 1},
+            {"key": "q2", "csvColumn": "두 번째 문항", "order": 2},
+        ]
+        response = client.put(
+            "/api/v1/admin/survey-definitions/2/2026-round-2-v2",
+            headers=headers,
+            json=updated_payload,
+        )
+
+    assert response.status_code == 200
+    assert [question["key"] for question in response.json()["questions"]] == ["q1", "q2"]
+
+
+def test_admin_replace_rejects_mismatched_path_and_body() -> None:
+    with _client() as client:
+        admin_token = _token(client, "admin", "admin-password")
+        response = client.put(
+            "/api/v1/admin/survey-definitions/999/other-version",
+            headers={"Authorization": f"Bearer {admin_token}"},
+            json=_definition_payload(),
+        )
+
+    assert response.status_code == 400
+
+
 def test_admin_registers_nested_scale_survey_definition() -> None:
     with _client() as client:
         admin_token = _token(client, "admin", "admin-password")
@@ -186,7 +231,17 @@ def test_admin_registers_nested_scale_survey_definition() -> None:
                                 "text": "나는 가족, 친구, 다른 문제에서 벗어나려고 AI를 사용한다.",
                                 "type": "likert",
                                 "required": True,
-                            }
+                            },
+                            {
+                                "key": "demo.contact",
+                                "no": "2",
+                                "text": "연구 참여자 연락처",
+                                "type": "composite",
+                                "fields": [
+                                    {"key": "demo.contact_phone", "label": "휴대폰 번호", "type": "tel"},
+                                    {"key": "demo.contact_email", "label": "이메일", "type": "text"},
+                                ],
+                            },
                         ],
                     }
                 ],
@@ -200,7 +255,10 @@ def test_admin_registers_nested_scale_survey_definition() -> None:
             "key": "motive.q1",
             "csvColumn": "AI 활용동기 | 1 | 나는 가족, 친구, 다른 문제에서 벗어나려고 AI를 사용한다.",
             "order": 1,
-        }
+        },
+        {"key": "demo.contact", "csvColumn": "AI 활용동기 | 2 | 연구 참여자 연락처", "order": 2},
+        {"key": "demo.contact_phone", "csvColumn": "AI 활용동기 | 2 | 연구 참여자 연락처 | 휴대폰 번호", "order": 3},
+        {"key": "demo.contact_email", "csvColumn": "AI 활용동기 | 2 | 연구 참여자 연락처 | 이메일", "order": 4},
     ]
     assert response.json()["spec"]["scales"][0]["scaleId"] == "motive"
 

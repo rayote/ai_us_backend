@@ -21,6 +21,11 @@ def main() -> int:
     parser.add_argument("--frontend-index", type=Path, default=DEFAULT_FRONTEND_INDEX)
     parser.add_argument("--survey-round", type=int, default=1)
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument(
+        "--replace",
+        action="store_true",
+        help="Replace existing survey definitions (same surveyRound/surveyVersion) instead of only creating new ones.",
+    )
     args = parser.parse_args()
 
     survey_sets = extract_survey_sets(args.frontend_index)
@@ -56,10 +61,17 @@ def main() -> int:
     token = login["accessToken"]
     success = True
     for payload in payloads:
-        status, body = post_json(args.backend_url, "/api/v1/admin/survey-definitions", payload, token)
-        detail = body.get("detail", "created") if isinstance(body, dict) else body
-        print(f"{payload['audience']} {payload['surveyVersion']}: HTTP {status} {detail}")
-        success = success and status in {201, 409}
+        if args.replace:
+            path = f"/api/v1/admin/survey-definitions/{payload['surveyRound']}/{payload['surveyVersion']}"
+            status, body = post_json(args.backend_url, path, payload, token, method="PUT")
+            detail = body.get("detail", "replaced") if isinstance(body, dict) else body
+            print(f"{payload['audience']} {payload['surveyVersion']}: HTTP {status} {detail}")
+            success = success and status == 200
+        else:
+            status, body = post_json(args.backend_url, "/api/v1/admin/survey-definitions", payload, token)
+            detail = body.get("detail", "created") if isinstance(body, dict) else body
+            print(f"{payload['audience']} {payload['surveyVersion']}: HTTP {status} {detail}")
+            success = success and status in {201, 409}
     return 0 if success else 1
 
 
@@ -90,6 +102,7 @@ def post_json(
     path: str,
     payload: dict[str, Any],
     token: str | None = None,
+    method: str = "POST",
 ) -> tuple[int, dict[str, Any]]:
     headers = {"Content-Type": "application/json"}
     if token is not None:
@@ -98,7 +111,7 @@ def post_json(
         backend_url.rstrip("/") + path,
         data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
         headers=headers,
-        method="POST",
+        method=method,
     )
     try:
         with urllib.request.urlopen(request, timeout=30) as response:

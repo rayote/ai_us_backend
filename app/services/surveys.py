@@ -16,6 +16,8 @@ class DuplicateSurveyDefinitionError(Exception):
 class SurveyDefinitionRepository(Protocol):
     async def create(self, definition: SurveyDefinitionCreate) -> SurveyDefinition: ...
 
+    async def replace(self, definition: SurveyDefinitionCreate) -> SurveyDefinition: ...
+
     async def get(self, survey_round: int, survey_version: str) -> SurveyDefinition | None: ...
 
     async def list_definitions(self) -> list[SurveyDefinitionSummary]: ...
@@ -83,6 +85,24 @@ class MongoSurveyDefinitionRepository:
             await self._collection.insert_one(document)
         except DuplicateKeyError as error:
             raise DuplicateSurveyDefinitionError from error
+        return _definition_from_document(document)
+
+    async def replace(self, definition: SurveyDefinitionCreate) -> SurveyDefinition:
+        document = {
+            "survey_round": definition.survey_round,
+            "survey_version": definition.survey_version,
+            "questions": [question.model_dump(by_alias=True) for question in definition.questions],
+            "created_at": datetime.now(UTC),
+        }
+        if definition.audience is not None:
+            document["audience"] = definition.audience
+        if definition.raw_spec is not None:
+            document["spec"] = definition.raw_spec
+        await self._collection.replace_one(
+            {"survey_round": definition.survey_round, "survey_version": definition.survey_version},
+            document,
+            upsert=True,
+        )
         return _definition_from_document(document)
 
     async def get(self, survey_round: int, survey_version: str) -> SurveyDefinition | None:

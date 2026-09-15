@@ -115,6 +115,9 @@ def _flatten_questions_from_scales(scales: list[object]) -> list[dict[str, objec
 
 def _extra_answer_fields(question: dict[str, object]) -> list[dict[str, object]]:
     fields: list[dict[str, object]] = []
+    composite_fields = question.get("fields")
+    if question.get("type") == "composite" and isinstance(composite_fields, list):
+        fields.extend(field for field in composite_fields if isinstance(field, dict))
     for container_name in ("detail", "other"):
         container = question.get(container_name)
         if isinstance(container, dict) and isinstance(container.get("field"), dict):

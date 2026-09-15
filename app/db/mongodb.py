@@ -32,6 +32,9 @@ class AsyncCollection:
     async def insert_one(self, document: dict[str, Any]) -> Any:
         return await asyncio.to_thread(self._collection.insert_one, document)
 
+    async def replace_one(self, filters: dict[str, Any], replacement: dict[str, Any], **kwargs: Any) -> Any:
+        return await asyncio.to_thread(self._collection.replace_one, filters, replacement, **kwargs)
+
     async def create_index(self, keys: list[tuple[str, int]], **kwargs: Any) -> str:
         return await asyncio.to_thread(self._collection.create_index, keys, **kwargs)
 
