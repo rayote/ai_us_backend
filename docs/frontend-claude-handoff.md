@@ -16,6 +16,7 @@
 - 기존 디자인, 이미지, 문구, 화면 배치, CSS는 요구사항에 필요한 범위에서만 바꾼다.
 - MongoDB URI, API 비밀값, JWT secret, 연구자 계정 비밀번호를 프론트에 넣지 않는다.
 - API 기본 URL은 CloudType에 배포된 해당 환경의 backend 공개 URL만 사용한다. 개발과 운영의 URL, 비밀값, 데이터는 분리한다.
+- `AI_US_API_BASE`는 `window.location.hostname`의 정확한 매핑으로 선택한다. 개발 frontend `web-ai-us-mtmm0sg55da4c824.sel3.cloudtype.app`은 개발 backend `https://port-0-ai-us-backend-mtmm0sg55da4c824.sel3.cloudtype.app`, 운영 frontend `web-ai-us-mu2jfq4sfccf2f38.sel3.cloudtype.app`은 운영 backend `https://port-0-ai-us-backend-mu2jfq4sfccf2f38.sel3.cloudtype.app`을 사용한다. 알 수 없는 hostname의 fallback은 운영 backend로 둔다.
 - API 실패 시 성공 화면이나 완료 상태로 이동하지 않는다. `detail` 오류 메시지를 우선 표시한다.
 - 서버 네트워크 오류나 5xx 응답은 기존의 `일시적인 연결 문제가 있어요` full-modal로 안내한다. 409/422는 기존 입력 오류 영역, 401/403은 로그인 만료/권한 흐름으로 처리한다.
 - 구현 뒤 `index.html`과 `researcher.html`의 inline JavaScript가 파싱되는지 확인하고, 기존 흐름을 훼손하지 않는다.
