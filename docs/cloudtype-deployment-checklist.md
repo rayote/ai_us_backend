@@ -53,3 +53,23 @@ Gmail Secrets are not required for the current simplified password reset flow. P
 ## Production Promotion
 
 Create the same three-service layout in the paid CloudType account. Use a different database name, MongoDB URI, JWT secret, bootstrap admin credentials, and frontend URL. Do not copy development research data into production.
+
+Current production public URLs:
+
+```text
+Frontend: https://web-ai-us-mu2jfq4sfccf2f38.sel3.cloudtype.app/
+Backend:  https://port-0-ai-us-backend-mu2jfq4sfccf2f38.sel3.cloudtype.app/
+```
+
+Set the production backend's CloudType Secrets as follows, using only production MongoDB credentials and the separately generated production JWT secret.
+
+```text
+APP_ENV=production
+DATABASE_NAME=<production database name>
+FRONTEND_ORIGINS=https://web-ai-us-mu2jfq4sfccf2f38.sel3.cloudtype.app
+JWT_SECRET=<production-only secret>
+RESEARCHER_BOOTSTRAP_USERNAME=<production first admin username>
+RESEARCHER_BOOTSTRAP_PASSWORD=<production first admin password>
+```
+
+The frontend maps the development hostname to the development backend and the production hostname to the production backend. Any unknown hostname falls back to the production backend.
