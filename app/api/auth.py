@@ -113,7 +113,7 @@ async def participant_login(credentials: ParticipantLogin, request: Request) -> 
             account.participant_id,
             "participant",
             settings.jwt_secret,
-            settings.jwt_expiration_minutes,
+            settings.participant_jwt_expiration_minutes,
         ),
         tokenType="bearer",
         role="participant",
@@ -165,6 +165,31 @@ async def change_participant_password(
             status_code=status.HTTP_401_UNAUTHORIZED, detail="현재 비밀번호가 올바르지 않습니다."
         ) from error
     return PasswordChangeCompleted(status="completed")
+
+
+@router.post("/participant/refresh", response_model=AccessToken)
+async def refresh_participant_session(
+    request: Request,
+    participant_id: str = Depends(_participant_id),
+) -> AccessToken:
+    try:
+        account = await _service(request).refresh_session(participant_id)
+    except InvalidCredentialsError as error:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="유효하지 않은 인증 정보입니다.") from error
+    settings = _settings(request)
+    return AccessToken(
+        accessToken=create_access_token(
+            account.participant_id,
+            "participant",
+            settings.jwt_secret,
+            settings.participant_jwt_expiration_minutes,
+        ),
+        tokenType="bearer",
+        role="participant",
+        needsPasswordChange=account.must_change_password,
+        audience=_service(request).account_audience(account),
+        chatConsent=account.chat_consent,
+    )
 
 
 @router.post("/participant/password-reset", response_model=PasswordResetCompleted)

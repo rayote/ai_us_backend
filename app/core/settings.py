@@ -38,6 +38,7 @@ class Settings:
     jwt_expiration_minutes: int = 60
     researcher_bootstrap_username: str | None = None
     researcher_bootstrap_password: str | None = None
+    participant_jwt_expiration_minutes: int = 240
 
     @classmethod
     def from_environment(cls) -> "Settings":
@@ -50,4 +51,5 @@ class Settings:
             jwt_expiration_minutes=int(getenv("JWT_EXPIRATION_MINUTES", "60")),
             researcher_bootstrap_username=getenv("RESEARCHER_BOOTSTRAP_USERNAME"),
             researcher_bootstrap_password=getenv("RESEARCHER_BOOTSTRAP_PASSWORD"),
+            participant_jwt_expiration_minutes=int(getenv("PARTICIPANT_JWT_EXPIRATION_MINUTES", "240")),
         )

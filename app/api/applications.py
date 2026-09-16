@@ -83,7 +83,7 @@ async def create_application(application: ApplicationCreate, request: Request) -
             account.participant_id,
             "participant",
             app_settings.jwt_secret,
-            app_settings.jwt_expiration_minutes,
+            app_settings.participant_jwt_expiration_minutes,
         ),
         tokenType="bearer",
         role="participant",

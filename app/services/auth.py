@@ -253,6 +253,12 @@ class ParticipantAuthenticationService:
         if not await self._repository.update_password(participant_id, hash_password(new_password)):
             raise InvalidCredentialsError
 
+    async def refresh_session(self, participant_id: str) -> ParticipantAccount:
+        account = await self._repository.find_by_id(participant_id)
+        if account is None:
+            raise InvalidCredentialsError
+        return account
+
     async def reset_password(self, phone: str, guardian_phone: str | None = None, email: str | None = None) -> None:
         from app.core.security import hash_password
 

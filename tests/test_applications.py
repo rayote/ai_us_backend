@@ -1,5 +1,7 @@
 from datetime import UTC, datetime
 
+import jwt
+
 from app.core.settings import Settings
 from app.main import create_app
 from app.schemas.application import ApplicationCreate, ApplicationRecord
@@ -169,6 +171,12 @@ def test_create_application_auto_approves_and_returns_password_change_login() ->
     assert response.json()["needsPasswordChange"] is True
     assert response.json()["audience"] == "secondary"
     assert account.guardian_phone == "01098765432"
+    claims = jwt.decode(
+        response.json()["accessToken"],
+        "test-secret-at-least-thirty-two-bytes",
+        algorithms=["HS256"],
+    )
+    assert 239 * 60 <= claims["exp"] - datetime.now(UTC).timestamp() <= 240 * 60
 
 
 def test_create_application_rejects_duplicate_phone_number() -> None:

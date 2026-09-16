@@ -1,5 +1,7 @@
 from datetime import UTC, datetime
 
+import jwt
+
 from app.core.security import hash_password, verify_password
 from app.core.settings import Settings
 from app.main import create_app
@@ -81,6 +83,12 @@ def test_participant_login_returns_access_token_and_password_change_requirement(
     assert response.json()["audience"] == "elementary"
     assert response.json()["chatConsent"] is True
     assert response.json()["accessToken"]
+    claims = jwt.decode(
+        response.json()["accessToken"],
+        "test-secret-at-least-thirty-two-bytes",
+        algorithms=["HS256"],
+    )
+    assert 239 * 60 <= claims["exp"] - datetime.now(UTC).timestamp() <= 240 * 60
 
 
 def test_participant_changes_default_password() -> None:
@@ -103,6 +111,29 @@ def test_participant_changes_default_password() -> None:
     assert response.status_code == 200
     assert response.json() == {"status": "completed"}
     assert new_login_response.json()["needsPasswordChange"] is False
+
+
+def test_participant_refresh_renews_authenticated_session() -> None:
+    with _client() as client:
+        login = client.post(
+            "/api/v1/auth/participant/login",
+            json={"phone": "01012345678", "password": "changed-password", "audience": "elementary"},
+        )
+        response = client.post(
+            "/api/v1/auth/participant/refresh",
+            headers={"Authorization": f"Bearer {login.json()['accessToken']}"},
+        )
+
+    assert response.status_code == 200
+    assert response.json()["role"] == "participant"
+    assert response.json()["audience"] == "elementary"
+    assert response.json()["chatConsent"] is True
+    claims = jwt.decode(
+        response.json()["accessToken"],
+        "test-secret-at-least-thirty-two-bytes",
+        algorithms=["HS256"],
+    )
+    assert 239 * 60 <= claims["exp"] - datetime.now(UTC).timestamp() <= 240 * 60
 
 
 def test_participant_login_rejects_invalid_password() -> None:

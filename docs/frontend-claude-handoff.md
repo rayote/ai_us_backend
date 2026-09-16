@@ -30,6 +30,8 @@
 - 수동 승인 시 응답은 `status: "pending"`이며, 프론트는 기존 승인 대기 완료 화면을 보인다.
 - 자동 승인 시 응답은 `status: "approved"`, `accessToken`, `role: "participant"`, `needsPasswordChange: true`, `audience`, `chatConsent`를 포함한다. 프론트는 토큰과 참여자 정보를 일반 로그인과 동일하게 `sessionStorage`에 저장하고, 승인 대기 화면 대신 최초 비밀번호 변경 모달을 즉시 연다.
 - 참여자 로그인은 `POST /api/v1/auth/participant/login`에 `audience`를 함께 보낸다. 초등 UI 값은 `elementary`, 중고등 UI 값은 `secondary`로 변환한다.
+- 참여자 access token은 파트 1·2와 대화문 제출까지 같은 세션에서 완료할 수 있도록 기본 240분 유효하다. 연구자 token의 기본 60분 설정과 분리한다.
+- 로그인 성공 시 새 token으로 기존 `sessionStorage` 값을 반드시 교체한다. 참여자 화면은 5분마다 남은 시간을 확인하고 30분 미만이면 `POST /api/v1/auth/participant/refresh`로 갱신하며, 정상 인증 API 통신 후에도 같은 확인을 수행한다.
 - 로그인 응답의 실제 `audience`가 현재 UI와 다르면 기존 커스텀 전환 모달을 보인 뒤 해당 대상 UI로 전환한다.
 - `needsPasswordChange: true`이면 설문 화면을 열기 전에 `POST /api/v1/auth/participant/password`로 최초 비밀번호를 변경한다.
 - 비밀번호 재설정은 `POST /api/v1/auth/participant/password-reset`에 본인 휴대폰과 보호자 휴대폰을 보내며, 성공하면 비밀번호는 `1234`로 초기화된다.

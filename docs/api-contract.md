@@ -429,6 +429,10 @@ Successful response: `200 OK`
 }
 ```
 
+## Refresh participant session
+
+`POST /api/v1/auth/participant/refresh` requires a valid participant bearer token and returns a renewed participant access token. The frontend checks every five minutes and renews when fewer than 30 minutes remain. Successful authenticated participant API calls also trigger the same expiry check. The default participant session lifetime is 240 minutes; researcher tokens remain 60 minutes.
+
 ## Reset participant password
 
 `POST /api/v1/auth/participant/password-reset`
