@@ -145,6 +145,7 @@ async def researcher_login(credentials: ResearcherLogin, request: Request) -> Ac
         tokenType="bearer",
         role=account.role,
         needsPasswordChange=False,
+        username=account.username,
     )
 
 
@@ -175,7 +176,9 @@ async def refresh_participant_session(
     try:
         account = await _service(request).refresh_session(participant_id)
     except InvalidCredentialsError as error:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="유효하지 않은 인증 정보입니다.") from error
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="유효하지 않은 인증 정보입니다."
+        ) from error
     settings = _settings(request)
     return AccessToken(
         accessToken=create_access_token(

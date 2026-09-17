@@ -60,6 +60,7 @@ class AccessToken(BaseModel):
     requested_audience: Literal["elementary", "secondary"] | None = Field(default=None, alias="requestedAudience")
     audience_switched: bool | None = Field(default=None, alias="audienceSwitched")
     chat_consent: bool | None = Field(default=None, alias="chatConsent")
+    username: str | None = None
 
 
 class PasswordChangeCompleted(BaseModel):
