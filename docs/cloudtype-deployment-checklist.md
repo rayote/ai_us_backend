@@ -101,4 +101,6 @@ Use `--replace` only for a reviewed correction to the same version. Back up `sur
 python scripts/register_frontend_surveys.py --backend-url <backend-url> --replace
 ```
 
-After registration, verify the definition list, participant submission and Queue completion, preview, and CSV export. The current round-1 v2 flattened counts are 230/208 for elementary part 1/2 and 230/233 for secondary part 1/2. Production promotion must happen only after the same checks pass in development.
+After registration, verify the definition list, participant submission and Queue completion, preview, and CSV export. The current round-1 v2 flattened counts are 230/209 for elementary part 1/2 and 230/234 for secondary part 1/2. Production promotion must happen only after the same checks pass in development.
+
+When adding `followup.researchConsent` to an already-used part-two version, run `scripts/backfill_followup_consent.py` in dry-run mode first. Only after reviewing the count should `--apply --confirm BACKFILL-FOLLOWUP-CONSENT` be used; existing responses are assigned `2` (아니오) only when the key is absent.

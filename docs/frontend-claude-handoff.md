@@ -51,6 +51,7 @@
 
 - 실제 설문 spec은 `index.html`의 `SURVEY_SETS`가 원본이다. `surveyRound`, `surveyVersion`, `audience`, `part`, `_meta.title`, 문항 key와 선택지 value는 연구진 확정값만 사용한다.
 - 현재 수집용 정의는 `t1-elem-part1-v2-0916`, `t1-elem-part2-v2-0916`, `t1-secondary-part1-v2-0916`, `t1-secondary-part2-v2-0916`이다. 기존 `v1-draft` 정의와 응답은 삭제하거나 덮어쓰지 않고 버전별로 병행 보존한다.
+- v2 파트 2 마지막에는 `followup.researchConsent`(예=1, 아니오=2)를 추가한다. 기존 파트 2 응답에는 이 key가 없을 수 있으므로, 연구진 승인 후 backend의 `scripts/backfill_followup_consent.py`로 `2`를 보수적으로 backfill한다.
 - 조건부로 숨겨지는 문항은 answers에서 생략될 수 있다. Backend는 등록되지 않은 top-level key만 거부하며 required/type/조건부 존재 여부는 frontend 설문 엔진이 검증한다.
 - Composite 답변은 부모 key 아래 객체로 저장한다. 평면 설문 정의에는 composite field와 `otherText` key도 등록하고, CSV export는 객체 내부 값을 해당 하위 열로 펼친다.
 - 설문 작성 모달은 장시간 입력 화면이므로 바깥 backdrop click이나 Escape로 닫지 않는다. 명시적인 닫기 버튼만 사용하며, 임시 저장 기능과 별개로 진행 중 입력을 우발적으로 잃지 않게 한다.

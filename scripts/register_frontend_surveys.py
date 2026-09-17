@@ -87,10 +87,25 @@ def extract_survey_sets(frontend_index: Path) -> dict[str, list[dict[str, Any]]]
 
 
 def build_payloads(survey_sets: dict[str, list[dict[str, Any]]], default_survey_round: int) -> list[dict[str, Any]]:
+    followup_question = {
+        "key": "followup.researchConsent",
+        "no": "14",
+        "text": "※ 다음 연구 참여 안내\n우리 연구팀은 앞으로 AI를 사용하는 활동에 직접 참여하는 연구도 계획하고 있어요. 이 연구에 대한 안내를 받고 싶나요?",
+        "required": True,
+        "type": "single",
+        "options": [{"value": 1, "label": "예"}, {"value": 2, "label": "아니오"}],
+        "helper": "※ '예'를 선택하면 앞에서 적은 연락처로 안내를 보내드립니다. '아니오'를 선택해도 사례비 등 어떤 불이익도 없으니 원하는 대로 선택하세요.",
+    }
     payloads: list[dict[str, Any]] = []
     for audience, parts in survey_sets.items():
         for part in parts:
             payload = dict(part)
+            if payload.get("part") == 2:
+                payload["scales"] = [dict(scale) for scale in payload.get("scales", [])]
+                last_scale = payload["scales"][-1]
+                last_scale["questions"] = list(last_scale.get("questions", []))
+                if not any(question.get("key") == followup_question["key"] for question in last_scale["questions"]):
+                    last_scale["questions"].append(followup_question)
             payload["surveyRound"] = payload.get("surveyRound") or default_survey_round
             payload["audience"] = audience
             payloads.append(payload)
