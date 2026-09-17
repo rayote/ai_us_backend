@@ -1,7 +1,6 @@
 from datetime import UTC, datetime
 
 import jwt
-
 from app.core.settings import Settings
 from app.main import create_app
 from app.schemas.application import ApplicationCreate, ApplicationRecord

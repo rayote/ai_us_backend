@@ -33,19 +33,22 @@ MONGODB_PASSWORD=<MongoDB admin password>
 DATABASE_NAME=ai_us_development
 FRONTEND_ORIGINS=<frontend service public URL>
 JWT_SECRET=<random secret of at least 32 bytes>
+JWT_EXPIRATION_MINUTES=60
+PARTICIPANT_JWT_EXPIRATION_MINUTES=240
 RESEARCHER_BOOTSTRAP_USERNAME=<first admin username>
 RESEARCHER_BOOTSTRAP_PASSWORD=<first admin password>
 ```
 
 The backend creates `mongodb://<username>:<password>@<host>:<port>/?authSource=admin` at runtime. `MONGODB_USERNAME` and `MONGODB_PASSWORD` must be CloudType Secrets. The password is URL-encoded by the backend, so do not manually encode special characters. `MONGODB_URI` remains only as an optional legacy override and should not be set for this deployment.
 
-Gmail Secrets are not required for the current simplified password reset flow. Password reset verifies participant phone and email, resets the password to `1234`, and forces first-login password change; leaving `EMAIL_PROVIDER`, `SMTP_*`, `EMAIL_FROM`, and `PASSWORD_RESET_BASE_URL` unset does not prevent deployment.
+Gmail Secrets are not required. Password reset verifies participant and guardian phone numbers, resets the password to `1234`, and forces first-login password change. Leaving `EMAIL_PROVIDER`, `SMTP_*`, `EMAIL_FROM`, and `PASSWORD_RESET_BASE_URL` unset does not prevent deployment.
 
 ## First Deployment Checks
 
 1. Confirm the backend build installs `requirements.txt` successfully.
 2. Confirm both Uvicorn and the Queue worker start in backend logs.
 3. Open `GET /health` and confirm `status` is `ok`.
+	- Development must return `environment: development`; production must return `environment: production`.
 4. Confirm the first admin can log in using the configured bootstrap credentials.
 5. Confirm the MongoDB container is not publicly exposed.
 6. Set the exact frontend public URL in `FRONTEND_ORIGINS` and verify browser requests are accepted by CORS.
@@ -68,8 +71,34 @@ APP_ENV=production
 DATABASE_NAME=<production database name>
 FRONTEND_ORIGINS=https://web-ai-us-mu2jfq4sfccf2f38.sel3.cloudtype.app
 JWT_SECRET=<production-only secret>
+JWT_EXPIRATION_MINUTES=60
+PARTICIPANT_JWT_EXPIRATION_MINUTES=240
 RESEARCHER_BOOTSTRAP_USERNAME=<production first admin username>
 RESEARCHER_BOOTSTRAP_PASSWORD=<production first admin password>
 ```
 
 The frontend maps the development hostname to the development backend and the production hostname to the production backend. Any unknown hostname falls back to the production backend.
+
+`FLASK_ENV` is ignored because this service uses FastAPI. Set `APP_ENV=production` explicitly in the production backend.
+
+## Survey Definition Promotion
+
+Treat frontend `SURVEY_SETS` as the authoritative survey source. Before synchronization, run `git fetch`, compare local `HEAD` with `origin/main`, and update with `git pull --ff-only`.
+
+```sh
+python scripts/sync_frontend_survey_definitions.py --dry-run
+```
+
+For a new `surveyVersion`, register it through the admin API and keep earlier definitions and responses. The default backend URL is development.
+
+```sh
+python scripts/register_frontend_surveys.py
+```
+
+Use `--replace` only for a reviewed correction to the same version. Back up `survey_definitions` first and verify that existing response keys remain compatible.
+
+```sh
+python scripts/register_frontend_surveys.py --backend-url <backend-url> --replace
+```
+
+After registration, verify the definition list, participant submission and Queue completion, preview, and CSV export. The current round-1 v2 flattened counts are 230/208 for elementary part 1/2 and 230/233 for secondary part 1/2. Production promotion must happen only after the same checks pass in development.

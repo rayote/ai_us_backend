@@ -1,5 +1,7 @@
 # AI 마음 탐사대 백엔드 구현 계획
 
+> 이 문서는 초기 설계 기록이다. 현재 동작과 운영 절차는 `README.md`, `docs/api-contract.md`, `docs/frontend-claude-handoff.md`, `docs/cloudtype-deployment-checklist.md`를 우선한다.
+
 ## 1. 확정된 전제
 
 - 프론트엔드는 별도 `ai_us` 저장소에서 유지한다. 기존 HTML, CSS, 이미지, inline JavaScript 구조는 변경하지 않는다.
@@ -50,8 +52,7 @@
 - 승인 시 참여자 초기 비밀번호는 공통값 `1234`로 설정하되, 평문이 아닌 단방향 해시로만 저장한다.
 - 공통 초기 비밀번호로 로그인한 참여자는 설문과 대화문에 접근하기 전에 비밀번호 변경 화면으로 이동하도록 강제한다.
 - 로그인과 비밀번호 재설정 요청에는 반복 시도 제한을 적용한다.
-- `PasswordReset.sendResetLink`는 1회용 재설정 토큰을 동기 생성하고, 전용 Gmail 계정의 SMTP 이메일 발송 작업은 Queue로 처리한다. 외부 발송 지연·재시도가 로그인 화면을 막지 않도록 한다.
-- 초기 이메일 발송 계정은 전용 `@gmail.com` 1개로 운영한다. 2단계 인증과 앱 비밀번호를 사용하며, SMTP 설정은 CloudType Secret으로만 관리한다.
+- 현재 비밀번호 재설정은 본인 휴대폰과 보호자 휴대폰 일치 여부를 확인하고 초기 비밀번호 `1234`로 되돌린다. 이메일 token/Gmail 발송 방식은 구현하지 않는다.
 - SMS 발송은 보류한다. 참여 안내 또는 비밀번호 재설정에 필요해지면 외부 SMS 공급자, 발신번호, 수신 동의 절차를 확정한 뒤 별도 Queue 작업으로 추가한다.
 
 ### 3단계: 설문 응답과 대화문 제출
@@ -103,7 +104,7 @@ API의 실제 URL과 JSON 필드명은 프론트 소스를 받은 뒤 기존 함
 | 연구자 계정 생성 | `POST /api/v1/admin/researchers` | 관리자 전용 기능, 연구자 화면 추가 시 연동 |
 | 설문 정의 등록 | `POST /api/v1/admin/survey-definitions` | 관리자 전용, 설문 문항 확정 뒤 등록 |
 | 설문 정의 일괄 등록 | 추후 `POST /api/v1/admin/survey-definition-imports` 또는 backend import 명령 | CSV·Excel 우선, Word·PDF는 미리보기 검토 뒤 등록 |
-| 비밀번호 재설정 요청 | `POST /api/v1/auth/password-reset-requests` | `PasswordReset.sendResetLink` |
+| 비밀번호 재설정 | `POST /api/v1/auth/participant/password-reset` | 본인·보호자 휴대폰 번호 확인 |
 | 참여자 최초 비밀번호 변경 | `POST /api/v1/auth/participant/password` | 첫 로그인 비밀번호 변경 화면 |
 | 신청 목록 | `GET /api/v1/researcher/applications` | `applications` 배열 |
 | 신청 승인 | `POST /api/v1/researcher/applications/approve` | `approve()` |

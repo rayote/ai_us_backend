@@ -59,11 +59,11 @@ For a scale-based questionnaire, send `audience` and `scales`. The backend prese
 }
 ```
 
-When `questions` is omitted, each scale question must include stable answer keys. For normal questions, the registered key is the question `key`. For `grid` questions, the backend registers each `rows[].key` because the frontend submits row-level answers. Conditional `detail.field.key` and `other.field.key` values are also registered as additional CSV/export columns. The backend generates `csvColumn` values from `scaleName | no | text` plus row or field labels and assigns sequential `order` values. Additional fields such as `type`, `options`, `logic`, `sensitive`, and `scoring` remain in the preserved `spec`; current final submission validation still checks only registered answer keys.
+When `questions` is omitted, each scale question must include stable answer keys. For normal questions, the registered key is the question `key`. For `grid` questions, the backend registers each `rows[].key` because the frontend submits row-level answers. Composite fields, composite `otherText`, and conditional `detail.field.key`/`other.field.key` values are also registered as CSV/export columns. The backend generates `csvColumn` values from `scaleName | no | text` plus row or field labels and assigns sequential `order` values. Additional fields such as `type`, `options`, `logic`, `sensitive`, and `scoring` remain in the preserved `spec`; current final submission validation still checks only registered top-level answer keys.
 
 The same round and version cannot be registered more than once. Register a new `surveyVersion` when the questionnaire changes.
 
-The active round-1 questionnaire uses four `v2-0916` versions, split by audience and part. Earlier `v1-draft` definitions and responses remain available under their original versions. Conditional answers may be absent. Composite answers remain nested under their parent key in stored responses, while CSV export resolves registered composite field and `otherText` keys into separate columns.
+The active round-1 questionnaire uses four `v2-0916` versions, split by audience and part: elementary part 1/2 have 230/208 flattened fields, and secondary part 1/2 have 230/233. Earlier `v1-draft` definitions and responses remain available under their original versions. Conditional answers may be absent. Composite answers remain nested under their parent key in stored responses, while CSV export resolves registered composite field and `otherText` keys into separate columns.
 
 The backend reads both the current `csvColumn` field and the legacy MongoDB `csv_column` field for definitions registered during early development. New definitions are stored with `csvColumn`.
 
@@ -77,12 +77,12 @@ This endpoint accepts an `admin` or `researcher` bearer token and returns regist
 [
   {
     "surveyRound": 1,
-    "surveyVersion": "t1-elem-part1-v1-draft",
+    "surveyVersion": "t1-elem-part1-v2-0916",
     "audience": "elementary",
     "part": 1,
     "title": "청소년 생성형 AI 사용 경험 연구 · 1회차 파트1 (초등)",
-    "questionCount": 217,
-    "createdAt": "2026-09-14T00:00:00Z"
+    "questionCount": 230,
+    "createdAt": "2026-09-17T00:00:00Z"
   }
 ]
 ```
@@ -278,9 +278,9 @@ Both endpoints require an `admin` or `researcher` bearer token.
 
 Returns participant totals by elementary, middle, high, and total, plus unique completed participant counts by survey round.
 
-`GET /api/v1/researcher/nonparticipants?survey_round=1&survey_version=demo-v1`
+`GET /api/v1/researcher/nonparticipants?survey_round=1&survey_version=t1-elem-part1-v2-0916`
 
-Returns the participants without a completed response for the specified survey round and version, with counts by school level. The frontend development dashboard currently uses the `demo-v1` version; replace it when the real questionnaire definition is registered.
+Returns the participants without a completed response for the specified survey round and version, with counts by school level. The researcher UI populates its version selector from the registered definitions instead of hardcoding a version.
 
 ## Import participants from CSV
 
@@ -303,7 +303,7 @@ Successful response: `200 OK`
 }
 ```
 
-Each valid row creates a participant account with the hashed initial password `1234`, the registered email used for simplified password reset, and requires the first password change. Existing phone numbers are skipped. Invalid rows do not stop other valid rows from importing.
+Each valid row creates a participant account with the hashed initial password `1234`, the registered guardian phone used for password reset, and requires the first password change. Existing phone numbers are skipped. Invalid rows do not stop other valid rows from importing.
 
 ## Create researcher account
 
@@ -442,11 +442,11 @@ Successful response: `200 OK`
 ```json
 {
   "phone": "010-1234-5678",
-  "email": "participant@example.com"
+  "guardianPhone": "010-9876-5432"
 }
 ```
 
-This public endpoint resets a participant password to the initial password `1234` only when the registered phone number and email address match. The next participant login returns `needsPasswordChange: true`, so the frontend must show the first-password-change screen before opening the survey panel. No Gmail, SMTP, or email link is used in this simplified flow.
+This public endpoint resets a participant password to the initial password `1234` only when the registered participant and guardian phone numbers match. The next participant login returns `needsPasswordChange: true`, so the frontend must show the first-password-change screen before opening the survey panel. No Gmail, SMTP, or email link is used.
 
 Successful response: `200 OK`
 
@@ -458,4 +458,4 @@ Successful response: `200 OK`
 
 Failure response:
 
-- `404 Not Found`: the phone number and email do not match a participant account.
+- `404 Not Found`: the participant and guardian phone numbers do not match an account.

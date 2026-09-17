@@ -55,7 +55,7 @@
 - Composite 답변은 부모 key 아래 객체로 저장한다. 평면 설문 정의에는 composite field와 `otherText` key도 등록하고, CSV export는 객체 내부 값을 해당 하위 열로 펼친다.
 - 설문 작성 모달은 장시간 입력 화면이므로 바깥 backdrop click이나 Escape로 닫지 않는다. 명시적인 닫기 버튼만 사용하며, 임시 저장 기능과 별개로 진행 중 입력을 우발적으로 잃지 않게 한다.
 - 모바일 Likert 선택지는 가로 스크롤이나 화면 밖 넘침 없이 선택지 수에 맞춘 동일 폭 grid로 렌더링한다. 긴 라벨은 각 선택지 안에서 줄바꿈한다.
-- `usage.q12`처럼 정해진 AI 도구 목록을 묻는 순위 문항은 styled dropdown을 사용한다. 마지막 `기타 캐릭터AI 챗봇 직접 입력`을 선택하면 해당 순위에서만 텍스트 입력칸을 표시하고, 그 입력값을 답변으로 저장·복원한다.
+- v2의 `usage.q13`처럼 정해진 AI 도구 목록을 묻는 순위 문항은 styled dropdown을 사용한다. `기타 (직접 입력)`을 선택하면 해당 순위에서만 텍스트 입력칸을 표시하고, 그 입력값을 답변으로 저장·복원한다. 2·3순위의 `없음` 선택도 문자열 값으로 보존한다.
 - frontend 변경 후 backend 담당자가 `scripts/register_frontend_surveys.py` 또는 개발 DB 동기화 스크립트로 `survey_definitions`를 갱신한다. Claude는 MongoDB에 직접 접속하거나 definition을 직접 넣지 않는다.
 - 최종 설문 제출은 `POST /api/v1/survey-responses`에 `surveyRound`, `surveyVersion`, `answers`, `submissionId`를 전송한다. `GET /api/v1/submission-jobs/{submissionId}`가 `completed`일 때만 임시 저장을 삭제한다.
 - 설문 답변 key는 spec의 일반 문항 `key`, grid `rows[].key`, 조건부 `detail.field.key`/`other.field.key`를 그대로 사용한다.
@@ -78,18 +78,21 @@
 
 ## 운영 절차
 
-### 새 회차 설문 추가
+### 설문 정의 동기화
 
-1. 공동연구 실무진/Claude가 확정된 spec을 `SURVEY_SETS`에 추가한다.
-2. backend 담당자가 최신 프론트를 받고 설문 definition을 등록 또는 교체한다.
-3. 연구자 설문 버전 목록과 화면 select에 회차, 버전, 제목이 보이는지 확인한다.
-4. 참여자 제출, Queue `completed`, 연구자 미리보기, CSV 다운로드까지 개발 환경에서 확인한다.
+1. `ai_us`에서 `git fetch` 후 로컬 `HEAD`와 `origin/main`을 비교하고 `git pull --ff-only`로 최신 `SURVEY_SETS`를 받는다.
+2. `python scripts/sync_frontend_survey_definitions.py --dry-run`으로 네 정의가 파싱되는지와 flattened field 수를 확인한다.
+3. 문항 key 또는 값 의미가 바뀌면 기존 버전을 replace하지 않고 새 `surveyVersion`을 개발 DB에 등록한다. 동일 버전의 문구·보기만 고치는 경우에만 검토 후 replace한다.
+4. 개발 DB를 timestamp backup collection에 복제하고, 기존 응답 key 호환성과 frontend/DB exact match를 확인한다.
+5. 참여자 제출, Queue `completed`, 연구자 미리보기, CSV 다운로드를 개발 환경에서 확인한다. Composite `otherText`와 배열 값도 실제 CSV에서 확인한다.
+6. Backend 변경이 있으면 먼저 배포한 뒤 운영 admin API로 새 정의를 등록한다. 운영 정의 목록의 field 수와 CSV header를 재확인한다.
 
 ### 환경 분리
 
 - 개발과 운영은 별도의 CloudType backend, MongoDB, Secret, JWT secret을 사용한다.
 - 개발 DB 접근 정보는 Git ignore된 backend `.env`에만 둔다. 운영 MongoDB 접속정보는 CloudType Secret으로 관리한다.
 - 운영 설문 definition 동기화는 배포 backend의 admin API를 우선 사용한다.
+- 현재 v2 flattened field 수는 초등 파트 1/2 `230/208`, 중고등 파트 1/2 `230/233`이다.
 
 ## 향후 작업 후보
 
