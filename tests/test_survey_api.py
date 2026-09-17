@@ -1,6 +1,6 @@
 from datetime import UTC, datetime
 
-from app.core.security import hash_password
+from app.core.security import create_access_token, hash_password
 from app.core.settings import Settings
 from app.main import create_app
 from app.schemas.survey import SurveyDefinition, SurveyDefinitionCreate, SurveyDefinitionSummary, SurveyResponseRecord
@@ -94,6 +94,9 @@ class InMemorySurveyResponses(SurveyResponseRepository):
             )
         ]
 
+    async def list_versions_for_participant(self, participant_id: str, survey_round: int) -> list[str]:
+        return ["t1-elem-part1-v2-0916"] if participant_id == "participant-1" and survey_round == 1 else []
+
 
 class InMemoryParticipants(ParticipantAccountRepository):
     async def find_by_phone(self, phone: str):
@@ -134,11 +137,29 @@ def _token(client: TestClient, username: str, password: str) -> str:
     return response.json()["accessToken"]
 
 
+def _participant_token() -> str:
+    return create_access_token("participant-1", "participant", "test-secret-at-least-thirty-two-bytes", 60)
+
+
 def _definition_payload() -> dict[str, object]:
     return {
         "surveyRound": 2,
         "surveyVersion": "2026-round-2-v2",
         "questions": [{"key": "q1", "csvColumn": "첫 번째 문항", "order": 1}],
+    }
+
+
+def test_participant_can_restore_survey_progress_from_server() -> None:
+    with _client() as client:
+        response = client.get(
+            "/api/v1/participant/survey-progress?survey_round=1",
+            headers={"Authorization": f"Bearer {_participant_token()}"},
+        )
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "surveyRound": 1,
+        "completedVersions": ["t1-elem-part1-v2-0916"],
     }
 
 

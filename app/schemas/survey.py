@@ -168,3 +168,8 @@ class SurveySubmissionCreate(BaseModel):
 class SurveySubmissionAccepted(BaseModel):
     submission_id: str = Field(alias="submissionId")
     status: str
+
+
+class ParticipantSurveyProgress(BaseModel):
+    survey_round: int = Field(alias="surveyRound")
+    completed_versions: list[str] = Field(alias="completedVersions")

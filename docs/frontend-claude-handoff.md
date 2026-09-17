@@ -58,6 +58,7 @@
 - v2의 `usage.q13`처럼 정해진 AI 도구 목록을 묻는 순위 문항은 styled dropdown을 사용한다. `기타 (직접 입력)`을 선택하면 해당 순위에서만 텍스트 입력칸을 표시하고, 그 입력값을 답변으로 저장·복원한다. 2·3순위의 `없음` 선택도 문자열 값으로 보존한다.
 - frontend 변경 후 backend 담당자가 `scripts/register_frontend_surveys.py` 또는 개발 DB 동기화 스크립트로 `survey_definitions`를 갱신한다. Claude는 MongoDB에 직접 접속하거나 definition을 직접 넣지 않는다.
 - 최종 설문 제출은 `POST /api/v1/survey-responses`에 `surveyRound`, `surveyVersion`, `answers`, `submissionId`를 전송한다. `GET /api/v1/submission-jobs/{submissionId}`가 `completed`일 때만 임시 저장을 삭제한다.
+- 기기 간 파트 완료 상태는 `GET /api/v1/participant/survey-progress?survey_round=1`에서 복원한다. 브라우저 `localStorage` 완료 marker는 임시 최적화로만 사용하고, 서버에 저장된 완료 응답이 파트 2 잠금 해제의 기준이다.
 - 설문 답변 key는 spec의 일반 문항 `key`, grid `rows[].key`, 조건부 `detail.field.key`/`other.field.key`를 그대로 사용한다.
 - 연구자 설문 버전 목록은 `GET /api/v1/researcher/survey-definitions`로 채운다. 결과 조회/CSV는 선택된 `surveyRound`와 `surveyVersion`을 그대로 전송한다.
 - 파트 1 제출 완료 후 파트 2 definition이 있으면 파트 2를 자동으로 열고, 파트 2 제출 완료 후 `chatConsent`가 true이면 대화문 제출 탭으로 전환한다.

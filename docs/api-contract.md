@@ -149,6 +149,19 @@ When part 1 completes, the frontend may immediately open part 2 when that defini
 
 This endpoint requires the submitting participant bearer token and returns the job's `queued`, `processing`, `completed`, or `failed` status. A participant cannot read another participant's submission status.
 
+## Get participant survey progress
+
+`GET /api/v1/participant/survey-progress?survey_round=1` requires a participant bearer token and returns survey versions whose final responses are already stored for that participant and round.
+
+```json
+{
+  "surveyRound": 1,
+  "completedVersions": ["t1-elem-part1-v2-0916"]
+}
+```
+
+The frontend combines this server state with browser-local completion markers, so completing part 1 on one device unlocks part 2 after signing in on another device.
+
 ## Submit AI chat transcript
 
 `POST /api/v1/chat-submissions`

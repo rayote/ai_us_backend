@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from app.api.auth import _participant_id
-from app.schemas.survey import SurveySubmissionAccepted, SurveySubmissionCreate
+from app.schemas.survey import ParticipantSurveyProgress, SurveySubmissionAccepted, SurveySubmissionCreate
 from app.services.jobs import JobRepository
 from app.services.submissions import SurveySubmissionService, UnknownQuestionKeyError, UnknownSurveyDefinitionError
 from app.services.surveys import SurveyDefinitionRepository
@@ -41,6 +41,19 @@ async def submit_survey_response(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=f"알 수 없는 문항 키: {error}"
         ) from error
     return SurveySubmissionAccepted(submissionId=job.id, status=job.status)
+
+
+@router.get("/participant/survey-progress", response_model=ParticipantSurveyProgress)
+async def participant_survey_progress(
+    survey_round: int,
+    request: Request,
+    participant_id: str = Depends(_participant_id),
+) -> ParticipantSurveyProgress:
+    responses = getattr(request.app.state, "survey_response_repository", None)
+    if responses is None:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="설문 응답 서비스를 준비 중입니다.")
+    completed_versions = sorted(await responses.list_versions_for_participant(participant_id, survey_round))
+    return ParticipantSurveyProgress(surveyRound=survey_round, completedVersions=completed_versions)
 
 
 @router.get("/submission-jobs/{submission_id}", response_model=SurveySubmissionAccepted)
