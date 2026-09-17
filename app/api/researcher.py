@@ -428,7 +428,11 @@ async def get_chat_download_job(
     job = await _job_repository(request).get(job_id)
     if job is None or job.job_type != "chat_download":
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="다운로드 작업을 찾을 수 없습니다.")
-    artifact = await _chat_download_artifact_repository(request).get(job.idempotency_key) if job.status == "completed" else None
+    artifact = (
+        await _chat_download_artifact_repository(request).get(job.idempotency_key)
+        if job.status == "completed"
+        else None
+    )
     return ChatDownloadJobStatus(
         jobId=job.id,
         status=job.status,

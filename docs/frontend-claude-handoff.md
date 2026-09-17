@@ -61,6 +61,8 @@
 - 기기 간 파트 완료 상태는 `GET /api/v1/participant/survey-progress?survey_round=1`에서 복원한다. 브라우저 `localStorage` 완료 marker는 임시 최적화로만 사용하고, 서버에 저장된 완료 응답이 파트 2 잠금 해제의 기준이다.
 - 설문 답변 key는 spec의 일반 문항 `key`, grid `rows[].key`, 조건부 `detail.field.key`/`other.field.key`를 그대로 사용한다.
 - 연구자 설문 버전 목록은 `GET /api/v1/researcher/survey-definitions`로 채운다. 결과 조회/CSV는 선택된 `surveyRound`와 `surveyVersion`을 그대로 전송한다.
+- 연구자 페이지의 미참여자·결과 다운로드 설문 selector는 기본적으로 현재 운영 `v2-0916`만 표시한다. 과거 `v1-draft` 정의와 응답은 DB/API에 보존하며, `과거 v1 포함` 옵션을 켠 경우에만 selector에 표시한다.
+- 참여 현황 bar chart는 설문 버전별로 나누지 않고 회차별 고유 참여자 수를 집계하는 기존 workflow를 유지한다. 따라서 v1을 별도 bar로 노출하지 않는다.
 - 파트 1 제출 완료 후 파트 2 definition이 있으면 파트 2를 자동으로 열고, 파트 2 제출 완료 후 `chatConsent`가 true이면 대화문 제출 탭으로 전환한다.
 
 ### AI 대화문 제출

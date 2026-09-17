@@ -89,6 +89,8 @@ This endpoint accepts an `admin` or `researcher` bearer token and returns regist
 
 `title` and `part` are populated from the preserved survey definition `spec` when available. The researcher page uses this list to populate survey version selections instead of hardcoding version IDs. When a new round is added, the frontend `SURVEY_SETS` should include the correct `surveyRound`, `surveyVersion`, `audience`, `part`, and `_meta.title`; the backend registration helper preserves those values instead of requiring direct MongoDB edits.
 
+The API returns both active and historical definitions. The researcher frontend hides versions matching `v1-draft` by default in the nonparticipant and result-download selectors, with an explicit historical-version option for legacy response lookup. Participation status remains aggregated by round and distinct participant, not split by survey version.
+
 ## Planned bulk survey-definition import
 
 For large questionnaires, the admin will use a future bulk import endpoint or reviewed backend import command instead of registering items one by one. The preferred source is CSV or Excel with the following columns:

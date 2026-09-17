@@ -16,9 +16,7 @@ if str(PROJECT_ROOT) not in sys.path:
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(
-        description="Report or remove non-beta participant data. Dry-run is the default."
-    )
+    parser = argparse.ArgumentParser(description="Report or remove non-beta participant data. Dry-run is the default.")
     parser.add_argument("--mongodb-uri")
     parser.add_argument("--database-name")
     parser.add_argument("--cutoff-kst", default="2026-09-17 11:00")
@@ -46,7 +44,12 @@ def ids_for_documents(documents: list[dict[str, Any]]) -> set[str]:
 
 
 def gridfs_ids(database: Any, bucket: str, excluded: set[str]) -> list[str]:
-    return [str(document["_id"]) for document in database[f"{bucket}.files"].find({"_id": {"$nin": [ObjectId(value) for value in excluded if ObjectId.is_valid(value)]}}, {"_id": 1})]
+    return [
+        str(document["_id"])
+        for document in database[f"{bucket}.files"].find(
+            {"_id": {"$nin": [ObjectId(value) for value in excluded if ObjectId.is_valid(value)]}}, {"_id": 1}
+        )
+    ]
 
 
 def main() -> int:
@@ -75,14 +78,26 @@ def main() -> int:
         all_applications = list(database.applications.find({}, {"_id": 1, "phone_normalized": 1, "submitted_at": 1}))
 
         response_filter = {"participant_id": {"$nin": sorted(kept_participant_ids)}}
-        responses_to_remove = list(database.survey_responses.find(response_filter, {"_id": 1, "participant_id": 1, "survey_version": 1}))
+        responses_to_remove = list(
+            database.survey_responses.find(response_filter, {"_id": 1, "participant_id": 1, "survey_version": 1})
+        )
 
         job_filter = {"payload.participantId": {"$nin": sorted(kept_participant_ids)}}
-        jobs_to_remove = list(database.submission_jobs.find(job_filter, {"_id": 1, "job_type": 1, "status": 1, "payload.participantId": 1}))
+        jobs_to_remove = list(
+            database.submission_jobs.find(
+                job_filter, {"_id": 1, "job_type": 1, "status": 1, "payload.participantId": 1}
+            )
+        )
 
         chat_filter = {"participant_id": {"$nin": sorted(kept_participant_ids)}}
-        chats_to_remove = list(database.chat_submissions.find(chat_filter, {"_id": 1, "participant_id": 1, "attachments": 1}))
-        kept_chats = list(database.chat_submissions.find({"participant_id": {"$in": sorted(kept_participant_ids)}}, {"attachments": 1}))
+        chats_to_remove = list(
+            database.chat_submissions.find(chat_filter, {"_id": 1, "participant_id": 1, "attachments": 1})
+        )
+        kept_chats = list(
+            database.chat_submissions.find(
+                {"participant_id": {"$in": sorted(kept_participant_ids)}}, {"attachments": 1}
+            )
+        )
         kept_file_ids = {
             str(attachment.get("fileId"))
             for chat in kept_chats
@@ -93,7 +108,9 @@ def main() -> int:
 
         all_download_jobs = list(database.submission_jobs.find({"job_type": "chat_download"}, {"_id": 1, "status": 1}))
         all_download_artifacts = list(database.chat_download_artifacts.find({}, {"_id": 1, "file_id": 1}))
-        removable_download_file_ids = [str(artifact["file_id"]) for artifact in all_download_artifacts if artifact.get("file_id")]
+        removable_download_file_ids = [
+            str(artifact["file_id"]) for artifact in all_download_artifacts if artifact.get("file_id")
+        ]
 
         report = {
             "mode": "apply" if args.apply else "dry-run",
@@ -108,7 +125,9 @@ def main() -> int:
                 "participantsToRemove": len(all_participants) - len(kept_participants),
                 "applicationsTotal": len(all_applications),
                 "applicationsToRemove": len(all_applications) - len(kept_applications),
-                "applicationsAfterCutoff": sum(1 for d in all_applications if d.get("submitted_at") and d["submitted_at"] >= cutoff_utc),
+                "applicationsAfterCutoff": sum(
+                    1 for d in all_applications if d.get("submitted_at") and d["submitted_at"] >= cutoff_utc
+                ),
                 "surveyResponsesToRemove": len(responses_to_remove),
                 "submissionJobsToRemove": len(jobs_to_remove),
                 "chatSubmissionsToRemove": len(chats_to_remove),
@@ -123,17 +142,27 @@ def main() -> int:
         if not args.apply:
             return 0
 
-        database.participants.delete_many({"role": "participant", "_id": {"$nin": [d["_id"] for d in kept_participants]}})
+        database.participants.delete_many(
+            {"role": "participant", "_id": {"$nin": [d["_id"] for d in kept_participants]}}
+        )
         database.applications.delete_many({"_id": {"$nin": [d["_id"] for d in kept_applications]}})
         database.survey_responses.delete_many(response_filter)
         database.submission_jobs.delete_many(job_filter)
         database.chat_submissions.delete_many(chat_filter)
-        database["chat_uploads.files"].delete_many({"_id": {"$in": [ObjectId(value) for value in removable_upload_ids]}})
-        database["chat_uploads.chunks"].delete_many({"files_id": {"$in": [ObjectId(value) for value in removable_upload_ids]}})
+        database["chat_uploads.files"].delete_many(
+            {"_id": {"$in": [ObjectId(value) for value in removable_upload_ids]}}
+        )
+        database["chat_uploads.chunks"].delete_many(
+            {"files_id": {"$in": [ObjectId(value) for value in removable_upload_ids]}}
+        )
         database.submission_jobs.delete_many({"job_type": "chat_download"})
         database.chat_download_artifacts.delete_many({})
-        database["chat_downloads.files"].delete_many({"_id": {"$in": [ObjectId(value) for value in removable_download_file_ids]}})
-        database["chat_downloads.chunks"].delete_many({"files_id": {"$in": [ObjectId(value) for value in removable_download_file_ids]}})
+        database["chat_downloads.files"].delete_many(
+            {"_id": {"$in": [ObjectId(value) for value in removable_download_file_ids]}}
+        )
+        database["chat_downloads.chunks"].delete_many(
+            {"files_id": {"$in": [ObjectId(value) for value in removable_download_file_ids]}}
+        )
         print("Applied cleanup.")
         return 0
     finally:

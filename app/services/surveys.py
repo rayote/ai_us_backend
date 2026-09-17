@@ -139,9 +139,7 @@ class MongoSurveyResponseRepository:
         return [_response_from_document(document) async for document in cursor]
 
     async def list_versions_for_participant(self, participant_id: str, survey_round: int) -> list[str]:
-        cursor = self._collection.find(
-            {"participant_id": participant_id, "survey_round": survey_round}
-        )
+        cursor = self._collection.find({"participant_id": participant_id, "survey_round": survey_round})
         return [document["survey_version"] async for document in cursor]
 
     async def list_all_responses(self) -> list[SurveyResponseRecord]:

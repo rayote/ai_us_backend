@@ -51,7 +51,9 @@ async def participant_survey_progress(
 ) -> ParticipantSurveyProgress:
     responses = getattr(request.app.state, "survey_response_repository", None)
     if responses is None:
-        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="설문 응답 서비스를 준비 중입니다.")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="설문 응답 서비스를 준비 중입니다."
+        )
     completed_versions = sorted(await responses.list_versions_for_participant(participant_id, survey_round))
     return ParticipantSurveyProgress(surveyRound=survey_round, completedVersions=completed_versions)
 
