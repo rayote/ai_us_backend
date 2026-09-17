@@ -63,6 +63,8 @@ When `questions` is omitted, each scale question must include stable answer keys
 
 The same round and version cannot be registered more than once. Register a new `surveyVersion` when the questionnaire changes.
 
+The active round-1 questionnaire uses four `v2-0916` versions, split by audience and part. Earlier `v1-draft` definitions and responses remain available under their original versions. Conditional answers may be absent. Composite answers remain nested under their parent key in stored responses, while CSV export resolves registered composite field and `otherText` keys into separate columns.
+
 The backend reads both the current `csvColumn` field and the legacy MongoDB `csv_column` field for definitions registered during early development. New definitions are stored with `csvColumn`.
 
 ## List survey definitions
