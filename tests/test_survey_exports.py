@@ -80,6 +80,34 @@ def test_csv_export_uses_question_definition_order_and_preserves_missing_answers
     assert csv_text.splitlines()[2].endswith("다른 응답,")
 
 
+def test_csv_export_reads_nested_composite_answers() -> None:
+    definition = SurveyDefinition(
+        surveyRound=1,
+        surveyVersion="v2",
+        questions=[
+            SurveyQuestion(key="aiexp.q12_other", csvColumn="기타 순위", order=1),
+            SurveyQuestion(key="aiexp.q12_other_txt", csvColumn="기타 대상", order=2),
+        ],
+        createdAt=datetime.now(UTC),
+    )
+    response = SurveyResponseRecord(
+        participantId="participant-1",
+        surveyRound=1,
+        surveyVersion="v2",
+        answers={
+            "aiexp.q12": {
+                "aiexp.q12_other": "2",
+                "aiexp.q12_other_txt": "상담 선생님",
+            }
+        },
+        submittedAt=datetime.now(UTC),
+    )
+
+    csv_text = survey_responses_to_csv(definition, [response])
+
+    assert csv_text.splitlines()[1].endswith("2,상담 선생님")
+
+
 def test_mongo_definition_storage_uses_csv_column_alias() -> None:
     collection = InMemoryDefinitionCollection()
     repository = MongoSurveyDefinitionRepository(collection)
@@ -152,6 +180,21 @@ def test_mongo_definition_storage_accepts_nested_scale_spec() -> None:
                         "required": True,
                         "other": {"when": 99, "field": {"key": "usage.q19_other", "label": "기타 서비스명"}},
                     },
+                    {
+                        "key": "aiexp.q12",
+                        "no": "12",
+                        "text": "이야기 대상 순위",
+                        "type": "composite",
+                        "required": True,
+                        "fields": [
+                            {
+                                "key": "aiexp.q12_other",
+                                "label": "기타",
+                                "type": "select",
+                                "otherText": {"key": "aiexp.q12_other_txt", "label": "기타 대상"},
+                            }
+                        ],
+                    },
                 ],
             }
         ],
@@ -199,6 +242,21 @@ def test_mongo_definition_storage_accepts_nested_scale_spec() -> None:
             "key": "usage.q19_other",
             "csvColumn": "인구통계학적 정보 및 일반적 사항 | 19 | 주로 사용하는 AI 서비스 | 기타 서비스명",
             "order": 8,
+        },
+        {
+            "key": "aiexp.q12",
+            "csvColumn": "인구통계학적 정보 및 일반적 사항 | 12 | 이야기 대상 순위",
+            "order": 9,
+        },
+        {
+            "key": "aiexp.q12_other",
+            "csvColumn": "인구통계학적 정보 및 일반적 사항 | 12 | 이야기 대상 순위 | 기타",
+            "order": 10,
+        },
+        {
+            "key": "aiexp.q12_other_txt",
+            "csvColumn": "인구통계학적 정보 및 일반적 사항 | 12 | 이야기 대상 순위 | 기타 대상",
+            "order": 11,
         },
     ]
     assert stored.audience == "elementary"

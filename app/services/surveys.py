@@ -170,10 +170,19 @@ def survey_responses_to_csv(
                 response.survey_round,
                 response.survey_version,
                 response.submitted_at.isoformat(),
-                *[_csv_value(response.answers.get(question.key)) for question in questions],
+                *[_csv_value(_answer_value(response.answers, question.key)) for question in questions],
             ]
         )
     return output.getvalue()
+
+
+def _answer_value(answers: dict[str, object], key: str) -> object | None:
+    if key in answers:
+        return answers[key]
+    for value in answers.values():
+        if isinstance(value, dict) and key in value:
+            return value[key]
+    return None
 
 
 def _excel_text(value: str) -> str:

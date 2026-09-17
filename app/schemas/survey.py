@@ -117,7 +117,13 @@ def _extra_answer_fields(question: dict[str, object]) -> list[dict[str, object]]
     fields: list[dict[str, object]] = []
     composite_fields = question.get("fields")
     if question.get("type") == "composite" and isinstance(composite_fields, list):
-        fields.extend(field for field in composite_fields if isinstance(field, dict))
+        for field in composite_fields:
+            if not isinstance(field, dict):
+                continue
+            fields.append(field)
+            other_text = field.get("otherText")
+            if isinstance(other_text, dict):
+                fields.append(other_text)
     for container_name in ("detail", "other"):
         container = question.get(container_name)
         if isinstance(container, dict) and isinstance(container.get("field"), dict):
