@@ -1,10 +1,16 @@
 from datetime import UTC, datetime
 
+from app.api.researcher import _survey_export_filename
 from app.core.security import create_access_token, hash_password
 from app.core.settings import Settings
-from app.api.researcher import _survey_export_filename
 from app.main import create_app
-from app.schemas.survey import SurveyDefinition, SurveyDefinitionCreate, SurveyDefinitionSummary, SurveyQuestion, SurveyResponseRecord
+from app.schemas.survey import (
+    SurveyDefinition,
+    SurveyDefinitionCreate,
+    SurveyDefinitionSummary,
+    SurveyQuestion,
+    SurveyResponseRecord,
+)
 from app.services.auth import (
     ParticipantAccount,
     ParticipantAccountRepository,
@@ -197,6 +203,7 @@ def test_admin_registers_definition_and_researcher_downloads_csv() -> None:
     assert create_response.status_code == 201
     assert export_response.status_code == 200
     assert export_response.headers["content-type"].startswith("text/csv")
+    assert export_response.headers["content-disposition"].startswith('attachment; filename="T2_all_part_')
     assert "아이디(휴대폰),학교급,학년,surveyRound,surveyVersion,응답 일시(KST),첫 번째 문항" in export_response.text
     assert '"=""01012345678""",초등' in export_response.text
 
