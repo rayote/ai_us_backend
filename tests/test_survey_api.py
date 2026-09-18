@@ -130,7 +130,14 @@ class InMemoryParticipants(ParticipantAccountRepository):
 def _client() -> TestClient:
     return TestClient(
         create_app(
-            Settings("test", None, "ai_us_test", (), "test-secret-at-least-thirty-two-bytes", 60),
+            Settings(
+                "test",
+                None,
+                "ai_us_test",
+                ("https://frontend.example.test",),
+                "test-secret-at-least-thirty-two-bytes",
+                60,
+            ),
             researcher_account_repository=InMemoryResearchers(),
             participant_account_repository=InMemoryParticipants(),
             survey_definition_repository=InMemorySurveyDefinitions(),
@@ -196,7 +203,10 @@ def test_admin_registers_definition_and_researcher_downloads_csv() -> None:
         researcher_token = _token(client, "researcher", "researcher-password")
         export_response = client.get(
             "/api/v1/researcher/exports/survey-responses",
-            headers={"Authorization": f"Bearer {researcher_token}"},
+            headers={
+                "Authorization": f"Bearer {researcher_token}",
+                "Origin": "https://frontend.example.test",
+            },
             params={"survey_round": 2, "survey_version": "2026-round-2-v2"},
         )
 
@@ -204,6 +214,7 @@ def test_admin_registers_definition_and_researcher_downloads_csv() -> None:
     assert export_response.status_code == 200
     assert export_response.headers["content-type"].startswith("text/csv")
     assert export_response.headers["content-disposition"].startswith('attachment; filename="T2_all_part_')
+    assert export_response.headers["access-control-expose-headers"] == "Content-Disposition"
     assert "아이디(휴대폰),학교급,학년,surveyRound,surveyVersion,응답 일시(KST),첫 번째 문항" in export_response.text
     assert '"=""01012345678""",초등' in export_response.text
 

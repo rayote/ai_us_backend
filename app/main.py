@@ -133,6 +133,7 @@ def create_app(
             allow_credentials=True,
             allow_methods=["GET", "POST", "PUT", "DELETE"],
             allow_headers=["Authorization", "Content-Type"],
+            expose_headers=["Content-Disposition"],
         )
 
     @app.get("/health", status_code=status.HTTP_200_OK)
