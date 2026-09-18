@@ -94,7 +94,7 @@ def build_payloads(survey_sets: dict[str, list[dict[str, Any]]], default_survey_
         "required": True,
         "type": "single",
         "options": [{"value": 1, "label": "예"}, {"value": 2, "label": "아니오"}],
-        "helper": "※ '예'를 선택하면 앞에서 적은 연락처로 안내를 보내드립니다. '아니오'를 선택해도 사례비 등 어떤 불이익도 없으니 원하는 대로 선택하세요.",
+        "helper": "'예'를 선택하면 앞에서 적은 연락처로 안내를 보내드립니다. '아니오'를 선택해도 사례비 등 어떤 불이익도 없으니 원하는 대로 선택하세요.",
     }
     payloads: list[dict[str, Any]] = []
     for audience, parts in survey_sets.items():

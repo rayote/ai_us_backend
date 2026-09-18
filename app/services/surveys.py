@@ -4,6 +4,7 @@ import csv
 import io
 from datetime import UTC, datetime
 from typing import Any, Protocol
+from zoneinfo import ZoneInfo
 
 from app.schemas.survey import SurveyDefinition, SurveyDefinitionCreate, SurveyDefinitionSummary, SurveyResponseRecord
 from pymongo.errors import DuplicateKeyError
@@ -162,7 +163,7 @@ def survey_responses_to_csv(
             "학년",
             "surveyRound",
             "surveyVersion",
-            "submittedAt",
+            "응답 일시(KST)",
             *[question.csv_column for question in questions],
         ]
     )
@@ -175,7 +176,7 @@ def survey_responses_to_csv(
                 profile[2] or "",
                 response.survey_round,
                 response.survey_version,
-                response.submitted_at.isoformat(),
+                _format_kst(response.submitted_at),
                 *[_csv_value(_answer_value(response.answers, question.key)) for question in questions],
             ]
         )
@@ -193,6 +194,10 @@ def _answer_value(answers: dict[str, object], key: str) -> object | None:
 
 def _excel_text(value: str) -> str:
     return f'="{value}"' if value and value != "-" else value
+
+
+def _format_kst(value: datetime) -> str:
+    return value.astimezone(ZoneInfo("Asia/Seoul")).strftime("%Y-%m-%d %H:%M:%S")
 
 
 def _csv_value(value: object | None) -> object:

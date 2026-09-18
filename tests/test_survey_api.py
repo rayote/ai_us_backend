@@ -2,8 +2,9 @@ from datetime import UTC, datetime
 
 from app.core.security import create_access_token, hash_password
 from app.core.settings import Settings
+from app.api.researcher import _survey_export_filename
 from app.main import create_app
-from app.schemas.survey import SurveyDefinition, SurveyDefinitionCreate, SurveyDefinitionSummary, SurveyResponseRecord
+from app.schemas.survey import SurveyDefinition, SurveyDefinitionCreate, SurveyDefinitionSummary, SurveyQuestion, SurveyResponseRecord
 from app.services.auth import (
     ParticipantAccount,
     ParticipantAccountRepository,
@@ -149,6 +150,21 @@ def _definition_payload() -> dict[str, object]:
     }
 
 
+def test_survey_export_filename_uses_round_audience_part_and_kst() -> None:
+    definition = SurveyDefinition(
+        surveyRound=1,
+        surveyVersion="t1-elem-part1-v2-0916",
+        audience="elementary",
+        questions=[SurveyQuestion(key="q1", csvColumn="첫 번째 문항", order=1)],
+        spec={"part": 1},
+        createdAt=datetime.now(UTC),
+    )
+
+    filename = _survey_export_filename(definition, datetime(2026, 9, 18, 15, 30, tzinfo=UTC))
+
+    assert filename == "T1_elem_part1_2026-09-19_00-30-00.csv"
+
+
 def test_participant_can_restore_survey_progress_from_server() -> None:
     with _client() as client:
         response = client.get(
@@ -181,7 +197,7 @@ def test_admin_registers_definition_and_researcher_downloads_csv() -> None:
     assert create_response.status_code == 201
     assert export_response.status_code == 200
     assert export_response.headers["content-type"].startswith("text/csv")
-    assert "아이디(휴대폰),학교급,학년,surveyRound,surveyVersion,submittedAt,첫 번째 문항" in export_response.text
+    assert "아이디(휴대폰),학교급,학년,surveyRound,surveyVersion,응답 일시(KST),첫 번째 문항" in export_response.text
     assert '"=""01012345678""",초등' in export_response.text
 
 

@@ -72,12 +72,33 @@ def test_csv_export_uses_question_definition_order_and_preserves_missing_answers
 
     assert (
         csv_text.splitlines()[0]
-        == "아이디(휴대폰),학교급,학년,surveyRound,surveyVersion,submittedAt,첫 번째 문항,두 번째 문항"
+        == "아이디(휴대폰),학교급,학년,surveyRound,surveyVersion,응답 일시(KST),첫 번째 문항,두 번째 문항"
     )
     assert csv_text.splitlines()[1].startswith('"=""01012345678""",초등,4,')
     assert csv_text.splitlines()[2].startswith('"=""01022223333""",중등,2,')
     assert csv_text.splitlines()[1].endswith("응답,선택 A; 선택 B")
     assert csv_text.splitlines()[2].endswith("다른 응답,")
+
+
+def test_csv_export_formats_submission_time_in_kst() -> None:
+    definition = SurveyDefinition(
+        surveyRound=1,
+        surveyVersion="v1",
+        questions=[SurveyQuestion(key="q1", csvColumn="첫 번째 문항", order=1)],
+        createdAt=datetime.now(UTC),
+    )
+    response = SurveyResponseRecord(
+        participantId="participant-1",
+        surveyRound=1,
+        surveyVersion="v1",
+        answers={"q1": "응답"},
+        submittedAt=datetime(2026, 9, 18, 15, 30, tzinfo=UTC),
+    )
+
+    csv_text = survey_responses_to_csv(definition, [response])
+
+    assert "응답 일시(KST)" in csv_text.splitlines()[0]
+    assert "2026-09-19 00:30:00" in csv_text.splitlines()[1]
 
 
 def test_csv_export_reads_nested_composite_answers() -> None:

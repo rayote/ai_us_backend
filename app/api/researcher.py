@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import os
 import tempfile
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Literal
+from zoneinfo import ZoneInfo
 
 from app.api.auth import require_researcher
 from app.schemas.application import (
@@ -249,12 +251,20 @@ async def export_survey_responses(
             for response in responses
             if profiles.get(response.participant_id, ("-", None, None))[1] == school_level
         ]
-    filename = f"survey-responses-round-{survey_round}-{survey_version}.csv"
+    filename = _survey_export_filename(definition, datetime.now(UTC))
     return Response(
         content="\ufeff" + survey_responses_to_csv(definition, responses, profiles),
         media_type="text/csv; charset=utf-8",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
+
+
+def _survey_export_filename(definition, exported_at: datetime) -> str:
+    audience = {"elementary": "elem", "secondary": "secondary"}.get(definition.audience, "all")
+    part = definition.spec.get("part") if isinstance(definition.spec, dict) else None
+    part_label = f"part{part}" if isinstance(part, int) and part > 0 else "part"
+    timestamp = exported_at.astimezone(ZoneInfo("Asia/Seoul")).strftime("%Y-%m-%d_%H-%M-%S")
+    return f"T{definition.survey_round}_{audience}_{part_label}_{timestamp}.csv"
 
 
 @router.get("/survey-response-previews", response_model=list[SurveyResponsePreview])
