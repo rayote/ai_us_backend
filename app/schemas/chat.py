@@ -84,6 +84,7 @@ class ChatSubmissionPreview(BaseModel):
     tool: str | None = None
     filenames: list[str]
     attachment_count: int = Field(alias="attachmentCount")
+    parse_status: ParseStatus = Field(alias="parseStatus")
     submitted_at: datetime = Field(alias="submittedAt")
 
 

@@ -8,7 +8,7 @@ from pathlib import Path
 from app.core.settings import Settings
 from app.db.mongodb import MongoDatabase
 from app.services.auth import MongoParticipantAccountRepository
-from app.services.chat_downloads import MongoChatDownloadArtifactRepository, new_artifact
+from app.services.chat_downloads import MongoChatDownloadArtifactRepository, chat_download_filename, new_artifact
 from app.services.chats import MongoChatSubmissionRepository, build_chat_archive, store_chat_submission
 from app.services.jobs import MongoJobRepository, QueueWorker
 from app.services.submissions import store_survey_response
@@ -53,12 +53,13 @@ async def run_worker() -> None:
             count = await build_chat_archive(submissions, database.gridfs_bucket("chat_uploads"), archive_path)
             if count == 0:
                 raise ValueError("선택한 제출에 다운로드할 첨부 파일이 없습니다.")
+            download_filename = chat_download_filename()
             file_id = await database.gridfs_bucket("chat_downloads").upload_file(
-                f"chat-submissions-{payload['jobKey']}.zip", archive_path, {"job_key": payload["jobKey"]}
+                download_filename, archive_path, {"job_key": payload["jobKey"]}
             )
             size = archive_path.stat().st_size
             await chat_download_artifacts.create(
-                new_artifact(str(payload["jobKey"]), file_id, f"chat-submissions-{payload['jobKey']}.zip", size)
+                new_artifact(str(payload["jobKey"]), file_id, download_filename, size)
             )
         finally:
             archive_path.unlink(missing_ok=True)

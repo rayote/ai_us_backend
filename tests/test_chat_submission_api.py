@@ -1,4 +1,5 @@
 import asyncio
+import re
 import tempfile
 import zipfile
 from datetime import UTC, datetime
@@ -16,6 +17,7 @@ from app.services.auth import (
     ResearcherAccount,
     ResearcherAccountRepository,
 )
+from app.services.chat_downloads import chat_download_filename
 from app.services.chats import (
     ChatSubmissionRepository,
     ChatUploadRepository,
@@ -358,6 +360,12 @@ def test_original_archive_includes_deletion_requested_attachments_only_when_requ
             assert archive.read("chat-deletion-requested/original.txt") == b"original"
 
 
+def test_bulk_chat_download_filename_uses_kst() -> None:
+    assert chat_download_filename(datetime(2026, 9, 22, 15, 4, 5, tzinfo=UTC)) == (
+        "chat-submissions_2026-09-23_00-04-05.zip"
+    )
+
+
 def test_participant_without_chat_consent_cannot_submit() -> None:
     app, _, _, _ = _app(False)
     with TestClient(app) as client:
@@ -428,6 +436,44 @@ def test_researcher_can_export_completed_chat_submission() -> None:
     assert "마지막 대화" in export.text
 
 
+def test_researcher_chat_export_filters_selected_submissions_and_uses_kst_filename() -> None:
+    app, _, submissions, _ = _app(True)
+    for submission_id, raw_input in (("selected-chat", "선택한 대화"), ("other-chat", "제외할 대화")):
+        asyncio.run(
+            submissions.create_submission(
+                ChatSubmissionRecord(
+                    submissionId=submission_id,
+                    participantId="participant-1",
+                    submissionPoint="afterRound1",
+                    sourceType="text",
+                    rawInput=raw_input,
+                    transcript=ParsedTranscript(
+                        status="parsed", parserVersion="v1", messages=[], plainText=raw_input, warnings=[]
+                    ),
+                    submittedAt=datetime.now(UTC),
+                )
+            )
+        )
+    with TestClient(app) as client:
+        login = client.post(
+            "/api/v1/auth/researcher/login",
+            json={"username": "researcher", "password": "researcher-password"},
+        )
+        response = client.get(
+            "/api/v1/researcher/exports/chat-submissions",
+            headers={"Authorization": f"Bearer {login.json()['accessToken']}"},
+            params={"submission_id": "selected-chat"},
+        )
+
+    assert response.status_code == 200
+    assert "선택한 대화" in response.text
+    assert "제외할 대화" not in response.text
+    assert re.fullmatch(
+        r'attachment; filename="chat-submissions-all_\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}\.csv"',
+        response.headers["content-disposition"],
+    )
+
+
 def test_consented_participant_can_upload_zip_and_multiple_images() -> None:
     app, _, submissions, uploads = _app(True)
     with TestClient(app) as client:
@@ -451,6 +497,14 @@ def test_consented_participant_can_upload_zip_and_multiple_images() -> None:
                 ("files", ("chat-2.jpg", b"jpg-data", "image/jpeg")),
             ],
         )
+        researcher_login = client.post(
+            "/api/v1/auth/researcher/login",
+            json={"username": "researcher", "password": "researcher-password"},
+        )
+        preview = client.get(
+            "/api/v1/researcher/chat-submission-previews",
+            headers={"Authorization": f"Bearer {researcher_login.json()['accessToken']}"},
+        )
 
     assert zip_response.json() == {"submissionId": "zip-1", "status": "completed"}
     assert image_response.json() == {"submissionId": "image-1", "status": "completed"}
@@ -460,6 +514,66 @@ def test_consented_participant_can_upload_zip_and_multiple_images() -> None:
         "chat-1.png",
         "chat-2.jpg",
     ]
+    assert {item["parseStatus"] for item in preview.json()} == {"placeholder"}
+
+
+def test_bulk_chat_download_job_keeps_selected_submission_ids_and_filters() -> None:
+    app, jobs, _, _ = _app(True)
+    with TestClient(app) as client:
+        login = client.post(
+            "/api/v1/auth/researcher/login",
+            json={"username": "researcher", "password": "researcher-password"},
+        )
+        response = client.post(
+            "/api/v1/researcher/chat-submissions/download-jobs",
+            headers={"Authorization": f"Bearer {login.json()['accessToken']}"},
+            json={
+                "submissionIds": ["chat-a", "chat-b"],
+                "submissionPoint": "afterRound1",
+                "schoolLevel": "초등",
+            },
+        )
+
+    assert response.status_code == 202
+    assert jobs.jobs[0].job_type == "chat_download"
+    assert jobs.jobs[0].payload["submissionIds"] == ["chat-a", "chat-b"]
+    assert jobs.jobs[0].payload["submissionPoint"] == "afterRound1"
+    assert jobs.jobs[0].payload["schoolLevel"] == "초등"
+
+
+def test_transcript_downloads_use_kst_timestamped_filenames() -> None:
+    runs = InMemoryTranscriptParseRuns()
+    run = asyncio.run(runs.create("grok-download", "grok-json", "grok-json-v1"))
+    asyncio.run(
+        runs.complete(
+            run.run_id,
+            "grok-json",
+            "grok-json-v1",
+            {"participantId": "participant-1", "platform": "grok", "sessions": []},
+            [],
+        )
+    )
+    app, _, _, _ = _app(True, runs)
+    with TestClient(app) as client:
+        login = client.post(
+            "/api/v1/auth/researcher/login",
+            json={"username": "researcher", "password": "researcher-password"},
+        )
+        headers = {"Authorization": f"Bearer {login.json()['accessToken']}"}
+        csv_response = client.get(
+            "/api/v1/researcher/chat-submissions/grok-download/latest-parse/download?format=csv",
+            headers=headers,
+        )
+        json_response = client.get(
+            "/api/v1/researcher/chat-submissions/grok-download/latest-parse/download?format=json",
+            headers=headers,
+        )
+
+    assert csv_response.status_code == 200
+    assert json_response.status_code == 200
+    pattern = r'attachment; filename="transcript-grok-download_\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}\.(csv|json)"'
+    assert re.fullmatch(pattern, csv_response.headers["content-disposition"])
+    assert re.fullmatch(pattern, json_response.headers["content-disposition"])
 
 
 def test_repeated_transcript_parse_request_reuses_active_run_and_job() -> None:

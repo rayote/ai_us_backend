@@ -56,7 +56,7 @@ from app.services.jobs import JobCreate, JobRepository
 from app.services.reporting import ResearcherReportingService
 from app.services.surveys import SurveyDefinitionRepository, SurveyResponseRepository, survey_responses_to_csv
 from app.services.transcript_runs import TranscriptParseRunRepository, normalized_to_csv
-from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile, status
+from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile, status
 from fastapi.responses import Response
 
 router = APIRouter(prefix="/api/v1/researcher", tags=["researcher"])
@@ -495,6 +495,10 @@ def _survey_export_filename(definition, exported_at: datetime) -> str:
     return f"T{definition.survey_round}_{audience}_{part_label}_{timestamp}.csv"
 
 
+def _kst_filename_timestamp(exported_at: datetime | None = None) -> str:
+    return (exported_at or datetime.now(UTC)).astimezone(ZoneInfo("Asia/Seoul")).strftime("%Y-%m-%d_%H-%M-%S")
+
+
 @router.get("/survey-response-previews", response_model=list[SurveyResponsePreview])
 async def survey_response_previews(
     survey_round: int,
@@ -536,6 +540,7 @@ async def survey_response_previews(
 async def export_chat_submissions(
     submission_point: Literal["afterRound1", "afterRound4"] | None = None,
     school_level: Literal["초등", "중등", "고등"] | None = None,
+    submission_ids: list[str] | None = Query(default=None, alias="submission_id"),
     request: Request = None,
     _: str = Depends(require_researcher),
 ) -> Response:
@@ -549,6 +554,9 @@ async def export_chat_submissions(
         for participant in await participants.list_participants()
     }
     submissions = await _chat_submission_repository(request).list_submissions(submission_point)
+    if submission_ids:
+        selected_ids = set(submission_ids)
+        submissions = [submission for submission in submissions if submission.submission_id in selected_ids]
     if school_level is not None:
         submissions = [
             submission
@@ -557,10 +565,11 @@ async def export_chat_submissions(
         ]
     csv_text = chat_submissions_to_csv(submissions, profiles)
     point_name = submission_point or "all"
+    timestamp = _kst_filename_timestamp()
     return Response(
         content="\ufeff" + csv_text,
         media_type="text/csv; charset=utf-8",
-        headers={"Content-Disposition": f'attachment; filename="chat-submissions-{point_name}.csv"'},
+        headers={"Content-Disposition": f'attachment; filename="chat-submissions-{point_name}_{timestamp}.csv"'},
     )
 
 
@@ -597,6 +606,7 @@ async def chat_submission_previews(
                 tool=submission.tool,
                 filenames=[attachment.filename for attachment in submission.attachments],
                 attachmentCount=len(submission.attachments),
+                parseStatus=submission.transcript.status,
                 submittedAt=submission.submitted_at,
             )
         )
@@ -631,7 +641,11 @@ async def download_chat_submission_files(
     return Response(
         content=content,
         media_type="application/zip",
-        headers={"Content-Disposition": f'attachment; filename="chat-submission-{submission_id}.zip"'},
+        headers={
+            "Content-Disposition": (
+                f'attachment; filename="chat-submission-{submission_id}_{_kst_filename_timestamp()}.zip"'
+            )
+        },
     )
 
 
@@ -788,12 +802,20 @@ async def download_latest_transcript_parse(
         return Response(
             "\ufeff" + normalized_to_csv(run.normalized_json),
             media_type="text/csv; charset=utf-8",
-            headers={"Content-Disposition": f'attachment; filename="transcript-{submission_id}.csv"'},
+            headers={
+                "Content-Disposition": (
+                    f'attachment; filename="transcript-{submission_id}_{_kst_filename_timestamp()}.csv"'
+                )
+            },
         )
     return Response(
         json.dumps(run.normalized_json, ensure_ascii=False, indent=2),
         media_type="application/json; charset=utf-8",
-        headers={"Content-Disposition": f'attachment; filename="transcript-{submission_id}.json"'},
+        headers={
+            "Content-Disposition": (
+                f'attachment; filename="transcript-{submission_id}_{_kst_filename_timestamp()}.json"'
+            )
+        },
     )
 
 

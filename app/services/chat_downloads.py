@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from typing import Any, Protocol
+from zoneinfo import ZoneInfo
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -42,3 +43,8 @@ def new_artifact(job_id: str, file_id: str, filename: str, size: int) -> ChatDow
         size=size,
         createdAt=datetime.now(UTC),
     )
+
+
+def chat_download_filename(created_at: datetime | None = None) -> str:
+    timestamp = (created_at or datetime.now(UTC)).astimezone(ZoneInfo("Asia/Seoul")).strftime("%Y-%m-%d_%H-%M-%S")
+    return f"chat-submissions_{timestamp}.zip"
