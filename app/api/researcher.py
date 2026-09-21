@@ -1,8 +1,8 @@
 from __future__ import annotations
 
+import json
 import os
 import tempfile
-import json
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Literal
@@ -157,7 +157,9 @@ def _job_repository(request: Request) -> JobRepository:
 def _transcript_parse_run_repository(request: Request) -> TranscriptParseRunRepository:
     repository = getattr(request.app.state, "transcript_parse_run_repository", None)
     if repository is None:
-        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="대화문 파싱 서비스를 준비 중입니다.")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="대화문 파싱 서비스를 준비 중입니다."
+        )
     return repository
 
 
@@ -713,7 +715,11 @@ async def list_chat_submission_files(
     ]
 
 
-@router.post("/chat-submissions/{submission_id}/parse", response_model=TranscriptParseRequestAccepted, status_code=status.HTTP_202_ACCEPTED)
+@router.post(
+    "/chat-submissions/{submission_id}/parse",
+    response_model=TranscriptParseRequestAccepted,
+    status_code=status.HTTP_202_ACCEPTED,
+)
 async def request_transcript_parse(
     submission_id: str,
     request: Request,
@@ -725,13 +731,19 @@ async def request_transcript_parse(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="대화문 제출을 찾을 수 없습니다.")
     run = await _transcript_parse_run_repository(request).create(submission_id, "adapter-router", "adapter-router-v1")
     job = await _job_repository(request).enqueue(
-        JobCreate(job_type="transcript_parse", idempotency_key=f"{submission_id}:{run.run_id}", payload={"submissionId": submission_id, "runId": run.run_id})
+        JobCreate(
+            job_type="transcript_parse",
+            idempotency_key=f"{submission_id}:{run.run_id}",
+            payload={"submissionId": submission_id, "runId": run.run_id},
+        )
     )
     return TranscriptParseRequestAccepted(runId=run.run_id, jobId=job.id, status=job.status)
 
 
 @router.get("/chat-submissions/{submission_id}/parse-runs/{run_id}", response_model=TranscriptParseRun)
-async def get_transcript_parse_run(submission_id: str, run_id: str, request: Request, _: str = Depends(require_researcher)) -> TranscriptParseRun:
+async def get_transcript_parse_run(
+    submission_id: str, run_id: str, request: Request, _: str = Depends(require_researcher)
+) -> TranscriptParseRun:
     run = await _transcript_parse_run_repository(request).get(run_id)
     if run is None or run.submission_id != submission_id:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="파싱 실행 내역을 찾을 수 없습니다.")
@@ -739,8 +751,12 @@ async def get_transcript_parse_run(submission_id: str, run_id: str, request: Req
 
 
 @router.get("/chat-submissions/{submission_id}/latest-parse", response_model=TranscriptParsePreview)
-async def get_latest_transcript_parse(submission_id: str, request: Request, _: str = Depends(require_researcher)) -> TranscriptParsePreview:
-    return TranscriptParsePreview(submissionId=submission_id, latestRun=await _transcript_parse_run_repository(request).latest(submission_id))
+async def get_latest_transcript_parse(
+    submission_id: str, request: Request, _: str = Depends(require_researcher)
+) -> TranscriptParsePreview:
+    return TranscriptParsePreview(
+        submissionId=submission_id, latestRun=await _transcript_parse_run_repository(request).latest(submission_id)
+    )
 
 
 @router.get("/chat-submissions/{submission_id}/latest-parse/download")
@@ -754,8 +770,16 @@ async def download_latest_transcript_parse(
     if run is None or run.normalized_json is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="완료된 파싱 결과를 찾을 수 없습니다.")
     if format == "csv":
-        return Response("\ufeff" + normalized_to_csv(run.normalized_json), media_type="text/csv; charset=utf-8", headers={"Content-Disposition": f'attachment; filename="transcript-{submission_id}.csv"'})
-    return Response(json.dumps(run.normalized_json, ensure_ascii=False, indent=2), media_type="application/json; charset=utf-8", headers={"Content-Disposition": f'attachment; filename="transcript-{submission_id}.json"'})
+        return Response(
+            "\ufeff" + normalized_to_csv(run.normalized_json),
+            media_type="text/csv; charset=utf-8",
+            headers={"Content-Disposition": f'attachment; filename="transcript-{submission_id}.csv"'},
+        )
+    return Response(
+        json.dumps(run.normalized_json, ensure_ascii=False, indent=2),
+        media_type="application/json; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="transcript-{submission_id}.json"'},
+    )
 
 
 @router.delete("/chat-submissions/files/{submission_id}", response_model=ChatSubmissionDeleted)

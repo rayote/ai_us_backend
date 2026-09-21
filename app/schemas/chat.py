@@ -108,7 +108,7 @@ class ChatDownloadJobStatus(BaseModel):
 class TranscriptParseRun(BaseModel):
     run_id: str = Field(alias="runId")
     submission_id: str = Field(alias="submissionId")
-    status: Literal["queued", "processing", "completed", "failed"]
+    status: Literal["queued", "processing", "completed", "warning", "failed"]
     parser_name: str = Field(alias="parserName")
     parser_version: str = Field(alias="parserVersion")
     schema_version: str = Field(alias="schemaVersion")
