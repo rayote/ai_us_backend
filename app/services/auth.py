@@ -30,6 +30,8 @@ class ParticipantAccountRepository(Protocol):
 
     async def update_password(self, participant_id: str, password_hash: str) -> bool: ...
 
+    async def set_chat_consent(self, participant_id: str, enabled: bool) -> bool: ...
+
     async def reset_password_by_phone_guardian(self, phone: str, guardian_phone: str, password_hash: str) -> bool: ...
 
     async def reset_password_by_phone_email(self, phone: str, email: str, password_hash: str) -> bool: ...
@@ -97,6 +99,13 @@ class MongoParticipantAccountRepository:
             {"$set": {"password_hash": password_hash, "must_change_password": False}},
         )
         return result.modified_count == 1
+
+    async def set_chat_consent(self, participant_id: str, enabled: bool) -> bool:
+        result = await self._collection.update_one(
+            {"_id": ObjectId(participant_id), "role": "participant"},
+            {"$set": {"chat_consent": enabled}},
+        )
+        return result.matched_count == 1
 
     async def reset_password_by_phone_guardian(self, phone: str, guardian_phone: str, password_hash: str) -> bool:
         result = await self._collection.update_one(

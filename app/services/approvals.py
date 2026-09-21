@@ -54,13 +54,26 @@ class ApplicationApprovalService:
             except TypeError as error:
                 if "positional" not in str(error) and "grade" not in str(error):
                     raise
-                created = await self._participant_repository.create(
-                    application.phone,
-                    hash_password("1234"),
-                    application.consents.chat,
-                    _school_level(application.grade),
-                    application.email,
-                )
+                try:
+                    created = await self._participant_repository.create(
+                        application.phone,
+                        hash_password("1234"),
+                        application.consents.chat,
+                        _school_level(application.grade),
+                        application.email,
+                        application.guardian_phone,
+                        application.sns,
+                    )
+                except TypeError as legacy_error:
+                    if "positional" not in str(legacy_error):
+                        raise
+                    created = await self._participant_repository.create(
+                        application.phone,
+                        hash_password("1234"),
+                        application.consents.chat,
+                        _school_level(application.grade),
+                        application.email,
+                    )
             if not created:
                 raise ExistingParticipantError([application.phone])
         return await self._application_repository.approve(

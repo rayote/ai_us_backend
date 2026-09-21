@@ -78,6 +78,10 @@ class ApplicationSettingsUpdate(ApplicationSettings):
     pass
 
 
+class ChatConsentUpdate(BaseModel):
+    chat_consent: bool = Field(alias="chatConsent")
+
+
 class ApplicationRecord(BaseModel):
     application_id: str = Field(alias="applicationId")
     gender: str
@@ -87,6 +91,7 @@ class ApplicationRecord(BaseModel):
     email: str | None = None
     sns: str | None = None
     consents: ApplicationConsents
+    chat_consent: bool | None = Field(default=None, alias="chatConsent")
     status: Literal["pending", "approved"]
     submitted_at: datetime = Field(alias="submittedAt")
     approved_at: datetime | None = Field(default=None, alias="approvedAt")

@@ -13,6 +13,7 @@ from app.schemas.application import (
     ApplicationApprovalCompleted,
     ApplicationRecord,
     ApplicationSettings,
+    ChatConsentUpdate,
 )
 from app.schemas.chat import (
     ChatDownloadJobAccepted,
@@ -158,7 +159,13 @@ async def list_applications(
     _: str = Depends(require_researcher),
     request: Request = None,
 ) -> list[ApplicationRecord]:
-    return await _application_repository(request).list_applications(school_level)
+    records = await _application_repository(request).list_applications(school_level)
+    participants: ParticipantAccountRepository | None = getattr(request.app.state, "participant_account_repository", None)
+    if participants is None:
+        return records
+    participant_list = await participants.list_participants() or []
+    live_consent = {participant.phone: participant.chat_consent for participant in participant_list}
+    return [record.model_copy(update={"chat_consent": live_consent.get(record.phone, record.consents.chat)}) for record in records]
 
 
 @router.post("/applications/approve", response_model=ApplicationApprovalCompleted)
@@ -175,6 +182,30 @@ async def approve_applications(
             detail=f"이미 등록된 참여자 휴대폰 번호입니다: {', '.join(error.phone_numbers)}",
         ) from error
     return ApplicationApprovalCompleted(approvedCount=approved_count)
+
+
+@router.put("/applications/{application_id}/chat-consent")
+async def update_application_chat_consent(
+    application_id: str,
+    update: ChatConsentUpdate,
+    request: Request,
+    _: str = Depends(require_researcher),
+) -> dict[str, object]:
+    applications = await _application_repository(request).list_applications()
+    application = next((item for item in applications if item.application_id == application_id), None)
+    if application is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="신청 정보를 찾을 수 없습니다.")
+    participants: ParticipantAccountRepository | None = getattr(
+        request.app.state, "participant_account_repository", None
+    )
+    if participants is None:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="참여자 정보를 준비 중입니다.")
+    participant = await participants.find_by_phone(application.phone)
+    if participant is None:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="승인된 참여자 계정을 찾을 수 없습니다.")
+    if not await participants.set_chat_consent(participant.participant_id, update.chat_consent):
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="대화문 동의를 변경하지 못했습니다.")
+    return {"applicationId": application_id, "chatConsent": update.chat_consent}
 
 
 @router.get("/application-settings", response_model=ApplicationSettings)

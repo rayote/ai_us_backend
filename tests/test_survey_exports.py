@@ -142,7 +142,17 @@ def test_csv_export_includes_session_detail_columns_near_submission_time() -> No
         "전체 페이지 수",
         "페이지 이동 횟수",
     ]
-    assert rows[1][start : start + 9] == ["2026-09-19 00:30:00", "2026-09-19 00:00:00", "2430", "1680", "3", "15", "12", "15", "16"]
+    assert rows[1][start : start + 9] == [
+        "2026-09-19 00:30:00",
+        "2026-09-19 00:00:00",
+        "2430",
+        "1680",
+        "3",
+        "15",
+        "12",
+        "15",
+        "16",
+    ]
 
 
 def test_csv_export_reads_nested_composite_answers() -> None:
