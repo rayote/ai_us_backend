@@ -76,4 +76,10 @@ class AbuseReviewReport(BaseModel):
     pair_page: int = Field(alias="pairPage")
     pair_page_size: int = Field(alias="pairPageSize")
     pair_page_count: int = Field(alias="pairPageCount")
+    speed_page: int = Field(alias="speedPage")
+    speed_page_count: int = Field(alias="speedPageCount")
+    pairing_page: int = Field(alias="pairingPage")
+    pairing_page_count: int = Field(alias="pairingPageCount")
+    combined_page: int = Field(alias="combinedPage")
+    combined_page_count: int = Field(alias="combinedPageCount")
     groups: list[AbuseReviewGroup]

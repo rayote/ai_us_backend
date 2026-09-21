@@ -206,13 +206,18 @@ async def abuse_review(
     survey_version: str | None = None,
     pair_page: int = 1,
     pair_page_size: int = 200,
+    speed_page: int = 1,
+    pairing_page: int = 1,
+    combined_page: int = 1,
     _: str = Depends(require_researcher),
 ) -> AbuseReviewReport:
     if (survey_round is None) != (survey_version is None):
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="회차와 설문 버전을 함께 선택해 주세요."
         )
-    return await _abuse_review_service(request).report(survey_round, survey_version, pair_page, pair_page_size)
+    return await _abuse_review_service(request).report(
+        survey_round, survey_version, pair_page, pair_page_size, speed_page, pairing_page, combined_page
+    )
 
 
 @router.get("/abuse-review/statuses", response_model=list[AbuseReviewStatus])
@@ -234,9 +239,35 @@ async def update_abuse_review_status(
     reviewer: str = Depends(require_researcher),
 ) -> AbuseReviewStatus:
     candidate_key = abuse_candidate_key(survey_round, survey_version, update.phone, update.paired_phone)
-    return await _abuse_review_status_repository(request).set_status(
+    repository = _abuse_review_status_repository(request)
+    result = await repository.set_status(
         survey_round, survey_version, candidate_key, update.reviewed, reviewer
     )
+    report = await _abuse_review_service(request).report(survey_round, survey_version, 1, 100000)
+    statuses = await repository.list_statuses(survey_round, survey_version)
+    reviewed_keys = {item.candidate_key for item in statuses if item.reviewed}
+    group_statuses = {item.candidate_key: item for item in statuses if item.member_phones}
+    for group in report.groups:
+        group_phones = set(group.phones)
+        group_pair_keys = {
+            candidate.candidate_key
+            for candidate in report.pairing_candidates + report.combined_candidates
+            if candidate.paired_phone and {candidate.phone, candidate.paired_phone}.issubset(group_phones)
+        }
+        if not group_pair_keys:
+            continue
+        all_reviewed = group_pair_keys.issubset(reviewed_keys)
+        current_group_status = group_statuses.get(group.group_key)
+        if all_reviewed or (current_group_status and current_group_status.reviewed):
+            await repository.set_status(
+                survey_round,
+                survey_version,
+                group.group_key,
+                all_reviewed,
+                reviewer,
+                group.phones,
+            )
+    return result
 
 
 @router.put("/abuse-review/group-statuses", response_model=AbuseReviewStatus)

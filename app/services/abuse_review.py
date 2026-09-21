@@ -137,6 +137,9 @@ class AbuseReviewService:
         survey_version: str | None = None,
         pair_page: int = 1,
         pair_page_size: int = 200,
+        speed_page: int = 1,
+        pairing_page: int = 1,
+        combined_page: int = 1,
     ) -> AbuseReviewReport:
         if survey_round is not None and survey_version:
             responses = await self._responses.list_responses(survey_round, survey_version)
@@ -252,6 +255,9 @@ class AbuseReviewService:
             )
         pair_page = max(pair_page, 1)
         pair_page_size = max(min(pair_page_size, 100000), 1)
+        speed_page = max(speed_page, 1)
+        pairing_page = max(pairing_page, 1)
+        combined_page = max(combined_page, 1)
         all_pair_candidates = sorted(
             pairing_candidates + combined_candidates,
             key=lambda item: (
@@ -264,8 +270,12 @@ class AbuseReviewService:
         pair_page_count = max((len(all_pair_candidates) + pair_page_size - 1) // pair_page_size, 1)
         pair_start = (pair_page - 1) * pair_page_size
         pair_page_items = all_pair_candidates[pair_start:pair_start + pair_page_size]
-        pairing_page_candidates = [item for item in pair_page_items if item.candidate_type == "응답 패턴 유사"]
-        combined_page_candidates = [item for item in pair_page_items if item.candidate_type == "복합 의심"]
+        speed_page_count = max((len(speed_candidates) + 199) // 200, 1)
+        pairing_page_count = max((len(pairing_candidates) + 199) // 200, 1)
+        combined_page_count = max((len(combined_candidates) + 199) // 200, 1)
+        speed_page_candidates = speed_candidates[(speed_page - 1) * 200:speed_page * 200]
+        pairing_page_candidates = pairing_candidates[(pairing_page - 1) * 200:pairing_page * 200]
+        combined_page_candidates = combined_candidates[(combined_page - 1) * 200:combined_page * 200]
         parent: dict[str, str] = {}
 
         def find(phone: str) -> str:
@@ -349,7 +359,7 @@ class AbuseReviewService:
                 )
             ],
             candidates=pair_page_items,
-            speedCandidates=speed_candidates[:200],
+            speedCandidates=speed_page_candidates,
             pairingCandidates=pairing_page_candidates,
             combinedCandidates=combined_page_candidates,
             speedCandidateCount=len(speed_candidates),
@@ -358,5 +368,11 @@ class AbuseReviewService:
             pairPage=pair_page,
             pairPageSize=pair_page_size,
             pairPageCount=pair_page_count,
+            speedPage=speed_page,
+            speedPageCount=speed_page_count,
+            pairingPage=pairing_page,
+            pairingPageCount=pairing_page_count,
+            combinedPage=combined_page,
+            combinedPageCount=combined_page_count,
             groups=review_groups,
         )
