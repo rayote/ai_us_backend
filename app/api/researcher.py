@@ -436,7 +436,7 @@ async def download_chat_submission_files(
     os.close(fd)
     archive_path = Path(temp_name)
     try:
-        await build_chat_archive([submission], uploads, archive_path)
+        await build_chat_archive([submission], uploads, archive_path, include_deletion_requested=True)
         content = archive_path.read_bytes()
     finally:
         archive_path.unlink(missing_ok=True)

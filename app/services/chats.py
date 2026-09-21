@@ -293,6 +293,7 @@ async def build_chat_archive(
     submissions: list[ChatSubmissionRecord],
     uploads: ChatUploadRepository,
     archive_path: Path,
+    include_deletion_requested: bool = False,
 ) -> int:
     count = 0
     used_names: set[str] = set()
@@ -300,7 +301,8 @@ async def build_chat_archive(
         with tempfile.TemporaryDirectory(prefix="chat-download-") as temp_dir:
             temp_path = Path(temp_dir)
             for submission in submissions:
-                if submission.status != "active" or not submission.attachments:
+                allowed_statuses = {"active", "deletion_requested"} if include_deletion_requested else {"active"}
+                if submission.status not in allowed_statuses or not submission.attachments:
                     continue
                 folder = submission.submission_id or submission.participant_id
                 for attachment in submission.attachments:

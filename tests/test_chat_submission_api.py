@@ -1,5 +1,8 @@
 import asyncio
+import tempfile
+import zipfile
 from datetime import UTC, datetime
+from pathlib import Path
 
 from app.core.security import hash_password
 from app.core.settings import Settings
@@ -12,7 +15,7 @@ from app.services.auth import (
     ResearcherAccount,
     ResearcherAccountRepository,
 )
-from app.services.chats import ChatSubmissionRepository, ChatUploadRepository, store_chat_submission
+from app.services.chats import ChatSubmissionRepository, ChatUploadRepository, build_chat_archive, store_chat_submission
 from app.services.jobs import JobRepository, QueueWorker
 from fastapi.testclient import TestClient
 
@@ -168,6 +171,9 @@ class InMemoryChatUploads(ChatUploadRepository):
     async def delete(self, file_id: str) -> None:
         self.files.pop(file_id, None)
 
+    async def download_to_path(self, file_id: str, target: Path) -> None:
+        target.write_bytes(self.files[file_id][1])
+
 
 class InMemoryResearchers(ResearcherAccountRepository):
     def __init__(self) -> None:
@@ -226,6 +232,29 @@ def test_consented_participant_submission_is_parsed_and_saved() -> None:
     assert status_response.json()["status"] == "completed"
     assert submissions.submissions[0].raw_input == "사용자: 안녕하세요\nAI: 반가워요"
     assert submissions.submissions[0].transcript.status == "parsed"
+
+
+def test_original_archive_includes_deletion_requested_attachments_only_when_requested() -> None:
+    uploads = InMemoryChatUploads()
+    file_id = asyncio.run(uploads.upload("original.txt", b"original", {}))
+    submission = ChatSubmissionRecord(
+        submissionId="chat-deletion-requested",
+        participantId="participant-1",
+        submissionPoint="afterRound1",
+        sourceType="file",
+        rawInput="",
+        transcript=ParsedTranscript(status="placeholder", parserVersion="v1", messages=[], plainText="", warnings=[]),
+        submittedAt=datetime.now(UTC),
+        attachments=[{"fileId": file_id, "filename": "original.txt", "contentType": "text/plain", "size": 8}],
+        status="deletion_requested",
+    )
+    with tempfile.TemporaryDirectory() as directory:
+        bulk_path = Path(directory) / "bulk.zip"
+        original_path = Path(directory) / "original.zip"
+        assert asyncio.run(build_chat_archive([submission], uploads, bulk_path)) == 0
+        assert asyncio.run(build_chat_archive([submission], uploads, original_path, include_deletion_requested=True)) == 1
+        with zipfile.ZipFile(original_path) as archive:
+            assert archive.read("chat-deletion-requested/original.txt") == b"original"
 
 
 def test_participant_without_chat_consent_cannot_submit() -> None:
