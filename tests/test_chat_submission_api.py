@@ -1,4 +1,6 @@
 import asyncio
+import csv
+import io
 import json
 import re
 import tempfile
@@ -452,7 +454,7 @@ def test_transcript_archive_records_unsupported_files_without_dummy_transcript()
                 transcript=ParsedTranscript(
                     status="placeholder", parserVersion="attachment-v1", messages=[], plainText="", warnings=[]
                 ),
-                submittedAt=datetime.now(UTC),
+                submittedAt=datetime(2026, 9, 22, 15, 4, 5, tzinfo=UTC),
                 attachments=[
                     {
                         "fileId": file_id,
@@ -468,15 +470,34 @@ def test_transcript_archive_records_unsupported_files_without_dummy_transcript()
     with tempfile.TemporaryDirectory() as directory:
         archive_path = Path(directory) / "transcripts.zip"
         completed, failed = asyncio.run(
-            build_transcript_archive(submissions.submissions, submissions, uploads, runs, archive_path)
+            build_transcript_archive(
+                submissions.submissions,
+                submissions,
+                uploads,
+                runs,
+                archive_path,
+                {"participant-1": ("01012345678", "초등", 3)},
+            )
         )
         with zipfile.ZipFile(archive_path) as archive:
             assert archive.namelist() == ["parse-failures.csv"]
             failure_csv = archive.read("parse-failures.csv").decode("utf-8-sig")
 
     assert (completed, failed) == (0, 1)
-    assert "image-submission" in failure_csv
-    assert "parser adapter" in failure_csv
+    rows = list(csv.DictReader(io.StringIO(failure_csv)))
+    assert len(rows) == 1
+    assert rows[0] | {"reason": ""} == {
+        "submissionId": "image-submission",
+        "participantId": "participant-1",
+        "제출 회차": "대화문 1 (1차 후)",
+        "학교급": "초등",
+        "학년": "3",
+        "휴대폰": "01012345678",
+        "제출일": "2026. 09. 23.",
+        "platform": "other",
+        "reason": "",
+    }
+    assert "parser adapter" in rows[0]["reason"]
 
 
 def test_participant_without_chat_consent_cannot_submit() -> None:

@@ -82,6 +82,10 @@ async def run_worker() -> None:
         submissions = await selected_submissions(payload)
         if not submissions:
             raise ValueError("선택한 제출이 없습니다.")
+        participant_profiles = {
+            participant.participant_id: (participant.phone, participant.school_level, participant.grade)
+            for participant in await participants.list_participants()
+        }
         fd, archive_name = tempfile.mkstemp(suffix=".zip")
         os.close(fd)
         archive_path = Path(archive_name)
@@ -92,6 +96,7 @@ async def run_worker() -> None:
                 database.gridfs_bucket("chat_uploads"),
                 transcript_runs,
                 archive_path,
+                participant_profiles,
             )
             await store_download_artifact(payload, archive_path, transcript_download_filename())
         finally:

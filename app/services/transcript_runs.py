@@ -6,6 +6,7 @@ import zipfile
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Protocol
+from zoneinfo import ZoneInfo
 
 from app.schemas.chat import ParsedTranscript, TranscriptMessage, TranscriptParseRun
 from app.services.chats import ChatSubmissionRepository, ChatUploadRepository
@@ -234,9 +235,11 @@ async def build_transcript_archive(
     uploads: ChatUploadRepository,
     runs: TranscriptParseRunRepository,
     archive_path: Path,
+    participant_profiles: dict[str, tuple[str, str | None, int | None]] | None = None,
 ) -> tuple[int, int]:
     completed = 0
     failures: list[list[str]] = []
+    profiles = participant_profiles or {}
     with zipfile.ZipFile(archive_path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
         for submission in submissions:
             run = await runs.latest(submission.submission_id) if submission.transcript.status == "parsed" else None
@@ -256,8 +259,24 @@ async def build_transcript_archive(
                 reason = run.error if run and run.error else "지원되는 파싱 결과를 생성하지 못했습니다."
                 if run and run.warnings:
                     reason = " ".join(run.warnings)
+                phone, school_level, grade = profiles.get(submission.participant_id, ("", None, None))
+                submission_point = {
+                    "afterRound1": "대화문 1 (1차 후)",
+                    "afterRound4": "대화문 2 (4차 후)",
+                }.get(submission.submission_point, submission.submission_point)
+                submitted_at = submission.submitted_at.astimezone(ZoneInfo("Asia/Seoul")).strftime("%Y. %m. %d.")
                 failures.append(
-                    [submission.submission_id, submission.participant_id, submission.tool or "", reason]
+                    [
+                        submission.submission_id,
+                        submission.participant_id,
+                        submission_point,
+                        school_level or "",
+                        str(grade) if grade is not None else "",
+                        phone,
+                        submitted_at,
+                        submission.tool or "",
+                        reason,
+                    ]
                 )
                 continue
             filename = f"transcript-{submission.submission_id}.csv"
@@ -266,7 +285,19 @@ async def build_transcript_archive(
         if failures:
             output = io.StringIO(newline="")
             writer = csv.writer(output)
-            writer.writerow(["submissionId", "participantId", "platform", "reason"])
+            writer.writerow(
+                [
+                    "submissionId",
+                    "participantId",
+                    "제출 회차",
+                    "학교급",
+                    "학년",
+                    "휴대폰",
+                    "제출일",
+                    "platform",
+                    "reason",
+                ]
+            )
             writer.writerows(failures)
             archive.writestr("parse-failures.csv", ("\ufeff" + output.getvalue()).encode("utf-8"))
     return completed, len(failures)
