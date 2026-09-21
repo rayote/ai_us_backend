@@ -24,7 +24,7 @@ from app.schemas.chat import (
     ChatSubmissionSummary,
 )
 from app.schemas.imports import ParticipantImportResult
-from app.schemas.reporting import NonparticipantReport, ParticipationStatus
+from app.schemas.reporting import IncompleteParticipantReport, NonparticipantReport, ParticipationStatus
 from app.schemas.survey import SurveyDefinitionSummary, SurveyResponsePreview
 from app.services.application_settings import ApplicationSettingsRepository
 from app.services.applications import ApplicationRepository
@@ -270,6 +270,27 @@ async def nonparticipants(
     _: str = Depends(require_researcher),
 ) -> NonparticipantReport:
     return await _reporting_service(request).nonparticipants(survey_round, survey_version)
+
+
+@router.get("/incomplete-participants", response_model=IncompleteParticipantReport)
+async def incomplete_participants(
+    category: Literal["survey", "chat"],
+    criterion: str,
+    request: Request,
+    school_level: Literal["초등", "중등", "고등"] | None = None,
+    _: str = Depends(require_researcher),
+) -> IncompleteParticipantReport:
+    if category == "survey":
+        try:
+            survey_round = int(criterion)
+        except ValueError as error:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="설문 회차가 올바르지 않습니다.") from error
+        if survey_round < 1:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="설문 회차가 올바르지 않습니다.")
+        criterion = str(survey_round)
+    elif criterion not in {"afterRound1", "afterRound4"}:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="대화문 제출 시점이 올바르지 않습니다.")
+    return await _reporting_service(request).incomplete_participants(category, criterion, school_level)
 
 
 @router.get("/survey-definitions", response_model=list[SurveyDefinitionSummary])

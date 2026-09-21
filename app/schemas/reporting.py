@@ -55,3 +55,10 @@ class NonparticipantReport(BaseModel):
     survey_version: str = Field(alias="surveyVersion")
     counts: SchoolLevelCount
     participants: list[NonparticipantRecord]
+
+
+class IncompleteParticipantReport(BaseModel):
+    category: Literal["survey", "chat"]
+    criterion: str
+    counts: SchoolLevelCount
+    participants: list[NonparticipantRecord]

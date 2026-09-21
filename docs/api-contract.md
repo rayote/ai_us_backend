@@ -317,6 +317,10 @@ Returns participant totals by elementary, middle, high, and total. Survey comple
 
 Returns the participants without a completed response for the specified survey round and version, with counts by school level. The researcher UI populates its version selector from the registered definitions instead of hardcoding a version.
 
+`GET /api/v1/researcher/incomplete-participants?category=survey&criterion=1&school_level=초등`
+
+Returns the follow-up list used by the unified incomplete-participant management screen. For `category=survey`, `criterion` is a survey round and any completed version in that round counts as completion. For `category=chat`, `criterion` is `afterRound1` or `afterRound4`; only chat-consented participants without either an active or deletion-requested submission are returned. The optional `school_level` is `초등`, `중등`, or `고등`.
+
 ## Import participants from CSV
 
 `POST /api/v1/researcher/participants/imports`

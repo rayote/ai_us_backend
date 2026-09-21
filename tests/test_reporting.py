@@ -78,14 +78,17 @@ class InMemoryChatSubmissions:
             SimpleNamespace(participant_id="1", submission_point="afterRound1", status="active"),
             SimpleNamespace(participant_id="2", submission_point="afterRound4", status="deletion_requested"),
         ]
-        return [submission for submission in submissions if submission.status == status]
+        return [
+            submission
+            for submission in submissions
+            if submission.status == status
+            and (submission_point is None or submission.submission_point == submission_point)
+        ]
 
 
 def test_reporting_counts_participants_and_nonparticipants() -> None:
     participants = InMemoryParticipants()
-    participants.participants[0] = ParticipantAccount(
-        "1", "01011111111", "hash", False, True, "초등", "가", 4
-    )
+    participants.participants[0] = ParticipantAccount("1", "01011111111", "hash", False, True, "초등", "가", 4)
     service = ResearcherReportingService(participants, InMemoryResponses(), InMemoryChatSubmissions())
 
     status = asyncio.run(service.participation_status())
@@ -106,3 +109,14 @@ def test_reporting_counts_participants_and_nonparticipants() -> None:
     assert status.chat.participants[1].after_round_4 == "deletion_requested"
     assert missing.counts.total == 2
     assert [participant.name for participant in missing.participants] == ["나", "다"]
+
+    survey_incomplete = asyncio.run(service.incomplete_participants("survey", "1"))
+    assert [participant.name for participant in survey_incomplete.participants] == ["다"]
+
+    chat_incomplete = asyncio.run(service.incomplete_participants("chat", "afterRound4"))
+    assert [participant.name for participant in chat_incomplete.participants] == ["가"]
+
+    elementary_chat_incomplete = asyncio.run(
+        service.incomplete_participants("chat", "afterRound1", "초등")
+    )
+    assert elementary_chat_incomplete.counts.total == 0

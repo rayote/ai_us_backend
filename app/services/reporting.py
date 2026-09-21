@@ -3,6 +3,7 @@ from __future__ import annotations
 from app.schemas.reporting import (
     ChatParticipationRecord,
     ChatParticipationStatus,
+    IncompleteParticipantReport,
     NonparticipantRecord,
     NonparticipantReport,
     ParticipationStatus,
@@ -52,10 +53,14 @@ class ResearcherReportingService:
                 statuses[submission.submission_point] = submission.status
         consented = [participant for participant in participants if participant.chat_consent]
         submitted_after_round_1 = [
-            participant for participant in participants if "afterRound1" in chat_statuses.get(participant.participant_id, {})
+            participant
+            for participant in participants
+            if "afterRound1" in chat_statuses.get(participant.participant_id, {})
         ]
         submitted_after_round_4 = [
-            participant for participant in participants if "afterRound4" in chat_statuses.get(participant.participant_id, {})
+            participant
+            for participant in participants
+            if "afterRound4" in chat_statuses.get(participant.participant_id, {})
         ]
         chat_participant_ids = {participant.participant_id for participant in consented}
         chat_participant_ids.update(chat_statuses)
@@ -108,6 +113,55 @@ class ResearcherReportingService:
         return NonparticipantReport(
             surveyRound=survey_round,
             surveyVersion=survey_version,
+            counts=_school_level_counts(missing),
+            participants=[
+                NonparticipantRecord(
+                    participantId=participant.participant_id,
+                    name=participant.name,
+                    schoolLevel=participant.school_level,
+                    grade=participant.grade,
+                    phone=participant.phone,
+                )
+                for participant in missing
+            ],
+        )
+
+    async def incomplete_participants(
+        self,
+        category: str,
+        criterion: str,
+        school_level: str | None = None,
+    ) -> IncompleteParticipantReport:
+        participants = await self._participants.list_participants()
+        if school_level is not None:
+            participants = [participant for participant in participants if participant.school_level == school_level]
+
+        if category == "survey":
+            responses = await self._responses.list_all_responses()
+            completed_ids = {
+                response.participant_id for response in responses if response.survey_round == int(criterion)
+            }
+            missing = [participant for participant in participants if participant.participant_id not in completed_ids]
+        else:
+            if self._chat_submissions is None:
+                missing = [participant for participant in participants if participant.chat_consent]
+            else:
+                submissions = await self._chat_submissions.list_submissions(submission_point=criterion)
+                submissions.extend(
+                    await self._chat_submissions.list_submissions(
+                        submission_point=criterion, status="deletion_requested"
+                    )
+                )
+                submitted_ids = {submission.participant_id for submission in submissions}
+                missing = [
+                    participant
+                    for participant in participants
+                    if participant.chat_consent and participant.participant_id not in submitted_ids
+                ]
+
+        return IncompleteParticipantReport(
+            category=category,
+            criterion=criterion,
             counts=_school_level_counts(missing),
             participants=[
                 NonparticipantRecord(
