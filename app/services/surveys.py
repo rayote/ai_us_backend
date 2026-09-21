@@ -6,12 +6,7 @@ from datetime import UTC, datetime
 from typing import Any, Protocol
 from zoneinfo import ZoneInfo
 
-from app.schemas.survey import (
-    SurveyDefinition,
-    SurveyDefinitionCreate,
-    SurveyDefinitionSummary,
-    SurveyResponseRecord,
-)
+from app.schemas.survey import SurveyDefinition, SurveyDefinitionCreate, SurveyDefinitionSummary, SurveyResponseRecord
 from pymongo.errors import DuplicateKeyError
 
 
@@ -176,6 +171,9 @@ class MongoSurveySessionRepository:
                     "active_seconds": heartbeat.active_seconds,
                     "resume_count": heartbeat.resume_count,
                     "current_page": heartbeat.current_page,
+                    "visited_page_count": heartbeat.visited_page_count,
+                    "total_page_count": heartbeat.total_page_count,
+                    "navigation_count": heartbeat.navigation_count,
                     "updated_at": datetime.now(UTC),
                 }
             },
@@ -203,7 +201,10 @@ def survey_responses_to_csv(
             "전체 경과시간(초)",
             "활동시간(초)",
             "재개 횟수",
-            "페이지 수",
+            "마지막 방문 페이지",
+            "방문한 페이지 수",
+            "전체 페이지 수",
+            "페이지 이동 횟수",
             *[question.csv_column for question in questions],
         ]
     )
@@ -222,6 +223,9 @@ def survey_responses_to_csv(
                 _detail_value(response.detail, "activeSeconds", "active_seconds"),
                 _detail_value(response.detail, "resumeCount", "resume_count"),
                 _detail_value(response.detail, "pageCount", "page_count"),
+                _detail_value(response.detail, "visitedPageCount", "visited_page_count"),
+                _detail_value(response.detail, "totalPageCount", "total_page_count"),
+                _detail_value(response.detail, "navigationCount", "navigation_count"),
                 *[_csv_value(_answer_value(response.answers, question.key)) for question in questions],
             ]
         )

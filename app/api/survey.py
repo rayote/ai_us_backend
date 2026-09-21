@@ -39,7 +39,9 @@ def _participant_repository(request: Request) -> ParticipantAccountRepository | 
 def _session_repository(request: Request):
     repository = getattr(request.app.state, "survey_session_repository", None)
     if repository is None:
-        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="설문 세션 서비스를 준비 중입니다.")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="설문 세션 서비스를 준비 중입니다."
+        )
     return repository
 
 

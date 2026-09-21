@@ -196,6 +196,9 @@ def test_survey_heartbeat_is_saved_for_authenticated_participant() -> None:
                 "activeSeconds": 30,
                 "resumeCount": 1,
                 "currentPage": 2,
+                "visitedPageCount": 2,
+                "totalPageCount": 15,
+                "navigationCount": 2,
             },
         )
 

@@ -176,6 +176,9 @@ class SurveySessionHeartbeat(BaseModel):
     active_seconds: int = Field(alias="activeSeconds", ge=0)
     resume_count: int = Field(alias="resumeCount", ge=0)
     current_page: int = Field(alias="currentPage", ge=0)
+    visited_page_count: int = Field(alias="visitedPageCount", ge=0)
+    total_page_count: int = Field(alias="totalPageCount", ge=0)
+    navigation_count: int = Field(alias="navigationCount", ge=0)
 
 
 class SurveySubmissionAccepted(BaseModel):

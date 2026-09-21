@@ -74,7 +74,7 @@ def test_csv_export_uses_question_definition_order_and_preserves_missing_answers
 
     assert (
         csv_text.splitlines()[0]
-        == "아이디(휴대폰),학교급,학년,surveyRound,surveyVersion,응답 일시(KST),설문 시작 일시(KST),전체 경과시간(초),활동시간(초),재개 횟수,페이지 수,첫 번째 문항,두 번째 문항"
+        == "아이디(휴대폰),학교급,학년,surveyRound,surveyVersion,응답 일시(KST),설문 시작 일시(KST),전체 경과시간(초),활동시간(초),재개 횟수,마지막 방문 페이지,방문한 페이지 수,전체 페이지 수,페이지 이동 횟수,첫 번째 문항,두 번째 문항"
     )
     assert csv_text.splitlines()[1].startswith('"=""01012345678""",초등,4,')
     assert csv_text.splitlines()[2].startswith('"=""01022223333""",중등,2,')
@@ -122,21 +122,27 @@ def test_csv_export_includes_session_detail_columns_near_submission_time() -> No
             "activeSeconds": 1680,
             "resumeCount": 3,
             "pageCount": 15,
+            "visitedPageCount": 12,
+            "totalPageCount": 15,
+            "navigationCount": 16,
         },
     )
 
     rows = list(csv.reader(io.StringIO(survey_responses_to_csv(definition, [response]))))
     start = rows[0].index("응답 일시(KST)")
 
-    assert rows[0][start : start + 6] == [
+    assert rows[0][start : start + 9] == [
         "응답 일시(KST)",
         "설문 시작 일시(KST)",
         "전체 경과시간(초)",
         "활동시간(초)",
         "재개 횟수",
-        "페이지 수",
+        "마지막 방문 페이지",
+        "방문한 페이지 수",
+        "전체 페이지 수",
+        "페이지 이동 횟수",
     ]
-    assert rows[1][start : start + 6] == ["2026-09-19 00:30:00", "2026-09-19 00:00:00", "2430", "1680", "3", "15"]
+    assert rows[1][start : start + 9] == ["2026-09-19 00:30:00", "2026-09-19 00:00:00", "2430", "1680", "3", "15", "12", "15", "16"]
 
 
 def test_csv_export_reads_nested_composite_answers() -> None:
