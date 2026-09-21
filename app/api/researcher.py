@@ -732,7 +732,14 @@ async def request_transcript_parse(
     runs = _transcript_parse_run_repository(request)
     existing = await runs.active(submission_id)
     if existing is not None:
-        return TranscriptParseRequestAccepted(runId=existing.run_id, jobId=existing.run_id, status=existing.status)
+        existing_job = await _job_repository(request).enqueue(
+            JobCreate(
+                job_type="transcript_parse",
+                idempotency_key=f"{submission_id}:{existing.run_id}",
+                payload={"submissionId": submission_id, "runId": existing.run_id},
+            )
+        )
+        return TranscriptParseRequestAccepted(runId=existing.run_id, jobId=existing_job.id, status=existing.status)
     run = await runs.create(submission_id, "adapter-router", "adapter-router-v1")
     job = await _job_repository(request).enqueue(
         JobCreate(
