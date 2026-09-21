@@ -86,3 +86,50 @@ def test_second_round_uses_five_minute_speed_threshold() -> None:
 
     assert report.speed_buckets[0].response_count == 1
     assert report.speed_candidates[0].reasons == ["응답시간이 5분 이하로 짧음"]
+
+
+def test_low_similarity_pairs_are_not_candidates() -> None:
+    records = [
+        SurveyResponseRecord(
+            participantId="internal-a",
+            surveyRound=1,
+            surveyVersion="v2",
+            answers={"q1": "one", "q2": "two"},
+            submittedAt=datetime.now(UTC),
+            detail={"wallClockSeconds": 700, "visitedPageCount": 2, "totalPageCount": 4},
+        ),
+        SurveyResponseRecord(
+            participantId="internal-b",
+            surveyRound=1,
+            surveyVersion="v2",
+            answers={"q1": "different", "q2": "other"},
+            submittedAt=datetime.now(UTC),
+            detail={"wallClockSeconds": 700, "visitedPageCount": 2, "totalPageCount": 4},
+        ),
+    ]
+    report = asyncio.run(AbuseReviewService(Participants(), Responses(records), Definitions()).report(1, "v2"))
+
+    assert [bucket.label for bucket in report.similarity_buckets] == ["100% 일치", "95~99% 일치", "90~94% 일치"]
+    assert sum(bucket.pair_count for bucket in report.similarity_buckets) == 0
+    assert report.candidates == []
+    assert report.pairing_candidates == []
+    assert report.combined_candidates == []
+
+
+def test_duplicate_response_documents_count_one_pair() -> None:
+    base = SurveyResponseRecord(
+        participantId="internal-a",
+        surveyRound=1,
+        surveyVersion="v2",
+        answers={"q1": "same", "q2": "same"},
+        submittedAt=datetime.now(UTC),
+        detail={"wallClockSeconds": 700},
+    )
+    paired = base.model_copy(update={"participant_id": "internal-b"})
+    report = asyncio.run(
+        AbuseReviewService(Participants(), Responses([base, paired, base, paired]), Definitions()).report(1, "v2")
+    )
+
+    assert report.similarity_buckets[0].label == "100% 일치"
+    assert report.similarity_buckets[0].pair_count == 1
+    assert len(report.combined_candidates) == 1

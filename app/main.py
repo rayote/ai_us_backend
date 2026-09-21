@@ -9,8 +9,8 @@ from app.api.auth import router as auth_router
 from app.api.researcher import router as researcher_router
 from app.core.settings import Settings
 from app.db.mongodb import MongoDatabase
-from app.services.analytics import DailyMetricsRepository, MongoDailyMetricsRepository
 from app.services.abuse_review_status import AbuseReviewStatusRepository, MongoAbuseReviewStatusRepository
+from app.services.analytics import DailyMetricsRepository, MongoDailyMetricsRepository
 from app.services.application_settings import ApplicationSettingsRepository, MongoApplicationSettingsRepository
 from app.services.applications import ApplicationRepository, MongoApplicationRepository
 from app.services.auth import (

@@ -5,9 +5,9 @@ from typing import Any
 
 from app.schemas.abuse_review import AbuseReviewCandidate, AbuseReviewReport, SimilarityBucket, SpeedBucket
 from app.schemas.survey import SurveyDefinition, SurveyResponseRecord
+from app.services.abuse_review_status import abuse_candidate_key
 from app.services.auth import ParticipantAccountRepository
 from app.services.surveys import SurveyResponseRepository
-from app.services.abuse_review_status import abuse_candidate_key
 
 
 def _detail_value(detail: dict[str, object] | None, *keys: str) -> object | None:
@@ -135,12 +135,13 @@ class AbuseReviewService:
         participants = {
             participant.participant_id: participant for participant in await self._participants.list_participants()
         }
-        buckets = {"100% 일치": 0, "95~99% 일치": 0, "90~94% 일치": 0, "90% 미만": 0}
+        buckets = {"100% 일치": 0, "95~99% 일치": 0, "90~94% 일치": 0}
         speed_buckets = {"5분 이하": 0, "5분 초과~10분 이하": 0, "10분 초과": 0, "응답시간 확인 불가": 0}
         candidates: list[AbuseReviewCandidate] = []
         speed_candidates: list[AbuseReviewCandidate] = []
         pairing_candidates: list[AbuseReviewCandidate] = []
         combined_candidates: list[AbuseReviewCandidate] = []
+        seen_pairs: set[tuple[str, str, str, str]] = set()
         for response in responses:
             profile = participants.get(response.participant_id)
             speed_bucket = _speed_bucket(response)
@@ -150,7 +151,9 @@ class AbuseReviewService:
             if profile is not None and reasons:
                 speed_candidates.append(
                     AbuseReviewCandidate(
-                        candidateKey=abuse_candidate_key(response.survey_round, response.survey_version, profile.phone, None),
+                        candidateKey=abuse_candidate_key(
+                            response.survey_round, response.survey_version, profile.phone, None
+                        ),
                         phone=profile.phone,
                         reasons=reasons,
                         reviewPriority="확인 필요",
@@ -160,13 +163,24 @@ class AbuseReviewService:
                 )
         for index, left in enumerate(responses):
             for right in responses[index + 1:]:
-                similarity = _similarity(left, right)
-                bucket, minimum = _bucket(similarity)
-                buckets[bucket] += 1
                 left_profile = participants.get(left.participant_id)
                 right_profile = participants.get(right.participant_id)
                 if left_profile is None or right_profile is None:
                     continue
+                if left.participant_id == right.participant_id:
+                    continue
+                pair_key = tuple(sorted((left_profile.phone, right_profile.phone))) + (
+                    left.survey_version,
+                    right.survey_version,
+                )
+                if pair_key in seen_pairs:
+                    continue
+                seen_pairs.add(pair_key)
+                similarity = _similarity(left, right)
+                if similarity < 90:
+                    continue
+                bucket, minimum = _bucket(similarity)
+                buckets[bucket] += 1
                 reasons: list[str] = []
                 left_detail = left.detail or {}
                 right_detail = right.detail or {}
@@ -196,7 +210,9 @@ class AbuseReviewService:
                 if not reasons:
                     continue
                 candidate = AbuseReviewCandidate(
-                    candidateKey=abuse_candidate_key(left.survey_round, left.survey_version, left_profile.phone, right_profile.phone),
+                    candidateKey=abuse_candidate_key(
+                        left.survey_round, left.survey_version, left_profile.phone, right_profile.phone
+                    ),
                     phone=left_profile.phone,
                     pairedPhone=right_profile.phone,
                     similarityPercent=similarity,
@@ -219,7 +235,7 @@ class AbuseReviewService:
             totalResponses=len(responses),
             similarityBuckets=[
                 SimilarityBucket(label=label, minimumPercent=minimum, pairCount=buckets[label])
-                for label, minimum in (("100% 일치", 100), ("95~99% 일치", 95), ("90~94% 일치", 90), ("90% 미만", 0))
+                for label, minimum in (("100% 일치", 100), ("95~99% 일치", 95), ("90~94% 일치", 90))
             ],
             speedBuckets=[
                 SpeedBucket(label=label, maximumSeconds=maximum, responseCount=speed_buckets[label])
