@@ -48,6 +48,7 @@ class AbuseReviewStatusUpdate(BaseModel):
 
 class AbuseReviewGroupStatusUpdate(BaseModel):
     group_key: str = Field(alias="groupKey")
+    phones: list[str] = Field(default_factory=list)
     reviewed: bool
 
 
@@ -56,6 +57,7 @@ class AbuseReviewStatus(BaseModel):
     reviewed: bool
     reviewed_at: str | None = Field(default=None, alias="reviewedAt")
     reviewed_by: str | None = Field(default=None, alias="reviewedBy")
+    member_phones: list[str] = Field(default_factory=list, alias="memberPhones")
 
 
 class AbuseReviewReport(BaseModel):

@@ -19,7 +19,8 @@ def abuse_group_key(survey_round: int, survey_version: str, phones: list[str]) -
 
 
 class AbuseReviewStatusRepository(Protocol):
-    async def list_statuses(self, survey_round: int, survey_version: str) -> list[AbuseReviewStatus]: ...
+    async def list_statuses(self, survey_round: int, survey_version: str) -> list[AbuseReviewStatus]:
+        ...
 
     async def set_status(
         self,
@@ -28,7 +29,9 @@ class AbuseReviewStatusRepository(Protocol):
         candidate_key: str,
         reviewed: bool,
         reviewer: str,
-    ) -> AbuseReviewStatus: ...
+        member_phones: list[str] | None = None,
+    ) -> AbuseReviewStatus:
+        ...
 
 
 class MongoAbuseReviewStatusRepository:
@@ -43,6 +46,7 @@ class MongoAbuseReviewStatusRepository:
                 reviewed=document["reviewed"],
                 reviewedAt=document.get("reviewed_at").isoformat() if document.get("reviewed_at") else None,
                 reviewedBy=document.get("reviewed_by"),
+                memberPhones=document.get("member_phones", []),
             )
             async for document in cursor
         ]
@@ -54,11 +58,12 @@ class MongoAbuseReviewStatusRepository:
         candidate_key: str,
         reviewed: bool,
         reviewer: str,
+        member_phones: list[str] | None = None,
     ) -> AbuseReviewStatus:
         reviewed_at = datetime.now(UTC)
         await self._collection.update_one(
             {"survey_round": survey_round, "survey_version": survey_version, "candidate_key": candidate_key},
-            {"$set": {"reviewed": reviewed, "reviewed_at": reviewed_at, "reviewed_by": reviewer}},
+            {"$set": {"reviewed": reviewed, "reviewed_at": reviewed_at, "reviewed_by": reviewer, "member_phones": member_phones or []}},
             upsert=True,
         )
         return AbuseReviewStatus(
@@ -66,4 +71,5 @@ class MongoAbuseReviewStatusRepository:
             reviewed=reviewed,
             reviewedAt=reviewed_at.isoformat(),
             reviewedBy=reviewer,
+            memberPhones=member_phones or [],
         )

@@ -251,10 +251,15 @@ class AbuseReviewService:
                 )
             )
         pair_page = max(pair_page, 1)
-        pair_page_size = max(min(pair_page_size, 200), 1)
+        pair_page_size = max(min(pair_page_size, 100000), 1)
         all_pair_candidates = sorted(
             pairing_candidates + combined_candidates,
-            key=lambda item: (-len(item.reasons), -(item.similarity_percent or 0), item.phone, item.paired_phone or ""),
+            key=lambda item: (
+                -len(item.reasons),
+                -(item.similarity_percent or 0),
+                item.phone,
+                item.paired_phone or "",
+            ),
         )
         pair_page_count = max((len(all_pair_candidates) + pair_page_size - 1) // pair_page_size, 1)
         pair_start = (pair_page - 1) * pair_page_size

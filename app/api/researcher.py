@@ -247,8 +247,25 @@ async def update_abuse_review_group_status(
     request: Request,
     reviewer: str = Depends(require_researcher),
 ) -> AbuseReviewStatus:
-    return await _abuse_review_status_repository(request).set_status(
-        survey_round, survey_version, update.group_key, update.reviewed, reviewer
+    status_repository = _abuse_review_status_repository(request)
+    report = await _abuse_review_service(request).report(survey_round, survey_version, 1, 100000)
+    member_phones = set(update.phones)
+    for candidate in report.pairing_candidates + report.combined_candidates:
+        if candidate.paired_phone and {candidate.phone, candidate.paired_phone}.issubset(member_phones):
+            await status_repository.set_status(
+                survey_round,
+                survey_version,
+                candidate.candidate_key,
+                update.reviewed,
+                reviewer,
+            )
+    return await status_repository.set_status(
+        survey_round,
+        survey_version,
+        update.group_key,
+        update.reviewed,
+        reviewer,
+        sorted(member_phones),
     )
 
 
