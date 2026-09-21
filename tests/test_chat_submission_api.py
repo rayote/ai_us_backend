@@ -1,4 +1,5 @@
 import asyncio
+import json
 import re
 import tempfile
 import zipfile
@@ -17,7 +18,7 @@ from app.services.auth import (
     ResearcherAccount,
     ResearcherAccountRepository,
 )
-from app.services.chat_downloads import chat_download_filename
+from app.services.chat_downloads import chat_download_filename, transcript_download_filename
 from app.services.chats import (
     ChatSubmissionRepository,
     ChatUploadRepository,
@@ -25,7 +26,7 @@ from app.services.chats import (
     store_chat_submission,
 )
 from app.services.jobs import JobRepository, QueueWorker
-from app.services.transcript_runs import TranscriptParseRunRepository
+from app.services.transcript_runs import TranscriptParseRunRepository, build_transcript_archive
 from fastapi.testclient import TestClient
 
 
@@ -272,6 +273,9 @@ class InMemoryChatUploads(ChatUploadRepository):
     async def download_to_path(self, file_id: str, target: Path) -> None:
         target.write_bytes(self.files[file_id][1])
 
+    async def read_bytes(self, file_id: str) -> tuple[str, bytes, dict[str, object]]:
+        return self.files[file_id]
+
 
 class InMemoryResearchers(ResearcherAccountRepository):
     def __init__(self) -> None:
@@ -364,6 +368,115 @@ def test_bulk_chat_download_filename_uses_kst() -> None:
     assert chat_download_filename(datetime(2026, 9, 22, 15, 4, 5, tzinfo=UTC)) == (
         "chat-submissions_2026-09-23_00-04-05.zip"
     )
+    assert transcript_download_filename(datetime(2026, 9, 22, 15, 4, 5, tzinfo=UTC)) == (
+        "transcripts_2026-09-23_00-04-05.zip"
+    )
+
+
+def test_transcript_archive_auto_parses_and_stores_separate_csv_files() -> None:
+    submissions = InMemoryChatSubmissions()
+    uploads = InMemoryChatUploads()
+    runs = InMemoryTranscriptParseRuns()
+    for submission_id, conversation_id in (("submission-a", "grok-a"), ("submission-b", "grok-b")):
+        export = {
+            "conversations": [
+                {
+                    "conversation": {"id": conversation_id, "title": conversation_id},
+                    "responses": [
+                        {
+                            "response": {
+                                "sender": "human",
+                                "message": conversation_id,
+                                "create_time": {"$date": {"$numberLong": "1700000000000"}},
+                            }
+                        }
+                    ],
+                }
+            ]
+        }
+        content = json.dumps(export).encode()
+        file_id = asyncio.run(uploads.upload(f"{conversation_id}.json", content, {}))
+        asyncio.run(
+            submissions.create_submission(
+                ChatSubmissionRecord(
+                    submissionId=submission_id,
+                    participantId="participant-1",
+                    submissionPoint="afterRound1",
+                    sourceType="file",
+                    tool="grok",
+                    rawInput=f"{conversation_id}.json",
+                    transcript=ParsedTranscript(
+                        status="placeholder", parserVersion="attachment-v1", messages=[], plainText="", warnings=[]
+                    ),
+                    submittedAt=datetime.now(UTC),
+                    attachments=[
+                        {
+                            "fileId": file_id,
+                            "filename": f"{conversation_id}.json",
+                            "contentType": "application/json",
+                            "size": len(content),
+                        }
+                    ],
+                )
+            )
+        )
+
+    with tempfile.TemporaryDirectory() as directory:
+        archive_path = Path(directory) / "transcripts.zip"
+        completed, failed = asyncio.run(
+            build_transcript_archive(submissions.submissions, submissions, uploads, runs, archive_path)
+        )
+        with zipfile.ZipFile(archive_path) as archive:
+            assert sorted(archive.namelist()) == ["transcript-submission-a.csv", "transcript-submission-b.csv"]
+            assert "grok_grok-a" in archive.read("transcript-submission-a.csv").decode("utf-8-sig")
+            assert "grok_grok-b" in archive.read("transcript-submission-b.csv").decode("utf-8-sig")
+
+    assert (completed, failed) == (2, 0)
+    assert all(submission.transcript.status == "parsed" for submission in submissions.submissions)
+
+
+def test_transcript_archive_records_unsupported_files_without_dummy_transcript() -> None:
+    submissions = InMemoryChatSubmissions()
+    uploads = InMemoryChatUploads()
+    runs = InMemoryTranscriptParseRuns()
+    file_id = asyncio.run(uploads.upload("screen.png", b"png-data", {}))
+    asyncio.run(
+        submissions.create_submission(
+            ChatSubmissionRecord(
+                submissionId="image-submission",
+                participantId="participant-1",
+                submissionPoint="afterRound1",
+                sourceType="image",
+                tool="other",
+                rawInput="screen.png",
+                transcript=ParsedTranscript(
+                    status="placeholder", parserVersion="attachment-v1", messages=[], plainText="", warnings=[]
+                ),
+                submittedAt=datetime.now(UTC),
+                attachments=[
+                    {
+                        "fileId": file_id,
+                        "filename": "screen.png",
+                        "contentType": "image/png",
+                        "size": 8,
+                    }
+                ],
+            )
+        )
+    )
+
+    with tempfile.TemporaryDirectory() as directory:
+        archive_path = Path(directory) / "transcripts.zip"
+        completed, failed = asyncio.run(
+            build_transcript_archive(submissions.submissions, submissions, uploads, runs, archive_path)
+        )
+        with zipfile.ZipFile(archive_path) as archive:
+            assert archive.namelist() == ["parse-failures.csv"]
+            failure_csv = archive.read("parse-failures.csv").decode("utf-8-sig")
+
+    assert (completed, failed) == (0, 1)
+    assert "image-submission" in failure_csv
+    assert "parser adapter" in failure_csv
 
 
 def test_participant_without_chat_consent_cannot_submit() -> None:
@@ -539,6 +652,24 @@ def test_bulk_chat_download_job_keeps_selected_submission_ids_and_filters() -> N
     assert jobs.jobs[0].payload["submissionIds"] == ["chat-a", "chat-b"]
     assert jobs.jobs[0].payload["submissionPoint"] == "afterRound1"
     assert jobs.jobs[0].payload["schoolLevel"] == "초등"
+
+
+def test_bulk_transcript_download_queues_separate_job_type() -> None:
+    app, jobs, _, _ = _app(True)
+    with TestClient(app) as client:
+        login = client.post(
+            "/api/v1/auth/researcher/login",
+            json={"username": "researcher", "password": "researcher-password"},
+        )
+        response = client.post(
+            "/api/v1/researcher/chat-submissions/transcript-download-jobs",
+            headers={"Authorization": f"Bearer {login.json()['accessToken']}"},
+            json={"submissionIds": ["chat-a", "chat-b"]},
+        )
+
+    assert response.status_code == 202
+    assert jobs.jobs[0].job_type == "transcript_download"
+    assert jobs.jobs[0].payload["submissionIds"] == ["chat-a", "chat-b"]
 
 
 def test_transcript_downloads_use_kst_timestamped_filenames() -> None:

@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import csv
 import io
+import zipfile
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any, Protocol
 
 from app.schemas.chat import ParsedTranscript, TranscriptMessage, TranscriptParseRun
@@ -12,13 +14,17 @@ from bson import ObjectId
 
 
 class TranscriptParseRunRepository(Protocol):
-    async def create(self, submission_id: str, parser_name: str, parser_version: str) -> TranscriptParseRun: ...
+    async def create(self, submission_id: str, parser_name: str, parser_version: str) -> TranscriptParseRun:
+        ...
 
-    async def get(self, run_id: str) -> TranscriptParseRun | None: ...
+    async def get(self, run_id: str) -> TranscriptParseRun | None:
+        ...
 
-    async def latest(self, submission_id: str) -> TranscriptParseRun | None: ...
+    async def latest(self, submission_id: str) -> TranscriptParseRun | None:
+        ...
 
-    async def active(self, submission_id: str) -> TranscriptParseRun | None: ...
+    async def active(self, submission_id: str) -> TranscriptParseRun | None:
+        ...
 
     async def complete(
         self,
@@ -28,9 +34,11 @@ class TranscriptParseRunRepository(Protocol):
         normalized_json: dict[str, Any],
         warnings: list[str],
         status: str = "completed",
-    ) -> None: ...
+    ) -> None:
+        ...
 
-    async def fail(self, run_id: str, error: str, warnings: list[str]) -> None: ...
+    async def fail(self, run_id: str, error: str, warnings: list[str]) -> None:
+        ...
 
 
 def _run(document: dict[str, Any]) -> TranscriptParseRun:
@@ -218,6 +226,50 @@ def normalized_to_csv(normalized: dict[str, Any]) -> str:
                 ]
             )
     return output.getvalue()
+
+
+async def build_transcript_archive(
+    submissions: list[Any],
+    submission_repository: ChatSubmissionRepository,
+    uploads: ChatUploadRepository,
+    runs: TranscriptParseRunRepository,
+    archive_path: Path,
+) -> tuple[int, int]:
+    completed = 0
+    failures: list[list[str]] = []
+    with zipfile.ZipFile(archive_path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+        for submission in submissions:
+            run = await runs.latest(submission.submission_id) if submission.transcript.status == "parsed" else None
+            if run is None:
+                run = await runs.create(submission.submission_id, "adapter-router", "adapter-router-v1")
+                try:
+                    await process_transcript_parse(
+                        {"submissionId": submission.submission_id, "runId": run.run_id},
+                        submission_repository,
+                        uploads,
+                        runs,
+                    )
+                except Exception:
+                    pass
+                run = await runs.get(run.run_id)
+            if run is None or run.status != "completed" or run.normalized_json is None:
+                reason = run.error if run and run.error else "지원되는 파싱 결과를 생성하지 못했습니다."
+                if run and run.warnings:
+                    reason = " ".join(run.warnings)
+                failures.append(
+                    [submission.submission_id, submission.participant_id, submission.tool or "", reason]
+                )
+                continue
+            filename = f"transcript-{submission.submission_id}.csv"
+            archive.writestr(filename, ("\ufeff" + normalized_to_csv(run.normalized_json)).encode("utf-8"))
+            completed += 1
+        if failures:
+            output = io.StringIO(newline="")
+            writer = csv.writer(output)
+            writer.writerow(["submissionId", "participantId", "platform", "reason"])
+            writer.writerows(failures)
+            archive.writestr("parse-failures.csv", ("\ufeff" + output.getvalue()).encode("utf-8"))
+    return completed, len(failures)
 
 
 def _project_transcript(normalized: dict[str, Any], parser_version: str, warnings: list[str]) -> ParsedTranscript:

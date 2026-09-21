@@ -716,6 +716,77 @@ async def download_chat_job_file(
     )
 
 
+@router.post(
+    "/chat-submissions/transcript-download-jobs",
+    response_model=ChatDownloadJobAccepted,
+    status_code=status.HTTP_202_ACCEPTED,
+)
+async def create_transcript_download_job(
+    request_data: ChatDownloadJobCreate,
+    request: Request,
+    _: str = Depends(require_researcher),
+) -> ChatDownloadJobAccepted:
+    job_key = os.urandom(16).hex()
+    job = await _job_repository(request).enqueue(
+        JobCreate(
+            job_type="transcript_download",
+            idempotency_key=job_key,
+            payload={
+                "jobKey": job_key,
+                "submissionIds": request_data.submission_ids,
+                "submissionPoint": request_data.submission_point,
+                "schoolLevel": request_data.school_level,
+            },
+        )
+    )
+    return ChatDownloadJobAccepted(jobId=job.id, status=job.status)
+
+
+@router.get("/chat-submissions/transcript-download-jobs/{job_id}", response_model=ChatDownloadJobStatus)
+async def get_transcript_download_job(
+    job_id: str,
+    request: Request,
+    _: str = Depends(require_researcher),
+) -> ChatDownloadJobStatus:
+    job = await _job_repository(request).get(job_id)
+    if job is None or job.job_type != "transcript_download":
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="대화문 CSV 작업을 찾을 수 없습니다.")
+    artifact = (
+        await _chat_download_artifact_repository(request).get(job.idempotency_key)
+        if job.status == "completed"
+        else None
+    )
+    return ChatDownloadJobStatus(
+        jobId=job.id,
+        status=job.status,
+        error=job.error,
+        downloadUrl=(
+            f"/api/v1/researcher/chat-submissions/transcript-download-jobs/{job.id}/file" if artifact else None
+        ),
+    )
+
+
+@router.get("/chat-submissions/transcript-download-jobs/{job_id}/file")
+async def download_transcript_job_file(
+    job_id: str,
+    request: Request,
+    _: str = Depends(require_researcher),
+) -> Response:
+    job = await _job_repository(request).get(job_id)
+    if job is None or job.job_type != "transcript_download":
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="대화문 CSV 작업을 찾을 수 없습니다.")
+    artifact = await _chat_download_artifact_repository(request).get(job.idempotency_key)
+    uploads: ChatUploadRepository | None = getattr(request.app.state, "chat_download_upload_repository", None)
+    if artifact is None or uploads is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="다운로드 파일이 아직 준비되지 않았습니다.")
+    filename, content, _ = await uploads.read_bytes(artifact.file_id)
+    return Response(
+        content=content,
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
 @router.get("/chat-submissions/files", response_model=list[ChatSubmissionSummary])
 async def list_chat_submission_files(
     request: Request,

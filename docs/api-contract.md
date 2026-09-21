@@ -242,6 +242,8 @@ This endpoint accepts an `admin` or `researcher` bearer token. It returns a UTF-
 
 `GET /api/v1/researcher/chat-submissions/files/{submissionId}/download` downloads one submission's original attachments as a ZIP. `POST /api/v1/researcher/chat-submissions/download-jobs` creates an asynchronous ZIP job for selected `submissionIds` or the submitted filters. Poll `GET /api/v1/researcher/chat-submissions/download-jobs/{jobId}`; when `completed`, download the archive from its `downloadUrl`. Bulk jobs use the `chat_download` queue type and preserve each submission in its own folder.
 
+`POST /api/v1/researcher/chat-submissions/transcript-download-jobs` creates an asynchronous transcript ZIP job using the same selection fields. Missing parse results are generated automatically. Each successful submission is stored as a separate CSV entry, while unsupported or failed submissions are listed in `parse-failures.csv`. Poll the returned job at `GET /api/v1/researcher/chat-submissions/transcript-download-jobs/{jobId}` and download its `downloadUrl` when complete.
+
 ## Researcher login
 
 `POST /api/v1/auth/researcher/login`

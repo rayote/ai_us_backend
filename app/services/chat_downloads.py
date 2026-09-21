@@ -18,9 +18,11 @@ class ChatDownloadArtifact(BaseModel):
 
 
 class ChatDownloadArtifactRepository(Protocol):
-    async def create(self, artifact: ChatDownloadArtifact) -> None: ...
+    async def create(self, artifact: ChatDownloadArtifact) -> None:
+        ...
 
-    async def get(self, job_id: str) -> ChatDownloadArtifact | None: ...
+    async def get(self, job_id: str) -> ChatDownloadArtifact | None:
+        ...
 
 
 class MongoChatDownloadArtifactRepository:
@@ -48,3 +50,8 @@ def new_artifact(job_id: str, file_id: str, filename: str, size: int) -> ChatDow
 def chat_download_filename(created_at: datetime | None = None) -> str:
     timestamp = (created_at or datetime.now(UTC)).astimezone(ZoneInfo("Asia/Seoul")).strftime("%Y-%m-%d_%H-%M-%S")
     return f"chat-submissions_{timestamp}.zip"
+
+
+def transcript_download_filename(created_at: datetime | None = None) -> str:
+    timestamp = (created_at or datetime.now(UTC)).astimezone(ZoneInfo("Asia/Seoul")).strftime("%Y-%m-%d_%H-%M-%S")
+    return f"transcripts_{timestamp}.zip"
