@@ -215,7 +215,7 @@ def test_admin_registers_definition_and_researcher_downloads_csv() -> None:
     assert export_response.headers["content-type"].startswith("text/csv")
     assert export_response.headers["content-disposition"].startswith('attachment; filename="T2_all_part_')
     assert export_response.headers["access-control-expose-headers"] == "Content-Disposition"
-    assert "아이디(휴대폰),학교급,학년,surveyRound,surveyVersion,응답 일시(KST),첫 번째 문항" in export_response.text
+    assert "아이디(휴대폰),학교급,학년,surveyRound,surveyVersion,응답 일시(KST),설문 시작 일시(KST),전체 경과시간(초),활동시간(초),재개 횟수,페이지 수,첫 번째 문항" in export_response.text
     assert '"=""01012345678""",초등' in export_response.text
 
 

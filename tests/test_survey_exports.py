@@ -1,3 +1,5 @@
+import csv
+import io
 from datetime import UTC, datetime
 
 from app.schemas.survey import SurveyDefinition, SurveyDefinitionCreate, SurveyQuestion, SurveyResponseRecord
@@ -72,7 +74,7 @@ def test_csv_export_uses_question_definition_order_and_preserves_missing_answers
 
     assert (
         csv_text.splitlines()[0]
-        == "아이디(휴대폰),학교급,학년,surveyRound,surveyVersion,응답 일시(KST),첫 번째 문항,두 번째 문항"
+        == "아이디(휴대폰),학교급,학년,surveyRound,surveyVersion,응답 일시(KST),설문 시작 일시(KST),전체 경과시간(초),활동시간(초),재개 횟수,페이지 수,첫 번째 문항,두 번째 문항"
     )
     assert csv_text.splitlines()[1].startswith('"=""01012345678""",초등,4,')
     assert csv_text.splitlines()[2].startswith('"=""01022223333""",중등,2,')
@@ -99,6 +101,42 @@ def test_csv_export_formats_submission_time_in_kst() -> None:
 
     assert "응답 일시(KST)" in csv_text.splitlines()[0]
     assert "2026-09-19 00:30:00" in csv_text.splitlines()[1]
+
+
+def test_csv_export_includes_session_detail_columns_near_submission_time() -> None:
+    definition = SurveyDefinition(
+        surveyRound=1,
+        surveyVersion="v1",
+        questions=[SurveyQuestion(key="q1", csvColumn="첫 번째 문항", order=1)],
+        createdAt=datetime.now(UTC),
+    )
+    response = SurveyResponseRecord(
+        participantId="participant-1",
+        surveyRound=1,
+        surveyVersion="v1",
+        answers={"q1": "응답"},
+        submittedAt=datetime(2026, 9, 18, 15, 30, tzinfo=UTC),
+        detail={
+            "startedAt": "2026-09-19T00:00:00+09:00",
+            "wallClockSeconds": 2430,
+            "activeSeconds": 1680,
+            "resumeCount": 3,
+            "pageCount": 15,
+        },
+    )
+
+    rows = list(csv.reader(io.StringIO(survey_responses_to_csv(definition, [response]))))
+    start = rows[0].index("응답 일시(KST)")
+
+    assert rows[0][start : start + 6] == [
+        "응답 일시(KST)",
+        "설문 시작 일시(KST)",
+        "전체 경과시간(초)",
+        "활동시간(초)",
+        "재개 횟수",
+        "페이지 수",
+    ]
+    assert rows[1][start : start + 6] == ["2026-09-19 00:30:00", "2026-09-19 00:00:00", "2430", "1680", "3", "15"]
 
 
 def test_csv_export_reads_nested_composite_answers() -> None:

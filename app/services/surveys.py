@@ -199,6 +199,11 @@ def survey_responses_to_csv(
             "surveyRound",
             "surveyVersion",
             "응답 일시(KST)",
+            "설문 시작 일시(KST)",
+            "전체 경과시간(초)",
+            "활동시간(초)",
+            "재개 횟수",
+            "페이지 수",
             *[question.csv_column for question in questions],
         ]
     )
@@ -212,6 +217,11 @@ def survey_responses_to_csv(
                 response.survey_round,
                 response.survey_version,
                 _format_kst(response.submitted_at),
+                _format_detail_datetime(response.detail, "startedAt", "started_at"),
+                _detail_value(response.detail, "wallClockSeconds", "wall_clock_seconds"),
+                _detail_value(response.detail, "activeSeconds", "active_seconds"),
+                _detail_value(response.detail, "resumeCount", "resume_count"),
+                _detail_value(response.detail, "pageCount", "page_count"),
                 *[_csv_value(_answer_value(response.answers, question.key)) for question in questions],
             ]
         )
@@ -233,6 +243,30 @@ def _excel_text(value: str) -> str:
 
 def _format_kst(value: datetime) -> str:
     return value.astimezone(ZoneInfo("Asia/Seoul")).strftime("%Y-%m-%d %H:%M:%S")
+
+
+def _detail_value(detail: dict[str, object] | None, *keys: str) -> object:
+    if not detail:
+        return ""
+    for key in keys:
+        if key in detail and detail[key] is not None:
+            return detail[key]
+    return ""
+
+
+def _format_detail_datetime(detail: dict[str, object] | None, *keys: str) -> str:
+    value = _detail_value(detail, *keys)
+    if value == "":
+        return ""
+    if isinstance(value, datetime):
+        return _format_kst(value)
+    try:
+        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except ValueError:
+        return str(value)
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=UTC)
+    return _format_kst(parsed)
 
 
 def _csv_value(value: object | None) -> object:
