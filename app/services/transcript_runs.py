@@ -5,7 +5,7 @@ import io
 from datetime import UTC, datetime
 from typing import Any, Protocol
 
-from app.schemas.chat import TranscriptParseRun
+from app.schemas.chat import ParsedTranscript, TranscriptMessage, TranscriptParseRun
 from app.services.chats import ChatSubmissionRepository, ChatUploadRepository
 from app.services.transcript_adapters import UnsupportedTranscriptError, normalize_export
 from bson import ObjectId
@@ -71,8 +71,12 @@ async def process_transcript_parse(payload: dict[str, object], submissions: Chat
             normalized = {"participantId": submission.participant_id, "platform": submission.tool or "text", "sourceType": submission.source_type, "schemaVersion": "transcript-v1", "parsedAt": datetime.now(UTC).isoformat(), "summary": {"totalSessions": 1, "totalTurns": len(submission.transcript.messages)}, "sessions": [{"sessionId": f"text_{submission_id}", "sessionMetadata": {"totalTurns": len(submission.transcript.messages)}, "turns": [{"turnId": index + 1, "role": message.speaker, "content": message.text, "timestamp": None} for index, message in enumerate(submission.transcript.messages)]}]}
             parser_name, parser_version, warnings = "text", submission.transcript.parser_version, submission.transcript.warnings
         await runs.complete(run_id, parser_name, parser_version, normalized, warnings)
+        await submissions.update_transcript(submission_id, _project_transcript(normalized, parser_version, warnings))
     except UnsupportedTranscriptError as error:
-        await runs.complete(run_id, "unsupported", "unsupported-v1", {"participantId": submission.participant_id, "schemaVersion": "transcript-v1", "sessions": []}, [str(error)])
+        warnings = [str(error)]
+        normalized = {"participantId": submission.participant_id, "schemaVersion": "transcript-v1", "sessions": []}
+        await runs.complete(run_id, "unsupported", "unsupported-v1", normalized, warnings)
+        await submissions.update_transcript(submission_id, _project_transcript(normalized, "unsupported-v1", warnings))
     except Exception as error:
         await runs.fail(run_id, str(error), [])
         raise
@@ -87,3 +91,23 @@ def normalized_to_csv(normalized: dict[str, Any]) -> str:
         for turn in session.get("turns", []):
             writer.writerow([normalized.get("participantId", ""), normalized.get("platform", ""), session.get("sessionId", ""), session.get("sessionTitle", ""), meta.get("startTime", ""), meta.get("endTime", ""), meta.get("durationSeconds", ""), turn.get("turnId", ""), turn.get("role", ""), turn.get("timestamp", ""), turn.get("content", ""), (turn.get("turnMetadata") or {}).get("errors", "")])
     return output.getvalue()
+
+
+def _project_transcript(normalized: dict[str, Any], parser_version: str, warnings: list[str]) -> ParsedTranscript:
+    messages: list[TranscriptMessage] = []
+    for session in normalized.get("sessions", []):
+        for turn in session.get("turns", []):
+            speaker = turn.get("role")
+            if speaker not in {"user", "assistant", "unknown"}:
+                speaker = "unknown"
+            content = str(turn.get("content") or "").strip()
+            if content:
+                messages.append(TranscriptMessage(speaker=speaker, text=content))
+    plain_text = "\n".join(f"{message.speaker}: {message.text}" for message in messages)
+    return ParsedTranscript(
+        status="parsed" if messages else "warning",
+        parserVersion=parser_version,
+        messages=messages,
+        plainText=plain_text,
+        warnings=warnings,
+    )

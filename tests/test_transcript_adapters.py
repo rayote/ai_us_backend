@@ -1,7 +1,7 @@
 import json
 
 from app.services.transcript_adapters import normalize_export
-from app.services.transcript_runs import normalized_to_csv
+from app.services.transcript_runs import _project_transcript, normalized_to_csv
 
 
 def test_chatgpt_adapter_follows_active_path() -> None:
@@ -24,3 +24,14 @@ def test_grok_adapter_preserves_errors_and_csv_rows() -> None:
     assert normalized["sessions"][0]["turns"][1]["turnMetadata"]["errors"][0]["message"] == "temporary"
     assert "participant-1" in csv_text
     assert "assistant" in csv_text
+
+
+def test_normalized_result_projects_to_legacy_transcript() -> None:
+    normalized = {"sessions": [{"turns": [{"role": "user", "content": "질문"}, {"role": "assistant", "content": "응답"}]}]}
+
+    transcript = _project_transcript(normalized, "adapter-v1", ["경고"])
+
+    assert transcript.status == "parsed"
+    assert transcript.parser_version == "adapter-v1"
+    assert transcript.plain_text == "user: 질문\nassistant: 응답"
+    assert transcript.warnings == ["경고"]

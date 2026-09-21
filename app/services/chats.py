@@ -46,6 +46,8 @@ class ChatSubmissionRepository(Protocol):
 
     async def remove(self, submission_id: str) -> bool: ...
 
+    async def update_transcript(self, submission_id: str, transcript: ParsedTranscript) -> bool: ...
+
 
 class ChatUploadRepository(Protocol):
     async def upload(self, filename: str, data: bytes, metadata: dict[str, Any]) -> str: ...
@@ -137,6 +139,12 @@ class MongoChatSubmissionRepository:
             {"_id": _object_id_or_none(submission_id), "status": "deletion_requested"}
         )
         return result.deleted_count == 1
+
+    async def update_transcript(self, submission_id: str, transcript: ParsedTranscript) -> bool:
+        result = await self._collection.update_one(
+            {"_id": _object_id_or_none(submission_id)}, {"$set": {"transcript": transcript.model_dump()}}
+        )
+        return result.matched_count == 1
 
 
 def _object_id_or_none(value: str) -> ObjectId | None:

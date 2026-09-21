@@ -163,6 +163,13 @@ class InMemoryChatSubmissions(ChatSubmissionRepository):
                 return True
         return False
 
+    async def update_transcript(self, submission_id: str, transcript: ParsedTranscript) -> bool:
+        for index, submission in enumerate(self.submissions):
+            if submission.submission_id == submission_id:
+                self.submissions[index] = submission.model_copy(update={"transcript": transcript})
+                return True
+        return False
+
 
 class InMemoryChatUploads(ChatUploadRepository):
     def __init__(self) -> None:
