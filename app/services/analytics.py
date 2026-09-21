@@ -73,7 +73,13 @@ class MongoDailyMetricsRepository:
                 key = (campaign, document.get("utm_source", ""), document.get("utm_medium", ""))
                 aggregate = campaigns.setdefault(
                     key,
-                    {"campaign": campaign, "source": key[1], "medium": key[2], **_empty_metrics(), "visitorIds": set()},
+                    {
+                        "campaign": campaign,
+                        "source": key[1],
+                        "medium": key[2],
+                        **_empty_metrics(),
+                        "visitorIds": set(),
+                    },
                 )
                 _merge_counts(aggregate, document)
                 aggregate["visitorIds"].update(document.get("visitor_ids", []))
@@ -104,9 +110,9 @@ class MongoDailyMetricsRepository:
                 {
                     **aggregate,
                     "uniqueVisitors": unique_visitors,
-                    "completionRate": round(int(aggregate["surveyCompleted"]) / unique_visitors * 100, 1)
-                    if unique_visitors
-                    else 0,
+                    "completionRate": (
+                        round(int(aggregate["surveyCompleted"]) / unique_visitors * 100, 1) if unique_visitors else 0
+                    ),
                 }
             )
         campaign_rows.sort(key=lambda item: int(item["visits"]), reverse=True)
@@ -120,12 +126,12 @@ class MongoDailyMetricsRepository:
                 "today": today_summary,
                 "last7Days": week_summary,
                 "last30Days": month_summary,
-                "signupConversionRate": round(int(month_summary["signupCompleted"]) / signup_base * 100, 1)
-                if signup_base
-                else 0,
-                "surveyCompletionRate": round(int(month_summary["surveyCompleted"]) / survey_base * 100, 1)
-                if survey_base
-                else 0,
+                "signupConversionRate": (
+                    round(int(month_summary["signupCompleted"]) / signup_base * 100, 1) if signup_base else 0
+                ),
+                "surveyCompletionRate": (
+                    round(int(month_summary["surveyCompleted"]) / survey_base * 100, 1) if survey_base else 0
+                ),
                 "visitChange1Day": int(today_summary["visits"]) - visits_between(-2, -1),
                 "visitChange7Days": visits_between(-7, len(trend)) - visits_between(-14, -7),
             },

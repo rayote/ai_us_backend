@@ -31,7 +31,9 @@ class InMemoryCollection:
         self.documents = []
 
     async def update_one(self, filters, update, upsert=False):
-        document = next((item for item in self.documents if all(item.get(key) == value for key, value in filters.items())), None)
+        document = next(
+            (item for item in self.documents if all(item.get(key) == value for key, value in filters.items())), None
+        )
         if document is None:
             document = dict(filters)
             document.update(update.get("$setOnInsert", {}))
@@ -64,9 +66,7 @@ def test_daily_metrics_separates_visits_from_unique_visitors() -> None:
     asyncio.run(repository.track(event))
     asyncio.run(repository.track(event))
     asyncio.run(
-        repository.track(
-            AnalyticsEvent(event="signup_started", visitorId="browser-session-123", campaign="school-a")
-        )
+        repository.track(AnalyticsEvent(event="signup_started", visitorId="browser-session-123", campaign="school-a"))
     )
     asyncio.run(
         repository.track(

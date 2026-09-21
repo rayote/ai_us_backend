@@ -4,7 +4,6 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-
 AnalyticsEventName = Literal[
     "landing_visit",
     "signup_started",
