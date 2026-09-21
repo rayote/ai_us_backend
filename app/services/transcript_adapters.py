@@ -8,6 +8,7 @@ from datetime import UTC, datetime
 from html.parser import HTMLParser
 from pathlib import PurePosixPath
 from typing import Any
+from urllib.parse import urlparse
 from zoneinfo import ZoneInfo
 
 KST = ZoneInfo("Asia/Seoul")
@@ -32,7 +33,7 @@ def normalize_export(
         payload, source_name = _gemini_payload(content)
         return (
             "gemini-takeout-html",
-            "gemini-takeout-html-v1",
+            "gemini-takeout-html-v2",
             _parse_gemini(payload, participant_id),
             [f"ZIP 내부의 {source_name} 파일을 파싱했습니다."] if source_name else [],
         )
@@ -108,18 +109,23 @@ class _GeminiTakeoutParser(HTMLParser):
 
     def __init__(self) -> None:
         super().__init__(convert_charrefs=True)
-        self.activities: list[tuple[list[str], list[str]]] = []
+        self.activities: list[tuple[list[str], list[str], list[str]]] = []
         self._stack: list[tuple[str, set[str]]] = []
         self._direct: list[str] | None = None
         self._blocks: list[str] | None = None
         self._block_parts: list[str] | None = None
+        self._links: list[str] | None = None
         self._in_body = False
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         classes = set(dict(attrs).get("class", "").split())
         self._stack.append((tag, classes))
         if "outer-cell" in classes:
-            self._direct, self._blocks = [], []
+            self._direct, self._blocks, self._links = [], [], []
+        elif self._links is not None and tag == "a":
+            href = dict(attrs).get("href")
+            if href:
+                self._links.append(href)
         elif self._direct is not None and "content-cell" in classes:
             self._in_body = "mdl-typography--caption" not in classes and "mdl-typography--text-right" not in classes
         elif self._in_body and self._blocks is not None and tag in self._BLOCK_TAGS:
@@ -136,10 +142,11 @@ class _GeminiTakeoutParser(HTMLParser):
         if tag == "div" and self._stack and "content-cell" in self._stack[-1][1]:
             self._in_body = False
         if tag == "div" and self._stack and "outer-cell" in self._stack[-1][1]:
-            if self._direct is not None and self._blocks is not None:
-                self.activities.append((self._direct, self._blocks))
+            if self._direct is not None and self._blocks is not None and self._links is not None:
+                self.activities.append((self._direct, self._blocks, self._links))
             self._direct = None
             self._blocks = None
+            self._links = None
         for index in range(len(self._stack) - 1, -1, -1):
             if self._stack[index][0] == tag:
                 del self._stack[index:]
@@ -164,29 +171,53 @@ def _gemini_timestamp(value: str) -> str | None:
         return None
     year, month, day, period, hour, minute, second = match.groups()
     hour_value = int(hour) % 12 + (12 if period == "오후" else 0)
-    return datetime(
-        int(year), int(month), int(day), hour_value, int(minute), int(second), tzinfo=KST
-    ).isoformat()
+    return datetime(int(year), int(month), int(day), hour_value, int(minute), int(second), tzinfo=KST).isoformat()
+
+
+def _gemini_conversation_id(links: list[str]) -> str | None:
+    for link in links:
+        parsed = urlparse(link)
+        if parsed.hostname not in {"gemini.google.com", "bard.google.com"}:
+            continue
+        parts = [part for part in parsed.path.split("/") if part]
+        if len(parts) >= 2 and parts[-2] == "app" and re.fullmatch(r"[A-Za-z0-9_-]+", parts[-1]):
+            return parts[-1]
+    return None
 
 
 def _parse_gemini(content: bytes, participant_id: str) -> dict[str, Any]:
     parser = _GeminiTakeoutParser()
     parser.feed(_decode_html(content))
-    sessions: list[dict[str, Any]] = []
-    for index, (direct, blocks) in enumerate(parser.activities, start=1):
-        timestamp = next((_gemini_timestamp(value) for value in direct if _gemini_timestamp(value)), None)
+    grouped: dict[str, list[tuple[int, str | None, str, str]]] = {}
+    for index, (direct, blocks, links) in enumerate(parser.activities, start=1):
+        timestamps = [_gemini_timestamp(value) for value in direct]
+        timestamp = next((value for value in timestamps if value is not None), None)
         prompt = next((value for value in direct if _gemini_timestamp(value) is None), "")
         prompt = re.sub(r"\s*항목을 검색함\s*$", "", prompt).strip()
         response = "\n".join(blocks).strip()
-        turns = []
-        if prompt:
-            turns.append({"turnId": 1, "role": "user", "content": prompt, "timestamp": timestamp})
-        if response:
-            turns.append(
-                {"turnId": len(turns) + 1, "role": "assistant", "content": response, "timestamp": timestamp}
-            )
+        if prompt or response:
+            session_id = _gemini_conversation_id(links) or f"takeout-{index}"
+            grouped.setdefault(session_id, []).append((index, timestamp, prompt, response))
+    sessions: list[dict[str, Any]] = []
+    for session_id, activities in grouped.items():
+        activities.sort(key=lambda item: (item[1] is None, item[1] or "", item[0]))
+        turns: list[dict[str, Any]] = []
+        for _, timestamp, prompt, response in activities:
+            if prompt:
+                turns.append({"turnId": len(turns) + 1, "role": "user", "content": prompt, "timestamp": timestamp})
+            if response:
+                turns.append(
+                    {"turnId": len(turns) + 1, "role": "assistant", "content": response, "timestamp": timestamp}
+                )
         if turns:
-            sessions.append(_session("gemini", f"takeout-{index}", prompt[:80], turns))
+            title = next((prompt for _, _, prompt, _ in activities if prompt), "")
+            sessions.append(_session("gemini", session_id, title[:80], turns))
+    sessions.sort(
+        key=lambda session: (
+            session["sessionMetadata"].get("startTime") is None,
+            session["sessionMetadata"].get("startTime") or "",
+        )
+    )
     if not sessions:
         raise ValueError("Gemini 내 활동 HTML에서 대화 내역을 찾지 못했습니다.")
     return _summary(participant_id, "gemini", "gemini_takeout_html", sessions)

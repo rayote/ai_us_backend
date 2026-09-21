@@ -739,10 +739,18 @@ async def request_transcript_parse(
     request: Request,
     _: str = Depends(require_researcher),
 ) -> TranscriptParseRequestAccepted:
-    submissions = await _chat_submission_repository(request).list_submissions()
+    submission_repository = _chat_submission_repository(request)
+    submissions = await submission_repository.list_submissions()
     submission = next((item for item in submissions if item.submission_id == submission_id), None)
     if submission is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="대화문 제출을 찾을 수 없습니다.")
+    if submission.transcript.status != "placeholder":
+        pending_transcript = submission.transcript.model_copy(update={"status": "placeholder"})
+        if not await submission_repository.update_transcript(submission_id, pending_transcript):
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="대화문 파싱 상태를 갱신하지 못했습니다.",
+            )
     runs = _transcript_parse_run_repository(request)
     existing = await runs.active(submission_id)
     if existing is not None:

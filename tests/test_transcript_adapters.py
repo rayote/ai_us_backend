@@ -1,3 +1,4 @@
+import csv
 import io
 import json
 import zipfile
@@ -82,6 +83,42 @@ def test_chatgpt_adapter_extracts_conversations_json_from_zip() -> None:
     assert warnings == ["ZIP 내부의 nested/conversations.json 파일을 파싱했습니다."]
 
 
+def test_chatgpt_adapter_preserves_multiple_conversations_as_sessions() -> None:
+    export = [
+        {
+            "id": conversation_id,
+            "title": title,
+            "current_node": "user",
+            "mapping": {
+                "user": {
+                    "parent": None,
+                    "message": {
+                        "author": {"role": "user"},
+                        "content": {"parts": [title]},
+                        "create_time": timestamp,
+                    },
+                }
+            },
+        }
+        for conversation_id, title, timestamp in (
+            ("conversation-1", "첫 대화", 1_700_000_000),
+            ("conversation-2", "둘째 대화", 1_700_100_000),
+        )
+    ]
+
+    _, _, normalized, _ = normalize_export(
+        "chatgpt", "conversations.json", json.dumps(export, ensure_ascii=False).encode(), "participant-1"
+    )
+    csv_rows = list(csv.DictReader(io.StringIO(normalized_to_csv(normalized))))
+
+    assert normalized["summary"]["totalSessions"] == 2
+    assert [session["sessionId"] for session in normalized["sessions"]] == [
+        "chatgpt_conversation-1",
+        "chatgpt_conversation-2",
+    ]
+    assert [row["sessionId"] for row in csv_rows] == ["chatgpt_conversation-1", "chatgpt_conversation-2"]
+
+
 def test_grok_adapter_preserves_errors_and_csv_rows() -> None:
     export = {
         "conversations": [
@@ -141,6 +178,38 @@ def test_grok_adapter_extracts_json_from_zip() -> None:
     assert warnings == ["ZIP 내부의 prod-grok-backend.json 파일을 파싱했습니다."]
 
 
+def test_grok_adapter_preserves_multiple_conversations_as_sessions() -> None:
+    export = {
+        "conversations": [
+            {
+                "conversation": {"id": conversation_id, "title": title},
+                "responses": [
+                    {
+                        "response": {
+                            "sender": "human",
+                            "message": title,
+                            "create_time": {"$date": {"$numberLong": timestamp}},
+                        }
+                    }
+                ],
+            }
+            for conversation_id, title, timestamp in (
+                ("grok-1", "첫 대화", "1700000000000"),
+                ("grok-2", "둘째 대화", "1700100000000"),
+            )
+        ]
+    }
+
+    _, _, normalized, _ = normalize_export(
+        "grok", "grok.json", json.dumps(export, ensure_ascii=False).encode(), "participant-1"
+    )
+    csv_rows = list(csv.DictReader(io.StringIO(normalized_to_csv(normalized))))
+
+    assert normalized["summary"]["totalSessions"] == 2
+    assert [session["sessionId"] for session in normalized["sessions"]] == ["grok_grok-1", "grok_grok-2"]
+    assert [row["sessionId"] for row in csv_rows] == ["grok_grok-1", "grok_grok-2"]
+
+
 def test_gemini_adapter_extracts_takeout_html_from_zip() -> None:
     html = """
     <div class="outer-cell mdl-cell mdl-cell--12-col mdl-shadow--2dp">
@@ -164,7 +233,7 @@ def test_gemini_adapter_extracts_takeout_html_from_zip() -> None:
         "gemini", "takeout.zip", archive.getvalue(), "participant-1"
     )
 
-    assert (name, version) == ("gemini-takeout-html", "gemini-takeout-html-v1")
+    assert (name, version) == ("gemini-takeout-html", "gemini-takeout-html-v2")
     assert normalized["summary"]["totalSessions"] == 1
     assert normalized["summary"]["totalTurns"] == 2
     assert normalized["sessions"][0]["turns"] == [
@@ -177,6 +246,57 @@ def test_gemini_adapter_extracts_takeout_html_from_zip() -> None:
         },
     ]
     assert warnings == ["ZIP 내부의 Takeout/내 활동/Gemini 앱/내활동.html 파일을 파싱했습니다."]
+
+
+def test_gemini_adapter_groups_activity_cards_by_conversation() -> None:
+    def activity(conversation_id: str, timestamp: str, prompt: str, response: str) -> str:
+        return f"""
+                <div class="outer-cell mdl-cell mdl-cell--12-col mdl-shadow--2dp">
+                    <div class="mdl-grid">
+                        <div class="content-cell mdl-cell mdl-cell--6-col mdl-typography--body-1">
+                            {prompt} 항목을 검색함<br>{timestamp}<br><p>{response}</p>
+                        </div>
+                        <div class="content-cell mdl-cell mdl-cell--12-col mdl-typography--caption">
+                            <a href="https://gemini.google.com/app/{conversation_id}">Gemini</a>
+                        </div>
+                    </div>
+                </div>
+                """
+
+    html = "".join(
+        [
+            activity("session-a", "2026. 9. 8. 오후 1:55:14 KST", "두 번째 질문", "두 번째 응답"),
+            activity("session-b", "2026. 9. 9. 오전 9:00:00 KST", "다른 대화", "다른 응답"),
+            activity("session-a", "2026. 9. 8. 오후 1:54:14 KST", "첫 질문", "첫 응답"),
+        ]
+    )
+
+    _, _, normalized, _ = normalize_export("gemini", "내활동.html", html.encode(), "participant-1")
+    csv_rows = list(csv.DictReader(io.StringIO(normalized_to_csv(normalized))))
+
+    assert normalized["summary"]["totalSessions"] == 2
+    assert normalized["summary"]["totalTurns"] == 6
+    assert [session["sessionId"] for session in normalized["sessions"]] == [
+        "gemini_session-a",
+        "gemini_session-b",
+    ]
+    first = normalized["sessions"][0]
+    assert first["sessionMetadata"]["durationSeconds"] == 60
+    assert [turn["turnId"] for turn in first["turns"]] == [1, 2, 3, 4]
+    assert [turn["content"] for turn in first["turns"]] == [
+        "첫 질문",
+        "첫 응답",
+        "두 번째 질문",
+        "두 번째 응답",
+    ]
+    assert [row["sessionId"] for row in csv_rows] == [
+        "gemini_session-a",
+        "gemini_session-a",
+        "gemini_session-a",
+        "gemini_session-a",
+        "gemini_session-b",
+        "gemini_session-b",
+    ]
 
 
 def test_unsupported_export_reports_actionable_warning() -> None:

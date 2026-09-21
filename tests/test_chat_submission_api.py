@@ -613,6 +613,43 @@ def test_chat_preview_restores_persisted_parsed_transcript_status() -> None:
     assert response.json()[0]["parseStatus"] == "parsed"
 
 
+def test_reparse_request_hides_previous_parse_until_completion() -> None:
+    runs = InMemoryTranscriptParseRuns()
+    app, _, submissions, _ = _app(True, runs)
+    asyncio.run(
+        submissions.create_submission(
+            ChatSubmissionRecord(
+                submissionId="reparse-pending",
+                participantId="participant-1",
+                submissionPoint="afterRound1",
+                sourceType="file",
+                tool="gemini",
+                rawInput="takeout.zip",
+                transcript=ParsedTranscript(
+                    status="parsed",
+                    parserVersion="gemini-takeout-html-v1",
+                    messages=[{"speaker": "user", "text": "이전 결과"}],
+                    plainText="user: 이전 결과",
+                    warnings=[],
+                ),
+                submittedAt=datetime.now(UTC),
+            )
+        )
+    )
+    with TestClient(app) as client:
+        login = client.post(
+            "/api/v1/auth/researcher/login",
+            json={"username": "researcher", "password": "researcher-password"},
+        )
+        headers = {"Authorization": f"Bearer {login.json()['accessToken']}"}
+        requested = client.post("/api/v1/researcher/chat-submissions/reparse-pending/parse", headers=headers)
+        preview = client.get("/api/v1/researcher/chat-submission-previews", headers=headers)
+
+    assert requested.status_code == 202
+    assert preview.status_code == 200
+    assert preview.json()[0]["parseStatus"] == "placeholder"
+
+
 def test_repeated_transcript_parse_request_reuses_active_run_and_job() -> None:
     runs = InMemoryTranscriptParseRuns()
     app, jobs, _, _ = _app(True, runs)
