@@ -311,7 +311,7 @@ Both endpoints require an `admin` or `researcher` bearer token.
 
 `GET /api/v1/researcher/participation-status`
 
-Returns participant totals by elementary, middle, high, and total, plus unique completed participant counts by survey round.
+Returns participant totals by elementary, middle, high, and total. Survey completion is grouped by round regardless of survey version, deduplicated by participant, and includes school-level counts. The response also includes chat-consented participants, unique submitter counts for `afterRound1` and `afterRound4`, and a participant roster with active, deletion-requested, or not-submitted status for each submission point.
 
 `GET /api/v1/researcher/nonparticipants?survey_round=1&survey_version=t1-elem-part1-v2-0916`
 

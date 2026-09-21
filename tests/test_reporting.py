@@ -1,5 +1,6 @@
 import asyncio
 from datetime import UTC, datetime
+from types import SimpleNamespace
 
 from app.schemas.survey import SurveyResponseRecord
 from app.services.auth import ParticipantAccount, ParticipantAccountRepository
@@ -62,16 +63,46 @@ class InMemoryResponses(SurveyResponseRepository):
             SurveyResponseRecord(
                 participantId="2", surveyRound=1, surveyVersion="v1", answers={}, submittedAt=datetime.now(UTC)
             ),
+            SurveyResponseRecord(
+                participantId="1", surveyRound=1, surveyVersion="v2", answers={}, submittedAt=datetime.now(UTC)
+            ),
+            SurveyResponseRecord(
+                participantId="3", surveyRound=2, surveyVersion="v1", answers={}, submittedAt=datetime.now(UTC)
+            ),
         ]
 
 
+class InMemoryChatSubmissions:
+    async def list_submissions(self, submission_point=None, status="active"):
+        submissions = [
+            SimpleNamespace(participant_id="1", submission_point="afterRound1", status="active"),
+            SimpleNamespace(participant_id="2", submission_point="afterRound4", status="deletion_requested"),
+        ]
+        return [submission for submission in submissions if submission.status == status]
+
+
 def test_reporting_counts_participants_and_nonparticipants() -> None:
-    service = ResearcherReportingService(InMemoryParticipants(), InMemoryResponses())
+    participants = InMemoryParticipants()
+    participants.participants[0] = ParticipantAccount(
+        "1", "01011111111", "hash", False, True, "초등", "가", 4
+    )
+    service = ResearcherReportingService(participants, InMemoryResponses(), InMemoryChatSubmissions())
 
     status = asyncio.run(service.participation_status())
     missing = asyncio.run(service.nonparticipants(1, "v1"))
 
     assert status.participants.model_dump() == {"elementary": 1, "middle": 1, "high": 1, "total": 3}
     assert status.completed_by_round[0].completed_count == 2
+    assert status.completed_by_round[0].counts.model_dump() == {
+        "elementary": 1,
+        "middle": 1,
+        "high": 0,
+        "total": 2,
+    }
+    assert status.completed_by_round[1].counts.high == 1
+    assert status.chat.consented.total == 1
+    assert status.chat.submitted_after_round_1.elementary == 1
+    assert status.chat.submitted_after_round_4.middle == 1
+    assert status.chat.participants[1].after_round_4 == "deletion_requested"
     assert missing.counts.total == 2
     assert [participant.name for participant in missing.participants] == ["나", "다"]

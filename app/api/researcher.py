@@ -150,7 +150,8 @@ def _reporting_service(request: Request) -> ResearcherReportingService:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="참여 현황 서비스를 준비 중입니다."
         )
-    return ResearcherReportingService(participants, responses)
+    chats: ChatSubmissionRepository | None = getattr(request.app.state, "chat_submission_repository", None)
+    return ResearcherReportingService(participants, responses, chats)
 
 
 @router.get("/activity-summary")
