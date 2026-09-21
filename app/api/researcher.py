@@ -8,6 +8,7 @@ from typing import Literal
 from zoneinfo import ZoneInfo
 
 from app.api.auth import require_researcher
+from app.schemas.abuse_review import AbuseReviewReport
 from app.schemas.application import (
     ApplicationApproval,
     ApplicationApprovalCompleted,
@@ -28,6 +29,7 @@ from app.schemas.reporting import IncompleteParticipantReport, NonparticipantRep
 from app.schemas.survey import SurveyDefinitionSummary, SurveyResponsePreview
 from app.services.application_settings import ApplicationSettingsRepository
 from app.services.applications import ApplicationRepository
+from app.services.abuse_review import AbuseReviewService
 from app.services.approvals import ApplicationApprovalService, ExistingParticipantError
 from app.services.auth import ParticipantAccountRepository
 from app.services.chat_downloads import ChatDownloadArtifactRepository
@@ -154,6 +156,15 @@ def _reporting_service(request: Request) -> ResearcherReportingService:
     return ResearcherReportingService(participants, responses, chats)
 
 
+def _abuse_review_service(request: Request) -> AbuseReviewService:
+    participants = getattr(request.app.state, "participant_account_repository", None)
+    responses = getattr(request.app.state, "survey_response_repository", None)
+    definitions = getattr(request.app.state, "survey_definition_repository", None)
+    if participants is None or responses is None or definitions is None:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="어뷰징 검토 서비스를 준비 중입니다.")
+    return AbuseReviewService(participants, responses, definitions)
+
+
 @router.get("/activity-summary")
 async def activity_summary(
     request: Request,
@@ -169,6 +180,18 @@ async def activity_summary(
     if metrics is not None:
         summary.update(await metrics.summary())
     return summary
+
+
+@router.get("/abuse-review", response_model=AbuseReviewReport)
+async def abuse_review(
+    request: Request,
+    survey_round: int | None = None,
+    survey_version: str | None = None,
+    _: str = Depends(require_researcher),
+) -> AbuseReviewReport:
+    if (survey_round is None) != (survey_version is None):
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="회차와 설문 버전을 함께 선택해 주세요.")
+    return await _abuse_review_service(request).report(survey_round, survey_version)
 
 
 @router.get("/applications", response_model=list[ApplicationRecord])
