@@ -97,11 +97,13 @@ class AbuseReviewService:
         else:
             responses = await self._responses.list_all_responses()
             definition = None
-        participants = {participant.participant_id: participant for participant in await self._participants.list_participants()}
+        participants = {
+            participant.participant_id: participant for participant in await self._participants.list_participants()
+        }
         buckets = {"100% 일치": 0, "95~99% 일치": 0, "90~94% 일치": 0, "90% 미만": 0}
         candidates: list[AbuseReviewCandidate] = []
         for index, left in enumerate(responses):
-            for right in responses[index + 1:]:
+            for right in responses[index + 1 :]:
                 similarity = _similarity(left, right)
                 bucket, minimum = _bucket(similarity)
                 buckets[bucket] += 1
@@ -112,8 +114,12 @@ class AbuseReviewService:
                 reasons: list[str] = []
                 left_detail = left.detail or {}
                 right_detail = right.detail or {}
-                left_page = _number(_detail_value(left_detail, "visitedPageCount", "visited_page_count", "pageCount", "page_count"))
-                right_page = _number(_detail_value(right_detail, "visitedPageCount", "visited_page_count", "pageCount", "page_count"))
+                left_page = _number(
+                    _detail_value(left_detail, "visitedPageCount", "visited_page_count", "pageCount", "page_count")
+                )
+                right_page = _number(
+                    _detail_value(right_detail, "visitedPageCount", "visited_page_count", "pageCount", "page_count")
+                )
                 left_total = _number(_detail_value(left_detail, "totalPageCount", "total_page_count"))
                 right_total = _number(_detail_value(right_detail, "totalPageCount", "total_page_count"))
                 if left_page is not None and left_total and left_page < left_total:
@@ -122,7 +128,10 @@ class AbuseReviewService:
                     reasons.append("방문한 페이지 수가 전체 페이지 수보다 적음")
                 if _required_complete(left, definition) is True and _required_complete(right, definition) is True:
                     reasons.append("필수 응답은 모두 존재함")
-                active_values = [_number(_detail_value(left_detail, "activeSeconds", "active_seconds")), _number(_detail_value(right_detail, "activeSeconds", "active_seconds"))]
+                active_values = [
+                    _number(_detail_value(left_detail, "activeSeconds", "active_seconds")),
+                    _number(_detail_value(right_detail, "activeSeconds", "active_seconds")),
+                ]
                 if all(value is not None and value < 60 for value in active_values):
                     reasons.append("활동시간이 비정상적으로 짧음")
                 if similarity >= 90:
@@ -137,8 +146,16 @@ class AbuseReviewService:
                         similarityBucket=bucket,
                         reasons=sorted(set(reasons)),
                         reviewPriority=_priority(reasons, similarity),
-                        left={"submittedAt": left.submitted_at.isoformat(), "activeSeconds": left_detail.get("activeSeconds", left_detail.get("active_seconds")), "pageCount": left_detail.get("visitedPageCount", left_detail.get("pageCount"))},
-                        right={"submittedAt": right.submitted_at.isoformat(), "activeSeconds": right_detail.get("activeSeconds", right_detail.get("active_seconds")), "pageCount": right_detail.get("visitedPageCount", right_detail.get("pageCount"))},
+                        left={
+                            "submittedAt": left.submitted_at.isoformat(),
+                            "activeSeconds": left_detail.get("activeSeconds", left_detail.get("active_seconds")),
+                            "pageCount": left_detail.get("visitedPageCount", left_detail.get("pageCount")),
+                        },
+                        right={
+                            "submittedAt": right.submitted_at.isoformat(),
+                            "activeSeconds": right_detail.get("activeSeconds", right_detail.get("active_seconds")),
+                            "pageCount": right_detail.get("visitedPageCount", right_detail.get("pageCount")),
+                        },
                     )
                 )
         candidates.sort(key=lambda item: (-len(item.reasons), -item.similarity_percent, item.phone, item.paired_phone))
