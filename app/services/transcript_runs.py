@@ -166,8 +166,10 @@ async def process_transcript_parse(
                 submission.transcript.parser_version,
                 submission.transcript.warnings,
             )
+        projected = _project_transcript(normalized, parser_version, warnings)
+        if not await submissions.update_transcript(submission_id, projected):
+            raise ValueError("파싱 결과를 대화문 제출에 저장하지 못했습니다.")
         await runs.complete(run_id, parser_name, parser_version, normalized, warnings)
-        await submissions.update_transcript(submission_id, _project_transcript(normalized, parser_version, warnings))
     except UnsupportedTranscriptError as error:
         warnings = [str(error)]
         normalized = {"participantId": submission.participant_id, "schemaVersion": "transcript-v1", "sessions": []}

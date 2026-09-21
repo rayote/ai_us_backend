@@ -576,6 +576,43 @@ def test_transcript_downloads_use_kst_timestamped_filenames() -> None:
     assert re.fullmatch(pattern, json_response.headers["content-disposition"])
 
 
+def test_chat_preview_restores_persisted_parsed_transcript_status() -> None:
+    app, _, submissions, _ = _app(True)
+    asyncio.run(
+        submissions.create_submission(
+            ChatSubmissionRecord(
+                submissionId="persisted-parse",
+                participantId="participant-1",
+                submissionPoint="afterRound1",
+                sourceType="file",
+                tool="grok",
+                rawInput="grok.zip",
+                transcript=ParsedTranscript(
+                    status="parsed",
+                    parserVersion="grok-json-v1",
+                    messages=[{"speaker": "user", "text": "저장된 대화"}],
+                    plainText="user: 저장된 대화",
+                    warnings=[],
+                ),
+                submittedAt=datetime.now(UTC),
+            )
+        )
+    )
+    with TestClient(app) as client:
+        login = client.post(
+            "/api/v1/auth/researcher/login",
+            json={"username": "researcher", "password": "researcher-password"},
+        )
+        response = client.get(
+            "/api/v1/researcher/chat-submission-previews",
+            headers={"Authorization": f"Bearer {login.json()['accessToken']}"},
+        )
+
+    assert response.status_code == 200
+    assert response.json()[0]["submissionId"] == "persisted-parse"
+    assert response.json()[0]["parseStatus"] == "parsed"
+
+
 def test_repeated_transcript_parse_request_reuses_active_run_and_job() -> None:
     runs = InMemoryTranscriptParseRuns()
     app, jobs, _, _ = _app(True, runs)
