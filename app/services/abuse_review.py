@@ -229,6 +229,15 @@ class AbuseReviewService:
                 else:
                     pairing_candidates.append(candidate)
         candidates.sort(key=lambda item: (-len(item.reasons), -item.similarity_percent, item.phone, item.paired_phone))
+        for candidate_list in (speed_candidates, pairing_candidates, combined_candidates):
+            candidate_list.sort(
+                key=lambda item: (
+                    0 if item.review_priority == "우선 검토" else 1,
+                    -(item.similarity_percent or 0),
+                    item.phone,
+                    item.paired_phone or "",
+                )
+            )
         return AbuseReviewReport(
             surveyRound=survey_round,
             surveyVersion=survey_version,
@@ -250,4 +259,7 @@ class AbuseReviewService:
             speedCandidates=speed_candidates[:200],
             pairingCandidates=pairing_candidates[:200],
             combinedCandidates=combined_candidates[:200],
+            speedCandidateCount=len(speed_candidates),
+            pairingCandidateCount=len(pairing_candidates),
+            combinedCandidateCount=len(combined_candidates),
         )

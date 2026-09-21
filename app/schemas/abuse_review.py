@@ -51,3 +51,6 @@ class AbuseReviewReport(BaseModel):
     speed_candidates: list[AbuseReviewCandidate] = Field(alias="speedCandidates")
     pairing_candidates: list[AbuseReviewCandidate] = Field(alias="pairingCandidates")
     combined_candidates: list[AbuseReviewCandidate] = Field(alias="combinedCandidates")
+    speed_candidate_count: int = Field(alias="speedCandidateCount")
+    pairing_candidate_count: int = Field(alias="pairingCandidateCount")
+    combined_candidate_count: int = Field(alias="combinedCandidateCount")
