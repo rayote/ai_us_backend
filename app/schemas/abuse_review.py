@@ -9,6 +9,12 @@ class SimilarityBucket(BaseModel):
     pair_count: int = Field(alias="pairCount")
 
 
+class SpeedBucket(BaseModel):
+    label: str
+    maximum_seconds: int | None = Field(default=None, alias="maximumSeconds")
+    response_count: int = Field(alias="responseCount")
+
+
 class AbuseReviewCandidate(BaseModel):
     phone: str
     paired_phone: str | None = Field(default=None, alias="pairedPhone")
@@ -26,6 +32,7 @@ class AbuseReviewReport(BaseModel):
     survey_version: str | None = Field(default=None, alias="surveyVersion")
     total_responses: int = Field(alias="totalResponses")
     similarity_buckets: list[SimilarityBucket] = Field(alias="similarityBuckets")
+    speed_buckets: list[SpeedBucket] = Field(alias="speedBuckets")
     candidates: list[AbuseReviewCandidate]
     speed_candidates: list[AbuseReviewCandidate] = Field(alias="speedCandidates")
     pairing_candidates: list[AbuseReviewCandidate] = Field(alias="pairingCandidates")

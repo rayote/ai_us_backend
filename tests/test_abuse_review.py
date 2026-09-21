@@ -43,7 +43,7 @@ def test_abuse_review_pairs_by_phone_and_groups_similarity() -> None:
             surveyVersion="v2",
             answers={"q1": "same", "q2": "same"},
             submittedAt=datetime.now(UTC),
-            detail={"activeSeconds": 30, "visitedPageCount": 2, "totalPageCount": 4},
+            detail={"activeSeconds": 30, "wallClockSeconds": 30, "visitedPageCount": 2, "totalPageCount": 4},
         ),
         SurveyResponseRecord(
             participantId="internal-b",
@@ -51,7 +51,7 @@ def test_abuse_review_pairs_by_phone_and_groups_similarity() -> None:
             surveyVersion="v2",
             answers={"q1": "same", "q2": "same"},
             submittedAt=datetime.now(UTC),
-            detail={"activeSeconds": 35, "visitedPageCount": 2, "totalPageCount": 4},
+            detail={"activeSeconds": 35, "wallClockSeconds": 35, "visitedPageCount": 2, "totalPageCount": 4},
         ),
     ]
     report = asyncio.run(AbuseReviewService(Participants(), Responses(records), Definitions()).report(1, "v2"))
@@ -61,11 +61,28 @@ def test_abuse_review_pairs_by_phone_and_groups_similarity() -> None:
     assert report.candidates[0].paired_phone == "010-3333-4444"
     assert report.candidates[0].similarity_percent == 100
     assert report.candidates[0].similarity_bucket == "100% 일치"
+    assert report.speed_buckets[0].label == "5분 이하"
+    assert report.speed_buckets[0].response_count == 2
     assert len(report.speed_candidates) == 2
     assert report.combined_candidates[0].candidate_type == "복합 의심"
     assert report.pairing_candidates == []
     assert "필수 응답은 모두 존재함" in report.candidates[0].reasons
     assert "방문한 페이지 수가 전체 페이지 수보다 적음" in report.candidates[0].reasons
-    assert "활동시간이 비정상적으로 짧음" in report.candidates[0].reasons
+    assert "응답시간이 10분 이하로 짧음" in report.candidates[0].reasons
     assert "internal-a" not in report.model_dump_json()
     assert "internal-b" not in report.model_dump_json()
+
+
+def test_second_round_uses_five_minute_speed_threshold() -> None:
+    response = SurveyResponseRecord(
+        participantId="internal-a",
+        surveyRound=2,
+        surveyVersion="v2",
+        answers={"q1": "same"},
+        submittedAt=datetime.now(UTC),
+        detail={"wallClockSeconds": 300},
+    )
+    report = asyncio.run(AbuseReviewService(Participants(), Responses([response]), Definitions()).report(2, "v2"))
+
+    assert report.speed_buckets[0].response_count == 1
+    assert report.speed_candidates[0].reasons == ["응답시간이 5분 이하로 짧음"]

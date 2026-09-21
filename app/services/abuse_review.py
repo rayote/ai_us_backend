@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from app.schemas.abuse_review import AbuseReviewCandidate, AbuseReviewReport, SimilarityBucket
+from app.schemas.abuse_review import AbuseReviewCandidate, AbuseReviewReport, SimilarityBucket, SpeedBucket
 from app.schemas.survey import SurveyDefinition, SurveyResponseRecord
 from app.services.auth import ParticipantAccountRepository
 from app.services.surveys import SurveyResponseRepository
@@ -79,16 +79,25 @@ def _priority(reasons: list[str], similarity: int) -> str:
     return "참고"
 
 
-def _speed_reasons(response: SurveyResponseRecord) -> list[str]:
+def _speed_reasons(response: SurveyResponseRecord, survey_round: int | None) -> list[str]:
     detail = response.detail or {}
-    active_seconds = _number(_detail_value(detail, "activeSeconds", "active_seconds"))
     wall_clock_seconds = _number(_detail_value(detail, "wallClockSeconds", "wall_clock_seconds"))
     reasons: list[str] = []
-    if active_seconds is not None and active_seconds < 60:
-        reasons.append("활동시간이 60초 미만으로 매우 짧음")
-    if wall_clock_seconds is not None and wall_clock_seconds < 120:
-        reasons.append("전체 경과시간이 120초 미만으로 매우 짧음")
+    threshold = 300 if survey_round == 2 else 600
+    if wall_clock_seconds is not None and wall_clock_seconds <= threshold:
+        reasons.append(f"응답시간이 {threshold // 60}분 이하로 짧음")
     return reasons
+
+
+def _speed_bucket(response: SurveyResponseRecord) -> str:
+    seconds = _number(_detail_value(response.detail, "wallClockSeconds", "wall_clock_seconds"))
+    if seconds is None:
+        return "응답시간 확인 불가"
+    if seconds <= 300:
+        return "5분 이하"
+    if seconds <= 600:
+        return "5분 초과~10분 이하"
+    return "10분 초과"
 
 
 def _candidate_detail(response: SurveyResponseRecord) -> dict[str, object]:
@@ -126,13 +135,17 @@ class AbuseReviewService:
             participant.participant_id: participant for participant in await self._participants.list_participants()
         }
         buckets = {"100% 일치": 0, "95~99% 일치": 0, "90~94% 일치": 0, "90% 미만": 0}
+        speed_buckets = {"5분 이하": 0, "5분 초과~10분 이하": 0, "10분 초과": 0, "응답시간 확인 불가": 0}
         candidates: list[AbuseReviewCandidate] = []
         speed_candidates: list[AbuseReviewCandidate] = []
         pairing_candidates: list[AbuseReviewCandidate] = []
         combined_candidates: list[AbuseReviewCandidate] = []
         for response in responses:
             profile = participants.get(response.participant_id)
-            reasons = _speed_reasons(response)
+            speed_bucket = _speed_bucket(response)
+            speed_buckets[speed_bucket] += 1
+            response_round = survey_round if survey_round is not None else response.survey_round
+            reasons = _speed_reasons(response, response_round)
             if profile is not None and reasons:
                 speed_candidates.append(
                     AbuseReviewCandidate(
@@ -169,12 +182,13 @@ class AbuseReviewService:
                     reasons.append("방문한 페이지 수가 전체 페이지 수보다 적음")
                 if _required_complete(left, definition) is True and _required_complete(right, definition) is True:
                     reasons.append("필수 응답은 모두 존재함")
-                active_values = [
-                    _number(_detail_value(left_detail, "activeSeconds", "active_seconds")),
-                    _number(_detail_value(right_detail, "activeSeconds", "active_seconds")),
+                response_threshold = 300 if (survey_round or left.survey_round) == 2 else 600
+                response_times = [
+                    _number(_detail_value(left_detail, "wallClockSeconds", "wall_clock_seconds")),
+                    _number(_detail_value(right_detail, "wallClockSeconds", "wall_clock_seconds")),
                 ]
-                if all(value is not None and value < 60 for value in active_values):
-                    reasons.append("활동시간이 비정상적으로 짧음")
+                if all(value is not None and value <= response_threshold for value in response_times):
+                    reasons.append(f"응답시간이 {response_threshold // 60}분 이하로 짧음")
                 if similarity >= 90:
                     reasons.append("다른 참여자와 응답 패턴이 매우 유사함")
                 if not reasons:
@@ -186,7 +200,7 @@ class AbuseReviewService:
                     similarityBucket=bucket,
                     reasons=sorted(set(reasons)),
                     reviewPriority=_priority(reasons, similarity),
-                    candidateType="복합 의심" if len(set(reasons)) >= 2 else "응답 패턴 pairing",
+                    candidateType="복합 의심" if len(set(reasons)) >= 2 else "응답 패턴 유사 묶음",
                     left=_candidate_detail(left),
                     right=_candidate_detail(right),
                 )
@@ -203,6 +217,15 @@ class AbuseReviewService:
             similarityBuckets=[
                 SimilarityBucket(label=label, minimumPercent=minimum, pairCount=buckets[label])
                 for label, minimum in (("100% 일치", 100), ("95~99% 일치", 95), ("90~94% 일치", 90), ("90% 미만", 0))
+            ],
+            speedBuckets=[
+                SpeedBucket(label=label, maximumSeconds=maximum, responseCount=speed_buckets[label])
+                for label, maximum in (
+                    ("5분 이하", 300),
+                    ("5분 초과~10분 이하", 600),
+                    ("10분 초과", None),
+                    ("응답시간 확인 불가", None),
+                )
             ],
             candidates=candidates[:200],
             speedCandidates=speed_candidates[:200],
