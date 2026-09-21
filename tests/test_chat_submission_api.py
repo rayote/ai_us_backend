@@ -3,11 +3,12 @@ import tempfile
 import zipfile
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 
 from app.core.security import hash_password
 from app.core.settings import Settings
 from app.main import create_app
-from app.schemas.chat import ChatSubmissionRecord, ParsedTranscript
+from app.schemas.chat import ChatSubmissionRecord, ParsedTranscript, TranscriptParseRun
 from app.schemas.jobs import Job, JobCreate
 from app.services.auth import (
     ParticipantAccount,
@@ -22,6 +23,7 @@ from app.services.chats import (
     store_chat_submission,
 )
 from app.services.jobs import JobRepository, QueueWorker
+from app.services.transcript_runs import TranscriptParseRunRepository
 from fastapi.testclient import TestClient
 
 
@@ -57,6 +59,16 @@ class InMemoryJobs(JobRepository):
         self.jobs: list[Job] = []
 
     async def enqueue(self, job: JobCreate) -> Job:
+        existing = next(
+            (
+                item
+                for item in self.jobs
+                if item.job_type == job.job_type and item.idempotency_key == job.idempotency_key
+            ),
+            None,
+        )
+        if existing is not None:
+            return existing
         queued = Job(
             id=str(len(self.jobs) + 1),
             job_type=job.job_type,
@@ -98,6 +110,78 @@ class InMemoryJobs(JobRepository):
                 self.jobs[index] = job.model_copy(update=changes)
                 return
         raise AssertionError(f"Unknown job: {job_id}")
+
+
+class InMemoryTranscriptParseRuns(TranscriptParseRunRepository):
+    def __init__(self) -> None:
+        self.runs: list[TranscriptParseRun] = []
+
+    async def create(self, submission_id: str, parser_name: str, parser_version: str) -> TranscriptParseRun:
+        run = TranscriptParseRun(
+            runId=str(len(self.runs) + 1),
+            submissionId=submission_id,
+            status="queued",
+            parserName=parser_name,
+            parserVersion=parser_version,
+            schemaVersion="transcript-v1",
+            createdAt=datetime.now(UTC),
+        )
+        self.runs.append(run)
+        return run
+
+    async def get(self, run_id: str) -> TranscriptParseRun | None:
+        return next((run for run in self.runs if run.run_id == run_id), None)
+
+    async def latest(self, submission_id: str) -> TranscriptParseRun | None:
+        return next(
+            (run for run in reversed(self.runs) if run.submission_id == submission_id and run.status == "completed"),
+            None,
+        )
+
+    async def active(self, submission_id: str) -> TranscriptParseRun | None:
+        return next(
+            (
+                run
+                for run in reversed(self.runs)
+                if run.submission_id == submission_id and run.status in {"queued", "processing"}
+            ),
+            None,
+        )
+
+    async def complete(
+        self,
+        run_id: str,
+        parser_name: str,
+        parser_version: str,
+        normalized_json: dict[str, Any],
+        warnings: list[str],
+        status: str = "completed",
+    ) -> None:
+        self._update(
+            run_id,
+            status=status,
+            parser_name=parser_name,
+            parser_version=parser_version,
+            normalized_json=normalized_json,
+            warnings=warnings,
+            completed_at=datetime.now(UTC),
+        )
+
+    async def fail(self, run_id: str, error: str, warnings: list[str]) -> None:
+        self._update(
+            run_id,
+            status="failed",
+            error=error,
+            warnings=warnings,
+            completed_at=datetime.now(UTC),
+        )
+
+    def _update(self, run_id: str, **changes: object) -> None:
+        for index, run in enumerate(self.runs):
+            if run.run_id == run_id:
+                self.runs[index] = run.model_copy(update=changes)
+                return
+        raise AssertionError(f"Unknown parse run: {run_id}")
 
 
 class InMemoryChatSubmissions(ChatSubmissionRepository):
@@ -203,7 +287,9 @@ class InMemoryResearchers(ResearcherAccountRepository):
         return None
 
 
-def _app(chat_consent: bool) -> tuple[object, InMemoryJobs, InMemoryChatSubmissions, InMemoryChatUploads]:
+def _app(
+    chat_consent: bool, transcript_runs: TranscriptParseRunRepository | None = None
+) -> tuple[object, InMemoryJobs, InMemoryChatSubmissions, InMemoryChatUploads]:
     jobs = InMemoryJobs()
     submissions = InMemoryChatSubmissions()
     uploads = InMemoryChatUploads()
@@ -214,6 +300,7 @@ def _app(chat_consent: bool) -> tuple[object, InMemoryJobs, InMemoryChatSubmissi
         job_repository=jobs,
         chat_submission_repository=submissions,
         chat_upload_repository=uploads,
+        transcript_parse_run_repository=transcript_runs,
     )
     return app, jobs, submissions, uploads
 
@@ -373,6 +460,66 @@ def test_consented_participant_can_upload_zip_and_multiple_images() -> None:
         "chat-1.png",
         "chat-2.jpg",
     ]
+
+
+def test_repeated_transcript_parse_request_reuses_active_run_and_job() -> None:
+    runs = InMemoryTranscriptParseRuns()
+    app, jobs, _, _ = _app(True, runs)
+    with TestClient(app) as client:
+        participant_login = client.post(
+            "/api/v1/auth/participant/login",
+            json={"phone": "01012345678", "password": "password-2026", "audience": "elementary"},
+        )
+        client.post(
+            "/api/v1/chat-submissions/uploads",
+            headers={"Authorization": f"Bearer {participant_login.json()['accessToken']}"},
+            data={"tool": "grok", "submissionPoint": "afterRound1", "sourceType": "file", "submissionId": "grok-1"},
+            files={"files": ("grok.zip", b"PK\x03\x04example", "application/zip")},
+        )
+        researcher_login = client.post(
+            "/api/v1/auth/researcher/login",
+            json={"username": "researcher", "password": "researcher-password"},
+        )
+        headers = {"Authorization": f"Bearer {researcher_login.json()['accessToken']}"}
+        first = client.post("/api/v1/researcher/chat-submissions/grok-1/parse", headers=headers)
+        repeated = client.post("/api/v1/researcher/chat-submissions/grok-1/parse", headers=headers)
+
+    assert first.status_code == 202
+    assert repeated.status_code == 202
+    assert repeated.json() == first.json()
+    assert len(runs.runs) == 1
+    assert len(jobs.jobs) == 1
+
+
+def test_transcript_parse_request_replaces_active_run_with_terminal_job() -> None:
+    runs = InMemoryTranscriptParseRuns()
+    app, jobs, _, _ = _app(True, runs)
+    with TestClient(app) as client:
+        participant_login = client.post(
+            "/api/v1/auth/participant/login",
+            json={"phone": "01012345678", "password": "password-2026", "audience": "elementary"},
+        )
+        client.post(
+            "/api/v1/chat-submissions/uploads",
+            headers={"Authorization": f"Bearer {participant_login.json()['accessToken']}"},
+            data={"tool": "grok", "submissionPoint": "afterRound1", "sourceType": "file", "submissionId": "grok-2"},
+            files={"files": ("grok.zip", b"PK\x03\x04example", "application/zip")},
+        )
+        researcher_login = client.post(
+            "/api/v1/auth/researcher/login",
+            json={"username": "researcher", "password": "researcher-password"},
+        )
+        headers = {"Authorization": f"Bearer {researcher_login.json()['accessToken']}"}
+        first = client.post("/api/v1/researcher/chat-submissions/grok-2/parse", headers=headers)
+        jobs._update(first.json()["jobId"], status="failed", error="worker failed")
+        retried = client.post("/api/v1/researcher/chat-submissions/grok-2/parse", headers=headers)
+
+    assert retried.status_code == 202
+    assert retried.json()["runId"] != first.json()["runId"]
+    assert retried.json()["jobId"] != first.json()["jobId"]
+    assert runs.runs[0].status == "failed"
+    assert runs.runs[1].status == "queued"
+    assert len(jobs.jobs) == 2
 
 
 def test_chat_upload_rejects_invalid_file_type() -> None:

@@ -739,7 +739,11 @@ async def request_transcript_parse(
                 payload={"submissionId": submission_id, "runId": existing.run_id},
             )
         )
-        return TranscriptParseRequestAccepted(runId=existing.run_id, jobId=existing_job.id, status=existing.status)
+        if existing_job.status in {"queued", "processing"}:
+            return TranscriptParseRequestAccepted(
+                runId=existing.run_id, jobId=existing_job.id, status=existing_job.status
+            )
+        await runs.fail(existing.run_id, "연결된 파싱 작업이 이미 종료되어 새 작업을 생성했습니다.", [])
     run = await runs.create(submission_id, "adapter-router", "adapter-router-v1")
     job = await _job_repository(request).enqueue(
         JobCreate(

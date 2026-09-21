@@ -40,8 +40,8 @@ class AsyncCollection:
     async def create_index(self, keys: list[tuple[str, int]], **kwargs: Any) -> str:
         return await asyncio.to_thread(self._collection.create_index, keys, **kwargs)
 
-    async def find_one(self, filters: dict[str, Any]) -> dict[str, Any] | None:
-        return await asyncio.to_thread(self._collection.find_one, filters)
+    async def find_one(self, filters: dict[str, Any], **kwargs: Any) -> dict[str, Any] | None:
+        return await asyncio.to_thread(self._collection.find_one, filters, **kwargs)
 
     def find(self, filters: dict[str, Any]) -> AsyncCursor:
         return AsyncCursor(self._collection.find(filters))
