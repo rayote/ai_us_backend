@@ -163,7 +163,13 @@ The optional `detail` object is stored separately from `answers`; the server-sid
 
 `POST /api/v1/participant/survey-sessions/heartbeat` requires a participant bearer token and upserts the current session's last heartbeat, active seconds, resume count, and page number.
 
-`GET /api/v1/researcher/activity-summary` aggregates these session records for the researcher console. `dau`, `wau`, `mau`, and `activeNow` are rolling activity metrics based on the last heartbeat. `totalParticipants` is the number of distinct participants in all stored sessions, and `totalSessions` is the cumulative number of stored sessions. `firstStartedAt` is the earliest stored session start; `generatedAt` is the end of the current aggregation. The researcher console requests this endpoint on load and refreshes it every 30 seconds, so a browser refresh is not required.
+`GET /api/v1/researcher/activity-summary` aggregates these session records for the researcher console. `dau`, `wau`, `mau`, and the 30-day `activityTrend` use KST calendar-day windows based on the last heartbeat; `activeNow` uses the trailing 60 seconds. `totalParticipants` is the number of distinct participants in all stored sessions, and `totalSessions` is the cumulative number of stored sessions. `firstStartedAt` is the earliest stored session start; `generatedAt` is the end of the current aggregation. The researcher console requests this endpoint on load and refreshes it every 30 seconds, so a browser refresh is not required.
+
+## Daily traffic and funnel metrics
+
+`POST /api/v1/analytics/events` accepts only the documented funnel event names and updates one `daily_metrics` document per KST date and campaign/UTM tuple. It stores counters and shortened hashes of anonymous browser IDs, not raw event documents or IP addresses. The researcher activity summary includes 30-day traffic trends, today/7-day/30-day totals, conversion rates, comparison deltas, and campaign rows.
+
+Tracked events are `landing_visit`, `signup_started`, `signup_submitted`, `login_success`, `survey_opened`, `survey_submitted`, `survey_heartbeat`, and `chat_submission_created`. A campaign URL may use `campaign`, `utm_campaign`, `utm_source`, and `utm_medium`, for example `index.html?campaign=school_a_20260921&utm_source=bitly&utm_medium=short-link`. A URL shortener must preserve this query string when redirecting.
 
 ## Get survey submission status
 

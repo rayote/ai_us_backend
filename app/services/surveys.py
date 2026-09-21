@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import csv
 import io
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any, Protocol
 from zoneinfo import ZoneInfo
 
@@ -186,31 +186,59 @@ class MongoSurveySessionRepository:
         now = datetime.now(UTC)
         sessions = [document async for document in self._collection.find({})]
 
+        def updated_at(document: dict[str, Any]) -> datetime | None:
+            value = document.get("updated_at")
+            if value is None:
+                return None
+            return value.replace(tzinfo=UTC) if value.tzinfo is None else value
+
         def active_participants_since(seconds: int) -> set[str]:
             cutoff = now.timestamp() - seconds
             return {
                 str(document["participant_id"])
                 for document in sessions
-                if document.get("updated_at") and document["updated_at"].timestamp() >= cutoff
+                if updated_at(document) and updated_at(document).timestamp() >= cutoff
             }
 
         active_now = active_participants_since(60)
-        daily = active_participants_since(24 * 60 * 60)
-        weekly = active_participants_since(7 * 24 * 60 * 60)
-        monthly = active_participants_since(30 * 24 * 60 * 60)
         active_seconds = [int(document.get("active_seconds", 0)) for document in sessions]
         participant_ids = {str(document["participant_id"]) for document in sessions if document.get("participant_id")}
         started_at_values = [document.get("started_at") for document in sessions if document.get("started_at")]
         first_started_at = min(started_at_values) if started_at_values else None
+        today = now.astimezone(ZoneInfo("Asia/Seoul")).date()
+        activity_trend = []
+        for offset in range(29, -1, -1):
+            target_date = today - timedelta(days=offset)
+            day_start = datetime.combine(target_date, datetime.min.time(), ZoneInfo("Asia/Seoul")).astimezone(UTC)
+            day_end = min(day_start + timedelta(days=1), now)
+
+            def unique_between(start: datetime, end: datetime) -> int:
+                return len(
+                    {
+                        str(document["participant_id"])
+                        for document in sessions
+                        if updated_at(document) and start <= updated_at(document) < end
+                    }
+                )
+
+            activity_trend.append(
+                {
+                    "date": target_date.isoformat(),
+                    "dau": unique_between(day_start, day_end),
+                    "wau": unique_between(day_start - timedelta(days=6), day_end),
+                    "mau": unique_between(day_start - timedelta(days=29), day_end),
+                }
+            )
         return {
-            "dau": len(daily),
-            "wau": len(weekly),
-            "mau": len(monthly),
+            "dau": activity_trend[-1]["dau"],
+            "wau": activity_trend[-1]["wau"],
+            "mau": activity_trend[-1]["mau"],
             "activeNow": len(active_now),
             "sessionCount": len(sessions),
             "totalSessions": len(sessions),
             "totalParticipants": len(participant_ids),
             "averageActiveSeconds": round(sum(active_seconds) / len(active_seconds)) if active_seconds else 0,
+            "activityTrend": activity_trend,
             "hasCampaignData": False,
             "campaigns": [],
             "firstStartedAt": first_started_at.isoformat() if first_started_at else None,

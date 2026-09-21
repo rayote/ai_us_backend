@@ -3,12 +3,14 @@ from __future__ import annotations
 from contextlib import asynccontextmanager
 
 from app.api.admin import router as admin_router
+from app.api.analytics import router as analytics_router
 from app.api.applications import router as applications_router
 from app.api.auth import router as auth_router
 from app.api.researcher import router as researcher_router
 from app.core.settings import Settings
 from app.db.mongodb import MongoDatabase
 from app.services.application_settings import ApplicationSettingsRepository, MongoApplicationSettingsRepository
+from app.services.analytics import DailyMetricsRepository, MongoDailyMetricsRepository
 from app.services.applications import ApplicationRepository, MongoApplicationRepository
 from app.services.auth import (
     MongoParticipantAccountRepository,
@@ -44,6 +46,7 @@ def create_app(
     chat_upload_repository: ChatUploadRepository | None = None,
     chat_download_artifact_repository: ChatDownloadArtifactRepository | None = None,
     chat_download_upload_repository: ChatUploadRepository | None = None,
+    daily_metrics_repository: DailyMetricsRepository | None = None,
 ) -> FastAPI:
     application_settings = settings or Settings.from_environment()
 
@@ -97,8 +100,10 @@ def create_app(
             app.state.survey_response_repository = survey_response_repository
         elif application_settings.mongodb_uri:
             app.state.survey_response_repository = MongoSurveyResponseRepository(database.database["survey_responses"])
-        if application_settings.mongodb_uri:
-            app.state.survey_session_repository = MongoSurveySessionRepository(database.database["survey_sessions"])
+        if daily_metrics_repository is not None:
+            app.state.daily_metrics_repository = daily_metrics_repository
+        elif application_settings.mongodb_uri:
+            app.state.daily_metrics_repository = MongoDailyMetricsRepository(database.database["daily_metrics"])
         if application_settings.mongodb_uri:
             app.state.survey_session_repository = MongoSurveySessionRepository(database.database["survey_sessions"])
         if job_repository is not None:
@@ -146,6 +151,7 @@ def create_app(
         return {"status": "ok", "environment": application_settings.environment}
 
     app.include_router(applications_router)
+    app.include_router(analytics_router)
     app.include_router(admin_router)
     app.include_router(auth_router)
     app.include_router(researcher_router)

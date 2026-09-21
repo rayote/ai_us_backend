@@ -164,7 +164,11 @@ async def activity_summary(
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="활성 분석 서비스를 준비 중입니다."
         )
-    return await sessions.activity_summary()
+    summary = await sessions.activity_summary()
+    metrics = getattr(request.app.state, "daily_metrics_repository", None)
+    if metrics is not None:
+        summary.update(await metrics.summary())
+    return summary
 
 
 @router.get("/applications", response_model=list[ApplicationRecord])
