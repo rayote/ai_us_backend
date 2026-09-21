@@ -240,9 +240,7 @@ async def update_abuse_review_status(
 ) -> AbuseReviewStatus:
     candidate_key = abuse_candidate_key(survey_round, survey_version, update.phone, update.paired_phone)
     repository = _abuse_review_status_repository(request)
-    result = await repository.set_status(
-        survey_round, survey_version, candidate_key, update.reviewed, reviewer
-    )
+    result = await repository.set_status(survey_round, survey_version, candidate_key, update.reviewed, reviewer)
     report = await _abuse_review_service(request).report(survey_round, survey_version, 1, 100000)
     statuses = await repository.list_statuses(survey_round, survey_version)
     reviewed_keys = {item.candidate_key for item in statuses if item.reviewed}

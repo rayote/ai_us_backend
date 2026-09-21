@@ -19,8 +19,7 @@ def abuse_group_key(survey_round: int, survey_version: str, phones: list[str]) -
 
 
 class AbuseReviewStatusRepository(Protocol):
-    async def list_statuses(self, survey_round: int, survey_version: str) -> list[AbuseReviewStatus]:
-        ...
+    async def list_statuses(self, survey_round: int, survey_version: str) -> list[AbuseReviewStatus]: ...
 
     async def set_status(
         self,
@@ -30,8 +29,7 @@ class AbuseReviewStatusRepository(Protocol):
         reviewed: bool,
         reviewer: str,
         member_phones: list[str] | None = None,
-    ) -> AbuseReviewStatus:
-        ...
+    ) -> AbuseReviewStatus: ...
 
 
 class MongoAbuseReviewStatusRepository:
@@ -63,7 +61,14 @@ class MongoAbuseReviewStatusRepository:
         reviewed_at = datetime.now(UTC)
         await self._collection.update_one(
             {"survey_round": survey_round, "survey_version": survey_version, "candidate_key": candidate_key},
-            {"$set": {"reviewed": reviewed, "reviewed_at": reviewed_at, "reviewed_by": reviewer, "member_phones": member_phones or []}},
+            {
+                "$set": {
+                    "reviewed": reviewed,
+                    "reviewed_at": reviewed_at,
+                    "reviewed_by": reviewer,
+                    "member_phones": member_phones or [],
+                }
+            },
             upsert=True,
         )
         return AbuseReviewStatus(
