@@ -3,7 +3,13 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from app.schemas.abuse_review import AbuseReviewCandidate, AbuseReviewGroup, AbuseReviewReport, SimilarityBucket, SpeedBucket
+from app.schemas.abuse_review import (
+    AbuseReviewCandidate,
+    AbuseReviewGroup,
+    AbuseReviewReport,
+    SimilarityBucket,
+    SpeedBucket,
+)
 from app.schemas.survey import SurveyDefinition, SurveyResponseRecord
 from app.services.abuse_review_status import abuse_candidate_key, abuse_group_key
 from app.services.auth import ParticipantAccountRepository
@@ -125,7 +131,13 @@ class AbuseReviewService:
         self._responses = responses
         self._definitions = definitions
 
-    async def report(self, survey_round: int | None = None, survey_version: str | None = None) -> AbuseReviewReport:
+    async def report(
+        self,
+        survey_round: int | None = None,
+        survey_version: str | None = None,
+        pair_page: int = 1,
+        pair_page_size: int = 200,
+    ) -> AbuseReviewReport:
         if survey_round is not None and survey_version:
             responses = await self._responses.list_responses(survey_round, survey_version)
             definition = await self._definitions.get(survey_round, survey_version)
@@ -238,6 +250,17 @@ class AbuseReviewService:
                     item.paired_phone or "",
                 )
             )
+        pair_page = max(pair_page, 1)
+        pair_page_size = max(min(pair_page_size, 200), 1)
+        all_pair_candidates = sorted(
+            pairing_candidates + combined_candidates,
+            key=lambda item: (-len(item.reasons), -(item.similarity_percent or 0), item.phone, item.paired_phone or ""),
+        )
+        pair_page_count = max((len(all_pair_candidates) + pair_page_size - 1) // pair_page_size, 1)
+        pair_start = (pair_page - 1) * pair_page_size
+        pair_page_items = all_pair_candidates[pair_start:pair_start + pair_page_size]
+        pairing_page_candidates = [item for item in pair_page_items if item.candidate_type == "응답 패턴 유사"]
+        combined_page_candidates = [item for item in pair_page_items if item.candidate_type == "복합 의심"]
         parent: dict[str, str] = {}
 
         def find(phone: str) -> str:
@@ -263,7 +286,14 @@ class AbuseReviewService:
         group_round = survey_round or (responses[0].survey_round if responses else 0)
         group_version = survey_version or (responses[0].survey_version if responses else "")
         for group_candidates in grouped_candidates.values():
-            phones = sorted({phone for candidate in group_candidates for phone in (candidate.phone, candidate.paired_phone) if phone})
+            phones = sorted(
+                {
+                    phone
+                    for candidate in group_candidates
+                    for phone in (candidate.phone, candidate.paired_phone)
+                    if phone
+                }
+            )
             if len(phones) < 2:
                 continue
             similarities = [candidate.similarity_percent or 0 for candidate in group_candidates]
@@ -279,10 +309,23 @@ class AbuseReviewService:
                     maximumSimilarityPercent=max(similarities),
                     reasons=reasons,
                     combinedPairCount=combined_count,
-                    reviewPriority="우선 검토" if combined_count or any(candidate.review_priority == "우선 검토" for candidate in group_candidates) else "확인 필요",
+                    reviewPriority=(
+                        "우선 검토"
+                        if combined_count or any(
+                            candidate.review_priority == "우선 검토" for candidate in group_candidates
+                        )
+                        else "확인 필요"
+                    ),
                 )
             )
-        review_groups.sort(key=lambda group: (0 if group.review_priority == "우선 검토" else 1, -group.combined_pair_count, -group.maximum_similarity_percent, -group.member_count))
+        review_groups.sort(
+            key=lambda group: (
+                0 if group.review_priority == "우선 검토" else 1,
+                -group.combined_pair_count,
+                -group.maximum_similarity_percent,
+                -group.member_count,
+            )
+        )
         return AbuseReviewReport(
             surveyRound=survey_round,
             surveyVersion=survey_version,
@@ -300,12 +343,15 @@ class AbuseReviewService:
                     ("응답시간 확인 불가", None),
                 )
             ],
-            candidates=candidates[:200],
+            candidates=pair_page_items,
             speedCandidates=speed_candidates[:200],
-            pairingCandidates=pairing_candidates[:200],
-            combinedCandidates=combined_candidates[:200],
+            pairingCandidates=pairing_page_candidates,
+            combinedCandidates=combined_page_candidates,
             speedCandidateCount=len(speed_candidates),
             pairingCandidateCount=len(pairing_candidates),
             combinedCandidateCount=len(combined_candidates),
+            pairPage=pair_page,
+            pairPageSize=pair_page_size,
+            pairPageCount=pair_page_count,
             groups=review_groups,
         )

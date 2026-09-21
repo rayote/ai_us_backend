@@ -71,4 +71,7 @@ class AbuseReviewReport(BaseModel):
     speed_candidate_count: int = Field(alias="speedCandidateCount")
     pairing_candidate_count: int = Field(alias="pairingCandidateCount")
     combined_candidate_count: int = Field(alias="combinedCandidateCount")
+    pair_page: int = Field(alias="pairPage")
+    pair_page_size: int = Field(alias="pairPageSize")
+    pair_page_count: int = Field(alias="pairPageCount")
     groups: list[AbuseReviewGroup]

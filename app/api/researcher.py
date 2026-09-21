@@ -8,7 +8,12 @@ from typing import Literal
 from zoneinfo import ZoneInfo
 
 from app.api.auth import require_researcher
-from app.schemas.abuse_review import AbuseReviewGroupStatusUpdate, AbuseReviewReport, AbuseReviewStatus, AbuseReviewStatusUpdate
+from app.schemas.abuse_review import (
+    AbuseReviewGroupStatusUpdate,
+    AbuseReviewReport,
+    AbuseReviewStatus,
+    AbuseReviewStatusUpdate,
+)
 from app.schemas.application import (
     ApplicationApproval,
     ApplicationApprovalCompleted,
@@ -199,13 +204,15 @@ async def abuse_review(
     request: Request,
     survey_round: int | None = None,
     survey_version: str | None = None,
+    pair_page: int = 1,
+    pair_page_size: int = 200,
     _: str = Depends(require_researcher),
 ) -> AbuseReviewReport:
     if (survey_round is None) != (survey_version is None):
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="회차와 설문 버전을 함께 선택해 주세요."
         )
-    return await _abuse_review_service(request).report(survey_round, survey_version)
+    return await _abuse_review_service(request).report(survey_round, survey_version, pair_page, pair_page_size)
 
 
 @router.get("/abuse-review/statuses", response_model=list[AbuseReviewStatus])

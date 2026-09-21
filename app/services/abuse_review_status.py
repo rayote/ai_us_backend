@@ -19,8 +19,7 @@ def abuse_group_key(survey_round: int, survey_version: str, phones: list[str]) -
 
 
 class AbuseReviewStatusRepository(Protocol):
-    async def list_statuses(self, survey_round: int, survey_version: str) -> list[AbuseReviewStatus]:
-        ...
+    async def list_statuses(self, survey_round: int, survey_version: str) -> list[AbuseReviewStatus]: ...
 
     async def set_status(
         self,
@@ -29,8 +28,7 @@ class AbuseReviewStatusRepository(Protocol):
         candidate_key: str,
         reviewed: bool,
         reviewer: str,
-    ) -> AbuseReviewStatus:
-        ...
+    ) -> AbuseReviewStatus: ...
 
 
 class MongoAbuseReviewStatusRepository:
