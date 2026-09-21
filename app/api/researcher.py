@@ -8,7 +8,7 @@ from typing import Literal
 from zoneinfo import ZoneInfo
 
 from app.api.auth import require_researcher
-from app.schemas.abuse_review import AbuseReviewReport, AbuseReviewStatus, AbuseReviewStatusUpdate
+from app.schemas.abuse_review import AbuseReviewGroupStatusUpdate, AbuseReviewReport, AbuseReviewStatus, AbuseReviewStatusUpdate
 from app.schemas.application import (
     ApplicationApproval,
     ApplicationApprovalCompleted,
@@ -229,6 +229,19 @@ async def update_abuse_review_status(
     candidate_key = abuse_candidate_key(survey_round, survey_version, update.phone, update.paired_phone)
     return await _abuse_review_status_repository(request).set_status(
         survey_round, survey_version, candidate_key, update.reviewed, reviewer
+    )
+
+
+@router.put("/abuse-review/group-statuses", response_model=AbuseReviewStatus)
+async def update_abuse_review_group_status(
+    update: AbuseReviewGroupStatusUpdate,
+    survey_round: int,
+    survey_version: str,
+    request: Request,
+    reviewer: str = Depends(require_researcher),
+) -> AbuseReviewStatus:
+    return await _abuse_review_status_repository(request).set_status(
+        survey_round, survey_version, update.group_key, update.reviewed, reviewer
     )
 
 

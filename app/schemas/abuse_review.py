@@ -28,9 +28,26 @@ class AbuseReviewCandidate(BaseModel):
     right: dict[str, object] = Field(default_factory=dict)
 
 
+class AbuseReviewGroup(BaseModel):
+    group_key: str = Field(alias="groupKey")
+    phones: list[str]
+    member_count: int = Field(alias="memberCount")
+    pair_count: int = Field(alias="pairCount")
+    average_similarity_percent: int = Field(alias="averageSimilarityPercent")
+    maximum_similarity_percent: int = Field(alias="maximumSimilarityPercent")
+    reasons: list[str]
+    combined_pair_count: int = Field(alias="combinedPairCount")
+    review_priority: str = Field(alias="reviewPriority")
+
+
 class AbuseReviewStatusUpdate(BaseModel):
     phone: str
     paired_phone: str | None = Field(default=None, alias="pairedPhone")
+    reviewed: bool
+
+
+class AbuseReviewGroupStatusUpdate(BaseModel):
+    group_key: str = Field(alias="groupKey")
     reviewed: bool
 
 
@@ -54,3 +71,4 @@ class AbuseReviewReport(BaseModel):
     speed_candidate_count: int = Field(alias="speedCandidateCount")
     pairing_candidate_count: int = Field(alias="pairingCandidateCount")
     combined_candidate_count: int = Field(alias="combinedCandidateCount")
+    groups: list[AbuseReviewGroup]

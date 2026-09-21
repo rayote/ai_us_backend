@@ -66,6 +66,9 @@ def test_abuse_review_pairs_by_phone_and_groups_similarity() -> None:
     assert len(report.speed_candidates) == 2
     assert report.combined_candidates[0].candidate_type == "복합 의심"
     assert report.pairing_candidates == []
+    assert len(report.groups) == 1
+    assert report.groups[0].member_count == 2
+    assert report.groups[0].pair_count == 1
     assert "필수 응답은 모두 존재함" in report.candidates[0].reasons
     assert "방문한 페이지 수가 전체 페이지 수보다 적음" in report.candidates[0].reasons
     assert "응답시간이 10분 이하로 짧음" in report.candidates[0].reasons

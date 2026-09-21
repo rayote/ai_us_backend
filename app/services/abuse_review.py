@@ -3,9 +3,9 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from app.schemas.abuse_review import AbuseReviewCandidate, AbuseReviewReport, SimilarityBucket, SpeedBucket
+from app.schemas.abuse_review import AbuseReviewCandidate, AbuseReviewGroup, AbuseReviewReport, SimilarityBucket, SpeedBucket
 from app.schemas.survey import SurveyDefinition, SurveyResponseRecord
-from app.services.abuse_review_status import abuse_candidate_key
+from app.services.abuse_review_status import abuse_candidate_key, abuse_group_key
 from app.services.auth import ParticipantAccountRepository
 from app.services.surveys import SurveyResponseRepository
 
@@ -238,6 +238,51 @@ class AbuseReviewService:
                     item.paired_phone or "",
                 )
             )
+        parent: dict[str, str] = {}
+
+        def find(phone: str) -> str:
+            parent.setdefault(phone, phone)
+            while parent[phone] != phone:
+                parent[phone] = parent[parent[phone]]
+                phone = parent[phone]
+            return phone
+
+        def union(left_phone: str, right_phone: str) -> None:
+            left_root, right_root = find(left_phone), find(right_phone)
+            if left_root != right_root:
+                parent[right_root] = left_root
+
+        for candidate in candidates:
+            if candidate.paired_phone:
+                union(candidate.phone, candidate.paired_phone)
+        grouped_candidates: dict[str, list[AbuseReviewCandidate]] = {}
+        for candidate in candidates:
+            if candidate.paired_phone:
+                grouped_candidates.setdefault(find(candidate.phone), []).append(candidate)
+        review_groups: list[AbuseReviewGroup] = []
+        group_round = survey_round or (responses[0].survey_round if responses else 0)
+        group_version = survey_version or (responses[0].survey_version if responses else "")
+        for group_candidates in grouped_candidates.values():
+            phones = sorted({phone for candidate in group_candidates for phone in (candidate.phone, candidate.paired_phone) if phone})
+            if len(phones) < 2:
+                continue
+            similarities = [candidate.similarity_percent or 0 for candidate in group_candidates]
+            reasons = sorted({reason for candidate in group_candidates for reason in candidate.reasons})
+            combined_count = sum(candidate.candidate_type == "복합 의심" for candidate in group_candidates)
+            review_groups.append(
+                AbuseReviewGroup(
+                    groupKey=abuse_group_key(group_round, group_version, phones),
+                    phones=phones,
+                    memberCount=len(phones),
+                    pairCount=len(group_candidates),
+                    averageSimilarityPercent=round(sum(similarities) / len(similarities)),
+                    maximumSimilarityPercent=max(similarities),
+                    reasons=reasons,
+                    combinedPairCount=combined_count,
+                    reviewPriority="우선 검토" if combined_count or any(candidate.review_priority == "우선 검토" for candidate in group_candidates) else "확인 필요",
+                )
+            )
+        review_groups.sort(key=lambda group: (0 if group.review_priority == "우선 검토" else 1, -group.combined_pair_count, -group.maximum_similarity_percent, -group.member_count))
         return AbuseReviewReport(
             surveyRound=survey_round,
             surveyVersion=survey_version,
@@ -262,4 +307,5 @@ class AbuseReviewService:
             speedCandidateCount=len(speed_candidates),
             pairingCandidateCount=len(pairing_candidates),
             combinedCandidateCount=len(combined_candidates),
+            groups=review_groups,
         )
