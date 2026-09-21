@@ -106,7 +106,7 @@ def test_reporting_counts_participants_and_nonparticipants() -> None:
     assert status.chat.consented.total == 1
     assert status.chat.submitted_after_round_1.elementary == 1
     assert status.chat.submitted_after_round_4.middle == 1
-    assert status.chat.participants[1].after_round_4 == "deletion_requested"
+    assert "participants" not in status.chat.model_dump()
     assert missing.counts.total == 2
     assert [participant.name for participant in missing.participants] == ["나", "다"]
 
@@ -116,7 +116,5 @@ def test_reporting_counts_participants_and_nonparticipants() -> None:
     chat_incomplete = asyncio.run(service.incomplete_participants("chat", "afterRound4"))
     assert [participant.name for participant in chat_incomplete.participants] == ["가"]
 
-    elementary_chat_incomplete = asyncio.run(
-        service.incomplete_participants("chat", "afterRound1", "초등")
-    )
+    elementary_chat_incomplete = asyncio.run(service.incomplete_participants("chat", "afterRound1", "초등"))
     assert elementary_chat_incomplete.counts.total == 0

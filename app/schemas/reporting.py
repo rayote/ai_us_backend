@@ -18,22 +18,10 @@ class SurveyRoundCount(BaseModel):
     counts: SchoolLevelCount
 
 
-class ChatParticipationRecord(BaseModel):
-    participant_id: str = Field(alias="participantId")
-    name: str | None = None
-    school_level: str | None = Field(alias="schoolLevel")
-    grade: int | None = None
-    phone: str
-    chat_consent: bool = Field(alias="chatConsent")
-    after_round_1: Literal["not_submitted", "active", "deletion_requested"] = Field(alias="afterRound1")
-    after_round_4: Literal["not_submitted", "active", "deletion_requested"] = Field(alias="afterRound4")
-
-
 class ChatParticipationStatus(BaseModel):
     consented: SchoolLevelCount
     submitted_after_round_1: SchoolLevelCount = Field(alias="submittedAfterRound1")
     submitted_after_round_4: SchoolLevelCount = Field(alias="submittedAfterRound4")
-    participants: list[ChatParticipationRecord]
 
 
 class ParticipationStatus(BaseModel):

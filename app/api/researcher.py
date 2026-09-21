@@ -284,12 +284,18 @@ async def incomplete_participants(
         try:
             survey_round = int(criterion)
         except ValueError as error:
-            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="설문 회차가 올바르지 않습니다.") from error
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="설문 회차가 올바르지 않습니다."
+            ) from error
         if survey_round < 1:
-            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="설문 회차가 올바르지 않습니다.")
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="설문 회차가 올바르지 않습니다."
+            )
         criterion = str(survey_round)
     elif criterion not in {"afterRound1", "afterRound4"}:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="대화문 제출 시점이 올바르지 않습니다.")
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="대화문 제출 시점이 올바르지 않습니다."
+        )
     return await _reporting_service(request).incomplete_participants(category, criterion, school_level)
 
 

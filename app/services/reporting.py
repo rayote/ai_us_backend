@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from app.schemas.reporting import (
-    ChatParticipationRecord,
     ChatParticipationStatus,
     IncompleteParticipantReport,
     NonparticipantRecord,
@@ -62,8 +61,6 @@ class ResearcherReportingService:
             for participant in participants
             if "afterRound4" in chat_statuses.get(participant.participant_id, {})
         ]
-        chat_participant_ids = {participant.participant_id for participant in consented}
-        chat_participant_ids.update(chat_statuses)
         return ParticipationStatus(
             participants=_school_level_counts(participants),
             completedByRound=[
@@ -84,24 +81,6 @@ class ResearcherReportingService:
                 consented=_school_level_counts(consented),
                 submittedAfterRound1=_school_level_counts(submitted_after_round_1),
                 submittedAfterRound4=_school_level_counts(submitted_after_round_4),
-                participants=[
-                    ChatParticipationRecord(
-                        participantId=participant.participant_id,
-                        name=participant.name,
-                        schoolLevel=participant.school_level,
-                        grade=participant.grade,
-                        phone=participant.phone,
-                        chatConsent=participant.chat_consent,
-                        afterRound1=chat_statuses.get(participant.participant_id, {}).get(
-                            "afterRound1", "not_submitted"
-                        ),
-                        afterRound4=chat_statuses.get(participant.participant_id, {}).get(
-                            "afterRound4", "not_submitted"
-                        ),
-                    )
-                    for participant in participants
-                    if participant.participant_id in chat_participant_ids
-                ],
             ),
         )
 
