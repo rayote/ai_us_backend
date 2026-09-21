@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import sys
+from datetime import UTC, datetime
 from pathlib import Path
 
 from pymongo import MongoClient
@@ -24,6 +25,11 @@ def main() -> int:
     parser.add_argument("--frontend-index", type=Path, default=DEFAULT_FRONTEND_INDEX)
     parser.add_argument("--survey-round", type=int, default=1)
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument(
+        "--upsert-missing",
+        action="store_true",
+        help="Insert missing definitions as well as updating existing ones. Intended for an empty development database.",
+    )
     args = parser.parse_args()
 
     payloads = build_payloads(extract_survey_sets(args.frontend_index), args.survey_round)
@@ -51,13 +57,16 @@ def main() -> int:
                 "spec": definition.raw_spec,
             }
             query = {"survey_round": definition.survey_round, "survey_version": definition.survey_version}
-            result = collection.update_one(query, {"$set": document})
-            status = "replaced" if result.matched_count == 1 else "missing"
+            existing = collection.find_one(query, {"created_at": 1})
+            if existing is None or "created_at" not in existing:
+                document["created_at"] = datetime.now(UTC)
+            result = collection.update_one(query, {"$set": document}, upsert=args.upsert_missing)
+            status = "replaced" if result.matched_count == 1 else ("inserted" if result.upserted_id else "missing")
             print(
                 f"{definition.audience} {definition.survey_version}: {status} "
                 f"({len(definition.questions)} answer fields)"
             )
-            success = success and result.matched_count == 1
+            success = success and (result.matched_count == 1 or result.upserted_id is not None)
     finally:
         client.close()
     return 0 if success else 1

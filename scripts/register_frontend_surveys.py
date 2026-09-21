@@ -108,6 +108,12 @@ def build_payloads(survey_sets: dict[str, list[dict[str, Any]]], default_survey_
                     last_scale["questions"].append(followup_question)
             payload["surveyRound"] = payload.get("surveyRound") or default_survey_round
             payload["audience"] = audience
+            audience_label = {"elementary": "초등", "secondary": "중고등"}.get(audience, audience)
+            payload["_meta"] = dict(payload.get("_meta") or {})
+            payload["_meta"]["title"] = (
+                f"청소년 생성형 AI 사용 경험 연구 · {payload['surveyRound']}회차 "
+                f"파트{payload.get('part')} ({audience_label})"
+            )
             payloads.append(payload)
     return payloads
 
