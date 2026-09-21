@@ -177,7 +177,7 @@ class AbuseReviewService:
                     )
                 )
         for index, left in enumerate(responses):
-            for right in responses[index + 1 :]:
+            for right in responses[index + 1:]:
                 left_profile = participants.get(left.participant_id)
                 right_profile = participants.get(right.participant_id)
                 if left_profile is None or right_profile is None:
@@ -269,13 +269,14 @@ class AbuseReviewService:
         )
         pair_page_count = max((len(all_pair_candidates) + pair_page_size - 1) // pair_page_size, 1)
         pair_start = (pair_page - 1) * pair_page_size
-        pair_page_items = all_pair_candidates[pair_start : pair_start + pair_page_size]
-        speed_page_count = max((len(speed_candidates) + 199) // 200, 1)
-        pairing_page_count = max((len(pairing_candidates) + 199) // 200, 1)
-        combined_page_count = max((len(combined_candidates) + 199) // 200, 1)
-        speed_page_candidates = speed_candidates[(speed_page - 1) * 200 : speed_page * 200]
-        pairing_page_candidates = pairing_candidates[(pairing_page - 1) * 200 : pairing_page * 200]
-        combined_page_candidates = combined_candidates[(combined_page - 1) * 200 : combined_page * 200]
+        pair_page_items = all_pair_candidates[pair_start:pair_start + pair_page_size]
+        display_page_size = 200
+        speed_page_count = max((len(speed_candidates) + display_page_size - 1) // display_page_size, 1)
+        pairing_page_count = max((len(pairing_candidates) + display_page_size - 1) // display_page_size, 1)
+        combined_page_count = max((len(combined_candidates) + display_page_size - 1) // display_page_size, 1)
+        speed_page_candidates = speed_candidates[(speed_page - 1) * pair_page_size:speed_page * pair_page_size]
+        pairing_page_candidates = pairing_candidates[(pairing_page - 1) * pair_page_size:pairing_page * pair_page_size]
+        combined_page_candidates = combined_candidates[(combined_page - 1) * pair_page_size:combined_page * pair_page_size]
         parent: dict[str, str] = {}
 
         def find(phone: str) -> str:
@@ -326,8 +327,9 @@ class AbuseReviewService:
                     combinedPairCount=combined_count,
                     reviewPriority=(
                         "우선 검토"
-                        if combined_count
-                        or any(candidate.review_priority == "우선 검토" for candidate in group_candidates)
+                        if combined_count or any(
+                            candidate.review_priority == "우선 검토" for candidate in group_candidates
+                        )
                         else "확인 필요"
                     ),
                 )

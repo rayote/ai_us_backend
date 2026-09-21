@@ -27,7 +27,9 @@ def frontend_metadata(frontend_index: Path) -> dict[str, dict[str, object]]:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Synchronize survey definition display metadata from frontend SURVEY_SETS.")
+    parser = argparse.ArgumentParser(
+        description="Synchronize survey definition display metadata from frontend SURVEY_SETS."
+    )
     parser.add_argument("--mongodb-uri")
     parser.add_argument("--database-name")
     parser.add_argument("--frontend-index", type=Path)
