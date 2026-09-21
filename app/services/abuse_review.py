@@ -219,7 +219,7 @@ class AbuseReviewService:
                     similarityBucket=bucket,
                     reasons=sorted(set(reasons)),
                     reviewPriority=_priority(reasons, similarity),
-                    candidateType="복합 의심" if len(set(reasons)) >= 2 else "응답 패턴 유사 묶음",
+                    candidateType="복합 의심" if len(set(reasons)) >= 2 else "응답 패턴 유사",
                     left=_candidate_detail(left),
                     right=_candidate_detail(right),
                 )
