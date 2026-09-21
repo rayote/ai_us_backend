@@ -12,22 +12,23 @@ from bson import ObjectId
 
 
 class TranscriptParseRunRepository(Protocol):
-    async def create(self, submission_id: str, parser_name: str, parser_version: str) -> TranscriptParseRun:
-        ...
+    async def create(self, submission_id: str, parser_name: str, parser_version: str) -> TranscriptParseRun: ...
 
-    async def get(self, run_id: str) -> TranscriptParseRun | None:
-        ...
+    async def get(self, run_id: str) -> TranscriptParseRun | None: ...
 
-    async def latest(self, submission_id: str) -> TranscriptParseRun | None:
-        ...
+    async def latest(self, submission_id: str) -> TranscriptParseRun | None: ...
 
     async def complete(
-        self, run_id: str, parser_name: str, parser_version: str, normalized_json: dict[str, Any], warnings: list[str], status: str = "completed"
-    ) -> None:
-        ...
+        self,
+        run_id: str,
+        parser_name: str,
+        parser_version: str,
+        normalized_json: dict[str, Any],
+        warnings: list[str],
+        status: str = "completed",
+    ) -> None: ...
 
-    async def fail(self, run_id: str, error: str, warnings: list[str]) -> None:
-        ...
+    async def fail(self, run_id: str, error: str, warnings: list[str]) -> None: ...
 
 
 def _run(document: dict[str, Any]) -> TranscriptParseRun:
@@ -77,7 +78,13 @@ class MongoTranscriptParseRunRepository:
         return _run(document) if document else None
 
     async def complete(
-        self, run_id: str, parser_name: str, parser_version: str, normalized_json: dict[str, Any], warnings: list[str], status: str = "completed"
+        self,
+        run_id: str,
+        parser_name: str,
+        parser_version: str,
+        normalized_json: dict[str, Any],
+        warnings: list[str],
+        status: str = "completed",
     ) -> None:
         await self._collection.update_one(
             {"_id": ObjectId(run_id)},

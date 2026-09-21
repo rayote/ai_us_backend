@@ -1,7 +1,6 @@
 import json
 
 import pytest
-
 from app.services.transcript_adapters import UnsupportedTranscriptError, normalize_export
 from app.services.transcript_runs import _project_transcript, normalized_to_csv
 
@@ -84,7 +83,9 @@ def test_grok_adapter_preserves_errors_and_csv_rows() -> None:
 def test_grok_adapter_accepts_cp949_json() -> None:
     export = {"conversations": [{"conversation": {"id": "grok-1", "title": "한글"}, "responses": []}]}
 
-    _, _, normalized, _ = normalize_export("grok", "grok-export.json", json.dumps(export, ensure_ascii=False).encode("cp949"), "participant-1")
+    _, _, normalized, _ = normalize_export(
+        "grok", "grok-export.json", json.dumps(export, ensure_ascii=False).encode("cp949"), "participant-1"
+    )
 
     assert normalized["platform"] == "grok"
 
