@@ -37,6 +37,8 @@ class SurveyResponseRepository(Protocol):
 class SurveySessionRepository(Protocol):
     async def heartbeat(self, participant_id: str, heartbeat: Any) -> None: ...
 
+    async def activity_summary(self) -> dict[str, object]: ...
+
 
 def _definition_from_document(document: dict[str, Any]) -> SurveyDefinition:
     return SurveyDefinition(
@@ -179,6 +181,35 @@ class MongoSurveySessionRepository:
             },
             upsert=True,
         )
+
+    async def activity_summary(self) -> dict[str, object]:
+        now = datetime.now(UTC)
+        sessions = [document async for document in self._collection.find({})]
+
+        def active_participants_since(seconds: int) -> set[str]:
+            cutoff = now.timestamp() - seconds
+            return {
+                str(document["participant_id"])
+                for document in sessions
+                if document.get("updated_at") and document["updated_at"].timestamp() >= cutoff
+            }
+
+        active_now = active_participants_since(60)
+        daily = active_participants_since(24 * 60 * 60)
+        weekly = active_participants_since(7 * 24 * 60 * 60)
+        monthly = active_participants_since(30 * 24 * 60 * 60)
+        active_seconds = [int(document.get("active_seconds", 0)) for document in sessions]
+        return {
+            "dau": len(daily),
+            "wau": len(weekly),
+            "mau": len(monthly),
+            "activeNow": len(active_now),
+            "sessionCount": len(sessions),
+            "averageActiveSeconds": round(sum(active_seconds) / len(active_seconds)) if active_seconds else 0,
+            "hasCampaignData": False,
+            "campaigns": [],
+            "generatedAt": now.isoformat(),
+        }
 
 
 def survey_responses_to_csv(

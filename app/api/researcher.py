@@ -153,6 +153,17 @@ def _reporting_service(request: Request) -> ResearcherReportingService:
     return ResearcherReportingService(participants, responses)
 
 
+@router.get("/activity-summary")
+async def activity_summary(
+    request: Request,
+    _: str = Depends(require_researcher),
+) -> dict[str, object]:
+    sessions = getattr(request.app.state, "survey_session_repository", None)
+    if sessions is None:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="활성 분석 서비스를 준비 중입니다.")
+    return await sessions.activity_summary()
+
+
 @router.get("/applications", response_model=list[ApplicationRecord])
 async def list_applications(
     school_level: Literal["elementary", "middle", "high"] | None = None,
