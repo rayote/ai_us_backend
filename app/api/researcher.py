@@ -8,7 +8,7 @@ from typing import Literal
 from zoneinfo import ZoneInfo
 
 from app.api.auth import require_researcher
-from app.schemas.abuse_review import AbuseReviewReport
+from app.schemas.abuse_review import AbuseReviewReport, AbuseReviewStatus, AbuseReviewStatusUpdate
 from app.schemas.application import (
     ApplicationApproval,
     ApplicationApprovalCompleted,
@@ -28,6 +28,7 @@ from app.schemas.imports import ParticipantImportResult
 from app.schemas.reporting import IncompleteParticipantReport, NonparticipantReport, ParticipationStatus
 from app.schemas.survey import SurveyDefinitionSummary, SurveyResponsePreview
 from app.services.abuse_review import AbuseReviewService
+from app.services.abuse_review_status import AbuseReviewStatusRepository, abuse_candidate_key
 from app.services.application_settings import ApplicationSettingsRepository
 from app.services.applications import ApplicationRepository
 from app.services.approvals import ApplicationApprovalService, ExistingParticipantError
@@ -167,6 +168,15 @@ def _abuse_review_service(request: Request) -> AbuseReviewService:
     return AbuseReviewService(participants, responses, definitions)
 
 
+def _abuse_review_status_repository(request: Request) -> AbuseReviewStatusRepository:
+    repository = getattr(request.app.state, "abuse_review_status_repository", None)
+    if repository is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="어뷰징 검토 상태 서비스를 준비 중입니다."
+        )
+    return repository
+
+
 @router.get("/activity-summary")
 async def activity_summary(
     request: Request,
@@ -196,6 +206,30 @@ async def abuse_review(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="회차와 설문 버전을 함께 선택해 주세요."
         )
     return await _abuse_review_service(request).report(survey_round, survey_version)
+
+
+@router.get("/abuse-review/statuses", response_model=list[AbuseReviewStatus])
+async def abuse_review_statuses(
+    survey_round: int,
+    survey_version: str,
+    request: Request,
+    _: str = Depends(require_researcher),
+) -> list[AbuseReviewStatus]:
+    return await _abuse_review_status_repository(request).list_statuses(survey_round, survey_version)
+
+
+@router.put("/abuse-review/statuses", response_model=AbuseReviewStatus)
+async def update_abuse_review_status(
+    update: AbuseReviewStatusUpdate,
+    survey_round: int,
+    survey_version: str,
+    request: Request,
+    reviewer: str = Depends(require_researcher),
+) -> AbuseReviewStatus:
+    candidate_key = abuse_candidate_key(survey_round, survey_version, update.phone, update.paired_phone)
+    return await _abuse_review_status_repository(request).set_status(
+        survey_round, survey_version, candidate_key, update.reviewed, reviewer
+    )
 
 
 @router.get("/applications", response_model=list[ApplicationRecord])

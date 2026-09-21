@@ -7,6 +7,7 @@ from app.schemas.abuse_review import AbuseReviewCandidate, AbuseReviewReport, Si
 from app.schemas.survey import SurveyDefinition, SurveyResponseRecord
 from app.services.auth import ParticipantAccountRepository
 from app.services.surveys import SurveyResponseRepository
+from app.services.abuse_review_status import abuse_candidate_key
 
 
 def _detail_value(detail: dict[str, object] | None, *keys: str) -> object | None:
@@ -149,6 +150,7 @@ class AbuseReviewService:
             if profile is not None and reasons:
                 speed_candidates.append(
                     AbuseReviewCandidate(
+                        candidateKey=abuse_candidate_key(response.survey_round, response.survey_version, profile.phone, None),
                         phone=profile.phone,
                         reasons=reasons,
                         reviewPriority="확인 필요",
@@ -194,6 +196,7 @@ class AbuseReviewService:
                 if not reasons:
                     continue
                 candidate = AbuseReviewCandidate(
+                    candidateKey=abuse_candidate_key(left.survey_round, left.survey_version, left_profile.phone, right_profile.phone),
                     phone=left_profile.phone,
                     pairedPhone=right_profile.phone,
                     similarityPercent=similarity,

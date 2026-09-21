@@ -10,6 +10,7 @@ from app.api.researcher import router as researcher_router
 from app.core.settings import Settings
 from app.db.mongodb import MongoDatabase
 from app.services.analytics import DailyMetricsRepository, MongoDailyMetricsRepository
+from app.services.abuse_review_status import AbuseReviewStatusRepository, MongoAbuseReviewStatusRepository
 from app.services.application_settings import ApplicationSettingsRepository, MongoApplicationSettingsRepository
 from app.services.applications import ApplicationRepository, MongoApplicationRepository
 from app.services.auth import (
@@ -47,6 +48,7 @@ def create_app(
     chat_download_artifact_repository: ChatDownloadArtifactRepository | None = None,
     chat_download_upload_repository: ChatUploadRepository | None = None,
     daily_metrics_repository: DailyMetricsRepository | None = None,
+    abuse_review_status_repository: AbuseReviewStatusRepository | None = None,
 ) -> FastAPI:
     application_settings = settings or Settings.from_environment()
 
@@ -104,6 +106,12 @@ def create_app(
             app.state.daily_metrics_repository = daily_metrics_repository
         elif application_settings.mongodb_uri:
             app.state.daily_metrics_repository = MongoDailyMetricsRepository(database.database["daily_metrics"])
+        if abuse_review_status_repository is not None:
+            app.state.abuse_review_status_repository = abuse_review_status_repository
+        elif application_settings.mongodb_uri:
+            app.state.abuse_review_status_repository = MongoAbuseReviewStatusRepository(
+                database.database["abuse_review_status"]
+            )
         if application_settings.mongodb_uri:
             app.state.survey_session_repository = MongoSurveySessionRepository(database.database["survey_sessions"])
         if job_repository is not None:

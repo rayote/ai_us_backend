@@ -16,6 +16,7 @@ class SpeedBucket(BaseModel):
 
 
 class AbuseReviewCandidate(BaseModel):
+    candidate_key: str = Field(alias="candidateKey")
     phone: str
     paired_phone: str | None = Field(default=None, alias="pairedPhone")
     similarity_percent: int | None = Field(default=None, alias="similarityPercent")
@@ -25,6 +26,19 @@ class AbuseReviewCandidate(BaseModel):
     candidate_type: str = Field(alias="candidateType")
     left: dict[str, object] = Field(default_factory=dict)
     right: dict[str, object] = Field(default_factory=dict)
+
+
+class AbuseReviewStatusUpdate(BaseModel):
+    phone: str
+    paired_phone: str | None = Field(default=None, alias="pairedPhone")
+    reviewed: bool
+
+
+class AbuseReviewStatus(BaseModel):
+    candidate_key: str = Field(alias="candidateKey")
+    reviewed: bool
+    reviewed_at: str | None = Field(default=None, alias="reviewedAt")
+    reviewed_by: str | None = Field(default=None, alias="reviewedBy")
 
 
 class AbuseReviewReport(BaseModel):

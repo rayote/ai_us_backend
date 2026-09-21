@@ -166,6 +166,11 @@ class MongoDatabase:
             name="daily_metrics_date_campaign_unique",
             unique=True,
         )
+        await self.database["abuse_review_status"].create_index(
+            [("survey_round", ASCENDING), ("survey_version", ASCENDING), ("candidate_key", ASCENDING)],
+            name="abuse_review_status_candidate_unique",
+            unique=True,
+        )
         await self.database["chat_submissions"].create_index(
             [("participant_id", ASCENDING), ("submission_point", ASCENDING), ("submitted_at", ASCENDING)],
             name="chat_submissions_participant_point",
