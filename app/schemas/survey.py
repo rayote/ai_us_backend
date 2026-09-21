@@ -147,6 +147,7 @@ class SurveyResponseRecord(BaseModel):
     survey_version: str = Field(alias="surveyVersion")
     answers: dict[str, object]
     submitted_at: datetime = Field(alias="submittedAt")
+    detail: dict[str, object] | None = None
 
 
 class SurveyResponsePreview(BaseModel):
@@ -163,6 +164,18 @@ class SurveySubmissionCreate(BaseModel):
     survey_version: str = Field(alias="surveyVersion", min_length=1, max_length=100)
     answers: dict[str, object]
     submission_id: str = Field(alias="submissionId", min_length=1, max_length=128)
+    detail: dict[str, object] | None = None
+
+
+class SurveySessionHeartbeat(BaseModel):
+    session_id: str = Field(alias="sessionId", min_length=1, max_length=128)
+    survey_round: int = Field(alias="surveyRound", ge=1)
+    survey_version: str = Field(alias="surveyVersion", min_length=1, max_length=100)
+    started_at: datetime = Field(alias="startedAt")
+    last_heartbeat_at: datetime = Field(alias="lastHeartbeatAt")
+    active_seconds: int = Field(alias="activeSeconds", ge=0)
+    resume_count: int = Field(alias="resumeCount", ge=0)
+    current_page: int = Field(alias="currentPage", ge=0)
 
 
 class SurveySubmissionAccepted(BaseModel):

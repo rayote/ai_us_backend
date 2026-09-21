@@ -23,6 +23,7 @@ from app.services.submissions import store_survey_response
 from app.services.surveys import (
     MongoSurveyDefinitionRepository,
     MongoSurveyResponseRepository,
+    MongoSurveySessionRepository,
     SurveyDefinitionRepository,
     SurveyResponseRepository,
 )
@@ -96,6 +97,10 @@ def create_app(
             app.state.survey_response_repository = survey_response_repository
         elif application_settings.mongodb_uri:
             app.state.survey_response_repository = MongoSurveyResponseRepository(database.database["survey_responses"])
+        if application_settings.mongodb_uri:
+            app.state.survey_session_repository = MongoSurveySessionRepository(database.database["survey_sessions"])
+        if application_settings.mongodb_uri:
+            app.state.survey_session_repository = MongoSurveySessionRepository(database.database["survey_sessions"])
         if job_repository is not None:
             app.state.job_repository = job_repository
         elif application_settings.mongodb_uri:

@@ -44,6 +44,7 @@ class SurveySubmissionService:
                     "surveyRound": submission.survey_round,
                     "surveyVersion": submission.survey_version,
                     "answers": answers,
+                    "detail": submission.detail,
                 },
             )
         )
@@ -64,9 +65,7 @@ def _merge_participant_profile_answers(
         contact = merged.get("demo.contact") if isinstance(merged.get("demo.contact"), dict) else {}
         merged["demo.contact"] = {**contact, "demo.contact_phone": participant.phone}
     if participant.guardian_phone and "demo.guardianContact" in known_keys:
-        guardian = (
-            merged.get("demo.guardianContact") if isinstance(merged.get("demo.guardianContact"), dict) else {}
-        )
+        guardian = merged.get("demo.guardianContact") if isinstance(merged.get("demo.guardianContact"), dict) else {}
         merged["demo.guardianContact"] = {
             **guardian,
             "demo.guardianContact_phone": participant.guardian_phone,
@@ -102,5 +101,6 @@ async def store_survey_response(
             surveyVersion=survey_version,
             answers=dict(payload["answers"]),
             submittedAt=datetime.now(UTC),
+            detail=payload.get("detail") if isinstance(payload.get("detail"), dict) else None,
         )
     )

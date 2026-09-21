@@ -128,6 +128,15 @@ This endpoint requires a participant bearer token. The backend validates the sur
   "answers": {
     "q1": "응답"
   },
+  "detail": {
+    "sessionId": "browser-session-id",
+    "startedAt": "2026-09-21T00:00:00Z",
+    "wallClockSeconds": 2430,
+    "activeSeconds": 1680,
+    "resumeCount": 3,
+    "pageCount": 15,
+    "metricsVersion": "v1"
+  },
   "submissionId": "browser-generated-id"
 }
 ```
@@ -144,6 +153,12 @@ Successful response: `202 Accepted`
 The frontend keeps its `localStorage` draft until the status endpoint reports `completed`. It then deletes the draft and locks that survey round/version against another automatic submission. A future explicit resubmission feature requires a separate update policy; the current response storage treats a participant, round, and version as one final response.
 
 When part 1 completes, the frontend may immediately open part 2 when that definition is available. When part 2 completes, it may switch to the chat submission tab for participants whose `chatConsent` is true.
+
+The optional `detail` object is stored separately from `answers`; the server-side `submittedAt` remains authoritative. The frontend sends low-frequency session updates every 30 seconds to `POST /api/v1/participant/survey-sessions/heartbeat`. Heartbeats update a `survey_sessions` record and never contain answer values or typed text.
+
+## Survey session heartbeat
+
+`POST /api/v1/participant/survey-sessions/heartbeat` requires a participant bearer token and upserts the current session's last heartbeat, active seconds, resume count, and page number.
 
 ## Get survey submission status
 

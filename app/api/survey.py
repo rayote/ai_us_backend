@@ -1,7 +1,12 @@
 from __future__ import annotations
 
 from app.api.auth import _participant_id
-from app.schemas.survey import ParticipantSurveyProgress, SurveySubmissionAccepted, SurveySubmissionCreate
+from app.schemas.survey import (
+    ParticipantSurveyProgress,
+    SurveySessionHeartbeat,
+    SurveySubmissionAccepted,
+    SurveySubmissionCreate,
+)
 from app.services.auth import ParticipantAccountRepository
 from app.services.jobs import JobRepository
 from app.services.submissions import SurveySubmissionService, UnknownQuestionKeyError, UnknownSurveyDefinitionError
@@ -29,6 +34,22 @@ def _submission_service(request: Request) -> SurveySubmissionService:
 
 def _participant_repository(request: Request) -> ParticipantAccountRepository | None:
     return getattr(request.app.state, "participant_account_repository", None)
+
+
+def _session_repository(request: Request):
+    repository = getattr(request.app.state, "survey_session_repository", None)
+    if repository is None:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="설문 세션 서비스를 준비 중입니다.")
+    return repository
+
+
+@router.post("/participant/survey-sessions/heartbeat", status_code=status.HTTP_200_OK)
+async def survey_session_heartbeat(
+    heartbeat: SurveySessionHeartbeat,
+    request: Request,
+    participant_id: str = Depends(_participant_id),
+) -> None:
+    await _session_repository(request).heartbeat(participant_id, heartbeat)
 
 
 @router.post("/survey-responses", response_model=SurveySubmissionAccepted, status_code=status.HTTP_202_ACCEPTED)

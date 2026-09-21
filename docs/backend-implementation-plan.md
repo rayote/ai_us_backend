@@ -126,6 +126,8 @@ API의 실제 URL과 JSON 필드명은 프론트 소스를 받은 뒤 기존 함
 - `survey_definitions`: 설문 회차(`surveyRound`), 설문 버전(`surveyVersion`), 대상(`audience`), 문항 키, 문항 순서, CSV 열 이름을 저장한다. 실제 설문 초안처럼 `scales[].questions[]` 구조를 가진 JSON은 원본 spec을 함께 보존하고, 회차별 문항이 변경되어도 기존 CSV 열 순서를 보존하는 기준으로 평면 문항 목록을 생성한다.
 - 초기 개발 중 `csv_column`으로 저장된 문항 정의도 읽을 수 있게 유지하고, 새 정의는 API 계약과 같은 `csvColumn` 형식으로 저장한다.
 - `survey_responses`: 참여자 ID, 설문 회차(`surveyRound`), 설문 버전(`surveyVersion`), 응답 전체, 제출시각. `participant_id + surveyRound + surveyVersion` 복합 인덱스.
+- `survey_responses.detail`: 기존 `answers`와 `submitted_at`을 보존하면서 세션 ID, 시작시각, 전체 경과초, 활동초, 재개횟수, 페이지 수를 선택적으로 저장한다.
+- `survey_sessions`: 참여자별 설문 세션의 시작시각, 마지막 heartbeat, 누적 활동초, 재개횟수, 현재 페이지를 저장한다. 프런트 heartbeat는 30초 간격이며 답변값은 포함하지 않는다.
 - `submission_jobs`: 최종 설문 제출 대기열. 제출 추적 ID, 멱등성 키, 상태, 작업 데이터, 재시도 횟수, 오류 사유, 생성/처리 시각을 저장한다. 처리 상태와 생성 시각의 복합 인덱스.
 - `chat_submissions`: 참여자 ID, 제출 시점(1차 후/4차 후), 입력 형식, AI 도구, 원본 링크 또는 본문, 첨부 파일 메타데이터, 정규화된 대화문, parser 상태·버전·경고, 제출시각, 상태(`active`, `deletion_requested`). 삭제 요청은 상태와 `deletion_requested_at`만 기록하고 원본 파일은 유지한다.
 - `chat_uploads.files`/`chat_uploads.chunks`: GridFS bucket. ZIP 또는 이미지 원본을 저장하며, 연구자가 삭제 요청된 제출을 실제 삭제할 때 연결된 파일과 chunk를 함께 삭제한다.

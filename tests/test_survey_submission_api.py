@@ -119,6 +119,14 @@ class InMemoryJobs(JobRepository):
         raise AssertionError(f"Unknown job: {job_id}")
 
 
+class InMemorySurveySessions:
+    def __init__(self) -> None:
+        self.heartbeats: list[tuple[str, object]] = []
+
+    async def heartbeat(self, participant_id: str, heartbeat: object) -> None:
+        self.heartbeats.append((participant_id, heartbeat))
+
+
 def test_submission_is_queued_then_completed_by_worker() -> None:
     definitions = InMemoryDefinitions()
     responses = InMemoryResponses()
@@ -159,6 +167,41 @@ def test_submission_is_queued_then_completed_by_worker() -> None:
     assert queued_status.json()["status"] == "queued"
     assert completed_status.json()["status"] == "completed"
     assert responses.responses[0].answers == {"q1": "응답"}
+
+
+def test_survey_heartbeat_is_saved_for_authenticated_participant() -> None:
+    sessions = InMemorySurveySessions()
+    app = create_app(
+        Settings("test", None, "ai_us_test", (), "test-secret-at-least-thirty-two-bytes", 60),
+        participant_account_repository=InMemoryParticipantAccounts(),
+        survey_definition_repository=InMemoryDefinitions(),
+        survey_response_repository=InMemoryResponses(),
+        job_repository=InMemoryJobs(),
+    )
+    app.state.survey_session_repository = sessions
+    with TestClient(app) as client:
+        login = client.post(
+            "/api/v1/auth/participant/login",
+            json={"phone": "01012345678", "password": "password-2026", "audience": "elementary"},
+        )
+        response = client.post(
+            "/api/v1/participant/survey-sessions/heartbeat",
+            headers={"Authorization": f"Bearer {login.json()['accessToken']}"},
+            json={
+                "sessionId": "session-1",
+                "surveyRound": 1,
+                "surveyVersion": "2026-round-1-v1",
+                "startedAt": "2026-09-21T00:00:00Z",
+                "lastHeartbeatAt": "2026-09-21T00:00:30Z",
+                "activeSeconds": 30,
+                "resumeCount": 1,
+                "currentPage": 2,
+            },
+        )
+
+    assert response.status_code == 200
+    assert sessions.heartbeats[0][0] == "participant-1"
+    assert sessions.heartbeats[0][1].active_seconds == 30
 
 
 def test_submission_rejects_unknown_question_key() -> None:

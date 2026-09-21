@@ -156,6 +156,11 @@ class MongoDatabase:
             name="survey_responses_participant_round_version_unique",
             unique=True,
         )
+        await self.database["survey_sessions"].create_index(
+            [("session_id", ASCENDING)],
+            name="survey_sessions_session_unique",
+            unique=True,
+        )
         await self.database["chat_submissions"].create_index(
             [("participant_id", ASCENDING), ("submission_point", ASCENDING), ("submitted_at", ASCENDING)],
             name="chat_submissions_participant_point",

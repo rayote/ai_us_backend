@@ -6,7 +6,12 @@ from datetime import UTC, datetime
 from typing import Any, Protocol
 from zoneinfo import ZoneInfo
 
-from app.schemas.survey import SurveyDefinition, SurveyDefinitionCreate, SurveyDefinitionSummary, SurveyResponseRecord
+from app.schemas.survey import (
+    SurveyDefinition,
+    SurveyDefinitionCreate,
+    SurveyDefinitionSummary,
+    SurveyResponseRecord,
+)
 from pymongo.errors import DuplicateKeyError
 
 
@@ -32,6 +37,10 @@ class SurveyResponseRepository(Protocol):
     async def list_versions_for_participant(self, participant_id: str, survey_round: int) -> list[str]: ...
 
     async def list_all_responses(self) -> list[SurveyResponseRecord]: ...
+
+
+class SurveySessionRepository(Protocol):
+    async def heartbeat(self, participant_id: str, heartbeat: Any) -> None: ...
 
 
 def _definition_from_document(document: dict[str, Any]) -> SurveyDefinition:
@@ -66,6 +75,7 @@ def _response_from_document(document: dict[str, Any]) -> SurveyResponseRecord:
         surveyVersion=document["survey_version"],
         answers=document["answers"],
         submittedAt=document["submitted_at"],
+        detail=document.get("detail"),
     )
 
 
@@ -130,6 +140,7 @@ class MongoSurveyResponseRepository:
                 "survey_version": response.survey_version,
                 "answers": response.answers,
                 "submitted_at": response.submitted_at,
+                "detail": response.detail,
             }
         )
 
@@ -146,6 +157,30 @@ class MongoSurveyResponseRepository:
     async def list_all_responses(self) -> list[SurveyResponseRecord]:
         cursor = self._collection.find({}).sort("submitted_at", 1)
         return [_response_from_document(document) async for document in cursor]
+
+
+class MongoSurveySessionRepository:
+    def __init__(self, collection: Any) -> None:
+        self._collection = collection
+
+    async def heartbeat(self, participant_id: str, heartbeat: Any) -> None:
+        await self._collection.update_one(
+            {"session_id": heartbeat.session_id},
+            {
+                "$set": {
+                    "participant_id": participant_id,
+                    "survey_round": heartbeat.survey_round,
+                    "survey_version": heartbeat.survey_version,
+                    "started_at": heartbeat.started_at,
+                    "last_heartbeat_at": heartbeat.last_heartbeat_at,
+                    "active_seconds": heartbeat.active_seconds,
+                    "resume_count": heartbeat.resume_count,
+                    "current_page": heartbeat.current_page,
+                    "updated_at": datetime.now(UTC),
+                }
+            },
+            upsert=True,
+        )
 
 
 def survey_responses_to_csv(
