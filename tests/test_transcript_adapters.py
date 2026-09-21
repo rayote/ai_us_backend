@@ -45,6 +45,43 @@ def test_chatgpt_adapter_follows_active_path() -> None:
     assert normalized["sessions"][0]["turns"][1]["turnMetadata"]["modelSlug"] == "gpt-test"
 
 
+def test_chatgpt_adapter_extracts_conversations_json_from_zip() -> None:
+    export = [
+        {
+            "id": "conversation-zip",
+            "title": "압축 테스트",
+            "current_node": "user",
+            "mapping": {
+                "user": {
+                    "parent": None,
+                    "message": {
+                        "author": {"role": "user"},
+                        "content": {"parts": ["압축 질문"]},
+                        "create_time": 1_700_000_000,
+                    },
+                }
+            },
+        }
+    ]
+    archive = io.BytesIO()
+    with zipfile.ZipFile(archive, "w") as zipper:
+        zipper.writestr("user.json", "{}")
+        zipper.writestr("nested/conversations.json", json.dumps(export, ensure_ascii=False).encode())
+
+    name, version, normalized, warnings = normalize_export(
+        "chatgpt", "chatgpt-export.zip", archive.getvalue(), "participant-1"
+    )
+
+    assert (name, version) == ("chatgpt-json", "chatgpt-json-v1")
+    assert normalized["summary"] == {
+        "totalSessions": 1,
+        "totalTurns": 1,
+        "firstActivityTime": "2023-11-15T07:13:20+09:00",
+        "lastActivityTime": "2023-11-15T07:13:20+09:00",
+    }
+    assert warnings == ["ZIP 내부의 nested/conversations.json 파일을 파싱했습니다."]
+
+
 def test_grok_adapter_preserves_errors_and_csv_rows() -> None:
     export = {
         "conversations": [
@@ -104,9 +141,47 @@ def test_grok_adapter_extracts_json_from_zip() -> None:
     assert warnings == ["ZIP 내부의 prod-grok-backend.json 파일을 파싱했습니다."]
 
 
+def test_gemini_adapter_extracts_takeout_html_from_zip() -> None:
+    html = """
+    <div class="outer-cell mdl-cell mdl-cell--12-col mdl-shadow--2dp">
+      <div class="mdl-grid">
+        <div class="header-cell mdl-cell mdl-cell--12-col"><p>Gemini 앱</p></div>
+        <div class="content-cell mdl-cell mdl-cell--6-col mdl-typography--body-1">
+          오늘 날씨 항목을 검색함<br>2026. 9. 8. 오후 1:54:14 KST<br>
+          <p>맑고 선선합니다.</p><p><strong>기온:</strong> 22도</p>
+        </div>
+        <div class="content-cell mdl-cell mdl-cell--6-col mdl-typography--text-right"></div>
+        <div class="content-cell mdl-cell mdl-cell--12-col mdl-typography--caption"><b>제품:</b><br>Gemini 앱</div>
+      </div>
+    </div>
+    """
+    archive = io.BytesIO()
+    with zipfile.ZipFile(archive, "w") as zipper:
+        zipper.writestr("Takeout/내 활동/테이크아웃/내활동.html", "<html></html>")
+        zipper.writestr("Takeout/내 활동/Gemini 앱/내활동.html", html)
+
+    name, version, normalized, warnings = normalize_export(
+        "gemini", "takeout.zip", archive.getvalue(), "participant-1"
+    )
+
+    assert (name, version) == ("gemini-takeout-html", "gemini-takeout-html-v1")
+    assert normalized["summary"]["totalSessions"] == 1
+    assert normalized["summary"]["totalTurns"] == 2
+    assert normalized["sessions"][0]["turns"] == [
+        {"turnId": 1, "role": "user", "content": "오늘 날씨", "timestamp": "2026-09-08T13:54:14+09:00"},
+        {
+            "turnId": 2,
+            "role": "assistant",
+            "content": "맑고 선선합니다.\n기온: 22도",
+            "timestamp": "2026-09-08T13:54:14+09:00",
+        },
+    ]
+    assert warnings == ["ZIP 내부의 Takeout/내 활동/Gemini 앱/내활동.html 파일을 파싱했습니다."]
+
+
 def test_unsupported_export_reports_actionable_warning() -> None:
     with pytest.raises(UnsupportedTranscriptError, match="parser adapter"):
-        normalize_export("gemini", "내활동.html", b"<html></html>", "participant-1")
+        normalize_export("claude", "export.zip", b"not-supported", "participant-1")
 
 
 def test_normalized_result_projects_to_legacy_transcript() -> None:
