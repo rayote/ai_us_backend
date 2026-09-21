@@ -729,7 +729,11 @@ async def request_transcript_parse(
     submission = next((item for item in submissions if item.submission_id == submission_id), None)
     if submission is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="대화문 제출을 찾을 수 없습니다.")
-    run = await _transcript_parse_run_repository(request).create(submission_id, "adapter-router", "adapter-router-v1")
+    runs = _transcript_parse_run_repository(request)
+    existing = await runs.active(submission_id)
+    if existing is not None:
+        return TranscriptParseRequestAccepted(runId=existing.run_id, jobId=existing.run_id, status=existing.status)
+    run = await runs.create(submission_id, "adapter-router", "adapter-router-v1")
     job = await _job_repository(request).enqueue(
         JobCreate(
             job_type="transcript_parse",

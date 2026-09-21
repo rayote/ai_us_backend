@@ -1,4 +1,6 @@
+import io
 import json
+import zipfile
 
 import pytest
 from app.services.transcript_adapters import UnsupportedTranscriptError, normalize_export
@@ -88,6 +90,18 @@ def test_grok_adapter_accepts_cp949_json() -> None:
     )
 
     assert normalized["platform"] == "grok"
+
+
+def test_grok_adapter_extracts_json_from_zip() -> None:
+    export = {"conversations": [{"conversation": {"id": "grok-zip", "title": "zip"}, "responses": []}]}
+    archive = io.BytesIO()
+    with zipfile.ZipFile(archive, "w") as zipper:
+        zipper.writestr("prod-grok-backend.json", json.dumps(export).encode())
+
+    _, _, normalized, warnings = normalize_export("grok", "submission.zip", archive.getvalue(), "participant-1")
+
+    assert normalized["platform"] == "grok"
+    assert warnings == ["ZIP 내부의 prod-grok-backend.json 파일을 파싱했습니다."]
 
 
 def test_unsupported_export_reports_actionable_warning() -> None:

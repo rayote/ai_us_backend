@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import io
 import json
+import zipfile
 from datetime import UTC, datetime
 from typing import Any
 from zoneinfo import ZoneInfo
@@ -20,7 +22,8 @@ def normalize_export(
     if "chatgpt" in (tool or "").lower() or name == "conversations.json":
         return "chatgpt-json", "chatgpt-json-v1", _parse_chatgpt(content, participant_id), []
     if "grok" in (tool or "").lower() or "grok" in name:
-        return "grok-json", "grok-json-v1", _parse_grok(content, participant_id), []
+        payload, warning = _grok_payload(content)
+        return "grok-json", "grok-json-v1", _parse_grok(payload, participant_id), warning
     raise UnsupportedTranscriptError(f"{filename} 파일 형식에 대한 parser adapter가 아직 없습니다.")
 
 
@@ -32,6 +35,19 @@ def _decode_json(content: bytes) -> Any:
         except (UnicodeDecodeError, json.JSONDecodeError) as error:
             errors.append(f"{encoding}: {error}")
     raise ValueError("JSON 파일 인코딩 또는 형식을 읽을 수 없습니다. " + " / ".join(errors))
+
+
+def _grok_payload(content: bytes) -> tuple[bytes, list[str]]:
+    if not zipfile.is_zipfile(io.BytesIO(content)):
+        return content, []
+    with zipfile.ZipFile(io.BytesIO(content)) as archive:
+        candidates = [name for name in archive.namelist() if name.lower().endswith(".json")]
+        if not candidates:
+            raise ValueError("ZIP 파일 안에서 Grok JSON 내보내기 파일을 찾지 못했습니다.")
+        preferred = next(
+            (name for name in candidates if "grok" in name.lower() or "conversation" in name.lower()), candidates[0]
+        )
+        return archive.read(preferred), [f"ZIP 내부의 {preferred} 파일을 파싱했습니다."]
 
 
 def _iso(value: object) -> str | None:

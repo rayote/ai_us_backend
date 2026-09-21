@@ -18,6 +18,8 @@ class TranscriptParseRunRepository(Protocol):
 
     async def latest(self, submission_id: str) -> TranscriptParseRun | None: ...
 
+    async def active(self, submission_id: str) -> TranscriptParseRun | None: ...
+
     async def complete(
         self,
         run_id: str,
@@ -74,6 +76,12 @@ class MongoTranscriptParseRunRepository:
     async def latest(self, submission_id: str) -> TranscriptParseRun | None:
         document = await self._collection.find_one(
             {"submission_id": submission_id, "status": "completed"}, sort=[("completed_at", -1)]
+        )
+        return _run(document) if document else None
+
+    async def active(self, submission_id: str) -> TranscriptParseRun | None:
+        document = await self._collection.find_one(
+            {"submission_id": submission_id, "status": {"$in": ["queued", "processing"]}}, sort=[("created_at", -1)]
         )
         return _run(document) if document else None
 
