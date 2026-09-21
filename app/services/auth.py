@@ -43,6 +43,7 @@ class ParticipantAccountRepository(Protocol):
         email: str | None = None,
         guardian_phone: str | None = None,
         sns: str | None = None,
+        grade: int | None = None,
     ) -> bool: ...
 
     async def create_imported(
@@ -120,6 +121,7 @@ class MongoParticipantAccountRepository:
         email: str | None = None,
         guardian_phone: str | None = None,
         sns: str | None = None,
+        grade: int | None = None,
     ) -> bool:
         document = {
             "phone_normalized": phone,
@@ -129,6 +131,8 @@ class MongoParticipantAccountRepository:
             "chat_consent": chat_consent,
             "school_level": school_level,
         }
+        if grade is not None:
+            document["grade"] = grade
         if email is not None:
             document["email"] = email
         if sns is not None:

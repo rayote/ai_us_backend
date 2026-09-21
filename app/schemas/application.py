@@ -4,7 +4,7 @@ import re
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 class ApplicationConsents(BaseModel):
@@ -36,6 +36,12 @@ class ApplicationCreate(BaseModel):
             raise ValueError("휴대폰 번호는 숫자 11자리여야 합니다.")
         return normalized
 
+    @model_validator(mode="after")
+    def require_distinct_participant_and_guardian_phones(self) -> "ApplicationCreate":
+        if self.phone == self.guardian_phone:
+            raise ValueError("본인 휴대폰 번호와 보호자 휴대폰 번호는 서로 달라야 합니다.")
+        return self
+
     @field_validator("email")
     @classmethod
     def validate_email(cls, value: str | None) -> str | None:
@@ -56,6 +62,12 @@ class ApplicationCreated(BaseModel):
     needs_password_change: bool | None = Field(default=None, alias="needsPasswordChange")
     audience: Literal["elementary", "secondary"] | None = None
     chat_consent: bool | None = Field(default=None, alias="chatConsent")
+    participant_phone: str | None = Field(default=None, alias="participantPhone")
+    guardian_phone: str | None = Field(default=None, alias="guardianPhone")
+    school_level: str | None = Field(default=None, alias="schoolLevel")
+    grade: int | None = None
+    email: str | None = None
+    sns: str | None = None
 
 
 class ApplicationSettings(BaseModel):

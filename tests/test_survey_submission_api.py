@@ -16,7 +16,14 @@ from fastapi.testclient import TestClient
 class InMemoryParticipantAccounts(ParticipantAccountRepository):
     def __init__(self) -> None:
         self.account = ParticipantAccount(
-            "participant-1", "01012345678", hash_password("password-2026"), False, False, "초등"
+            "participant-1",
+            "01012345678",
+            hash_password("password-2026"),
+            False,
+            False,
+            "초등",
+            grade=4,
+            guardian_phone="01098765432",
         )
 
     async def find_by_phone(self, phone: str) -> ParticipantAccount | None:
@@ -179,3 +186,54 @@ def test_submission_rejects_unknown_question_key() -> None:
         )
 
     assert response.status_code == 422
+
+
+def test_submission_overwrites_profile_answers_from_participant_account() -> None:
+    definitions = InMemoryDefinitions()
+    definitions.definition = SurveyDefinition(
+        surveyRound=1,
+        surveyVersion="profile-v1",
+        questions=[
+            SurveyQuestion(key="q1", csvColumn="첫 번째 문항", order=1),
+            SurveyQuestion(key="demo.grade", csvColumn="학년", order=2),
+            SurveyQuestion(key="demo.contact", csvColumn="연구 참여자 연락처", order=3),
+            SurveyQuestion(key="demo.guardianContact", csvColumn="보호자 연락처", order=4),
+        ],
+        createdAt=datetime.now(UTC),
+    )
+    jobs = InMemoryJobs()
+    app = create_app(
+        Settings("test", None, "ai_us_test", (), "test-secret-at-least-thirty-two-bytes", 60),
+        participant_account_repository=InMemoryParticipantAccounts(),
+        survey_definition_repository=definitions,
+        survey_response_repository=InMemoryResponses(),
+        job_repository=jobs,
+    )
+    with TestClient(app) as client:
+        login = client.post(
+            "/api/v1/auth/participant/login",
+            json={"phone": "01012345678", "password": "password-2026", "audience": "elementary"},
+        )
+        response = client.post(
+            "/api/v1/survey-responses",
+            headers={"Authorization": f"Bearer {login.json()['accessToken']}"},
+            json={
+                "surveyRound": 1,
+                "surveyVersion": "profile-v1",
+                "answers": {
+                    "q1": "응답",
+                    "demo.grade": 9,
+                    "demo.contact": {"demo.contact_phone": "01000000000"},
+                    "demo.guardianContact": {"demo.guardianContact_phone": "01011111111"},
+                },
+                "submissionId": "browser-submission-profile",
+            },
+        )
+
+    assert response.status_code == 202
+    assert jobs.jobs[0].payload["answers"] == {
+        "q1": "응답",
+        "demo.grade": 1,
+        "demo.contact": {"demo.contact_phone": "01012345678"},
+        "demo.guardianContact": {"demo.guardianContact_phone": "01098765432"},
+    }

@@ -4,6 +4,7 @@ from datetime import UTC, datetime
 
 from app.schemas.jobs import Job, JobCreate
 from app.schemas.survey import SurveyResponseRecord, SurveySubmissionCreate
+from app.services.auth import ParticipantAccount
 from app.services.jobs import JobRepository
 from app.services.surveys import SurveyDefinitionRepository, SurveyResponseRepository
 
@@ -21,12 +22,18 @@ class SurveySubmissionService:
         self._definitions = definitions
         self._jobs = jobs
 
-    async def submit(self, participant_id: str, submission: SurveySubmissionCreate) -> Job:
+    async def submit(
+        self,
+        participant_id: str,
+        submission: SurveySubmissionCreate,
+        participant: ParticipantAccount | None = None,
+    ) -> Job:
         definition = await self._definitions.get(submission.survey_round, submission.survey_version)
         if definition is None:
             raise UnknownSurveyDefinitionError
         known_keys = {question.key for question in definition.questions}
-        if unknown_keys := set(submission.answers) - known_keys:
+        answers = _merge_participant_profile_answers(submission.answers, known_keys, participant)
+        if unknown_keys := set(answers) - known_keys:
             raise UnknownQuestionKeyError(", ".join(sorted(unknown_keys)))
         return await self._jobs.enqueue(
             JobCreate(
@@ -36,10 +43,45 @@ class SurveySubmissionService:
                     "participantId": participant_id,
                     "surveyRound": submission.survey_round,
                     "surveyVersion": submission.survey_version,
-                    "answers": submission.answers,
+                    "answers": answers,
                 },
             )
         )
+
+
+def _merge_participant_profile_answers(
+    answers: dict[str, object],
+    known_keys: set[str],
+    participant: ParticipantAccount | None,
+) -> dict[str, object]:
+    merged = dict(answers)
+    if participant is None:
+        return merged
+    grade_answer = _grade_answer(participant.school_level, participant.grade)
+    if grade_answer is not None and "demo.grade" in known_keys:
+        merged["demo.grade"] = grade_answer
+    if participant.phone and "demo.contact" in known_keys:
+        contact = merged.get("demo.contact") if isinstance(merged.get("demo.contact"), dict) else {}
+        merged["demo.contact"] = {**contact, "demo.contact_phone": participant.phone}
+    if participant.guardian_phone and "demo.guardianContact" in known_keys:
+        guardian = (
+            merged.get("demo.guardianContact") if isinstance(merged.get("demo.guardianContact"), dict) else {}
+        )
+        merged["demo.guardianContact"] = {
+            **guardian,
+            "demo.guardianContact_phone": participant.guardian_phone,
+        }
+    return merged
+
+
+def _grade_answer(school_level: str | None, grade: int | None) -> int | None:
+    if school_level == "초등" and grade in {4, 5, 6}:
+        return grade - 3
+    if school_level == "중등" and grade in {1, 2, 3}:
+        return grade + 3
+    if school_level == "고등" and grade in {1, 2, 3}:
+        return grade + 6
+    return None
 
 
 async def store_survey_response(

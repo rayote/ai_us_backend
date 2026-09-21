@@ -5,6 +5,17 @@ from app.services.applications import ApplicationRepository
 from app.services.auth import ParticipantAccountRepository
 
 
+def _school_level(grade: str) -> str:
+    return "초등" if grade.startswith("초등") else "중등" if grade.startswith("중학") else "고등"
+
+
+def _grade_number(grade: str) -> int | None:
+    for char in grade:
+        if char.isdigit():
+            return int(char)
+    return None
+
+
 class ExistingParticipantError(Exception):
     def __init__(self, phone_numbers: list[str]) -> None:
         self.phone_numbers = phone_numbers
@@ -34,27 +45,20 @@ class ApplicationApprovalService:
                     application.phone,
                     hash_password("1234"),
                     application.consents.chat,
-                    (
-                        "초등"
-                        if application.grade.startswith("초등")
-                        else "중등" if application.grade.startswith("중학") else "고등"
-                    ),
+                    _school_level(application.grade),
                     application.email,
                     application.guardian_phone,
                     application.sns,
+                    grade=_grade_number(application.grade),
                 )
             except TypeError as error:
-                if "positional" not in str(error):
+                if "positional" not in str(error) and "grade" not in str(error):
                     raise
                 created = await self._participant_repository.create(
                     application.phone,
                     hash_password("1234"),
                     application.consents.chat,
-                    (
-                        "초등"
-                        if application.grade.startswith("초등")
-                        else "중등" if application.grade.startswith("중학") else "고등"
-                    ),
+                    _school_level(application.grade),
                     application.email,
                 )
             if not created:

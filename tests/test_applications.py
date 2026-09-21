@@ -96,6 +96,7 @@ class InMemoryParticipantRepository(ParticipantAccountRepository):
         email: str | None = None,
         guardian_phone: str | None = None,
         sns: str | None = None,
+        grade: int | None = None,
     ) -> bool:
         if phone in self.accounts:
             return False
@@ -109,6 +110,7 @@ class InMemoryParticipantRepository(ParticipantAccountRepository):
             email=email,
             guardian_phone=guardian_phone,
             sns=sns,
+            grade=grade,
         )
         return True
 
@@ -169,7 +171,11 @@ def test_create_application_auto_approves_and_returns_password_change_login() ->
     assert response.json()["accessToken"]
     assert response.json()["needsPasswordChange"] is True
     assert response.json()["audience"] == "secondary"
+    assert response.json()["schoolLevel"] == "중등"
+    assert response.json()["grade"] == 2
+    assert response.json()["guardianPhone"] == "01098765432"
     assert account.guardian_phone == "01098765432"
+    assert account.grade == 2
     claims = jwt.decode(
         response.json()["accessToken"],
         "test-secret-at-least-thirty-two-bytes",
@@ -185,6 +191,16 @@ def test_create_application_rejects_duplicate_phone_number() -> None:
 
     assert response.status_code == 409
     assert response.json()["detail"] == "이미 신청된 휴대폰 번호입니다. 연구자 승인 후 로그인해 주세요."
+
+
+def test_create_application_rejects_same_participant_and_guardian_phone() -> None:
+    payload = _application_payload()
+    payload["guardianPhone"] = payload["phone"]
+
+    with _client() as client:
+        response = client.post("/api/v1/applications", json=payload)
+
+    assert response.status_code == 422
 
 
 def test_create_application_rejects_registered_participant_phone_number() -> None:

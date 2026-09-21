@@ -60,6 +60,12 @@ class AccessToken(BaseModel):
     requested_audience: Literal["elementary", "secondary"] | None = Field(default=None, alias="requestedAudience")
     audience_switched: bool | None = Field(default=None, alias="audienceSwitched")
     chat_consent: bool | None = Field(default=None, alias="chatConsent")
+    participant_phone: str | None = Field(default=None, alias="participantPhone")
+    guardian_phone: str | None = Field(default=None, alias="guardianPhone")
+    school_level: str | None = Field(default=None, alias="schoolLevel")
+    grade: int | None = None
+    email: str | None = None
+    sns: str | None = None
     username: str | None = None
 
 

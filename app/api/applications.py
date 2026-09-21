@@ -90,4 +90,10 @@ async def create_application(application: ApplicationCreate, request: Request) -
         needsPasswordChange=account.must_change_password,
         audience=_participant_audience(account.school_level),
         chatConsent=account.chat_consent,
+        participantPhone=account.phone,
+        guardianPhone=account.guardian_phone,
+        schoolLevel=account.school_level,
+        grade=account.grade,
+        email=account.email,
+        sns=account.sns,
     )

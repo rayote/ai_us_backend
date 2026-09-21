@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from app.api.auth import _participant_id
 from app.schemas.survey import ParticipantSurveyProgress, SurveySubmissionAccepted, SurveySubmissionCreate
+from app.services.auth import ParticipantAccountRepository
 from app.services.jobs import JobRepository
 from app.services.submissions import SurveySubmissionService, UnknownQuestionKeyError, UnknownSurveyDefinitionError
 from app.services.surveys import SurveyDefinitionRepository
@@ -26,6 +27,10 @@ def _submission_service(request: Request) -> SurveySubmissionService:
     return SurveySubmissionService(definitions, _job_repository(request))
 
 
+def _participant_repository(request: Request) -> ParticipantAccountRepository | None:
+    return getattr(request.app.state, "participant_account_repository", None)
+
+
 @router.post("/survey-responses", response_model=SurveySubmissionAccepted, status_code=status.HTTP_202_ACCEPTED)
 async def submit_survey_response(
     submission: SurveySubmissionCreate,
@@ -33,7 +38,9 @@ async def submit_survey_response(
     participant_id: str = Depends(_participant_id),
 ) -> SurveySubmissionAccepted:
     try:
-        job = await _submission_service(request).submit(participant_id, submission)
+        participants = _participant_repository(request)
+        participant = await participants.find_by_id(participant_id) if participants is not None else None
+        job = await _submission_service(request).submit(participant_id, submission, participant)
     except UnknownSurveyDefinitionError as error:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="설문 정의를 찾을 수 없습니다.") from error
     except UnknownQuestionKeyError as error:

@@ -122,6 +122,12 @@ async def participant_login(credentials: ParticipantLogin, request: Request) -> 
         requestedAudience=credentials.audience,
         audienceSwitched=audience != credentials.audience,
         chatConsent=account.chat_consent,
+        participantPhone=account.phone,
+        guardianPhone=account.guardian_phone,
+        schoolLevel=account.school_level,
+        grade=account.grade,
+        email=account.email,
+        sns=account.sns,
     )
 
 
