@@ -15,7 +15,12 @@ from app.services.auth import (
     ResearcherAccount,
     ResearcherAccountRepository,
 )
-from app.services.chats import ChatSubmissionRepository, ChatUploadRepository, build_chat_archive, store_chat_submission
+from app.services.chats import (
+    ChatSubmissionRepository,
+    ChatUploadRepository,
+    build_chat_archive,
+    store_chat_submission,
+)
 from app.services.jobs import JobRepository, QueueWorker
 from fastapi.testclient import TestClient
 
@@ -252,7 +257,9 @@ def test_original_archive_includes_deletion_requested_attachments_only_when_requ
         bulk_path = Path(directory) / "bulk.zip"
         original_path = Path(directory) / "original.zip"
         assert asyncio.run(build_chat_archive([submission], uploads, bulk_path)) == 0
-        assert asyncio.run(build_chat_archive([submission], uploads, original_path, include_deletion_requested=True)) == 1
+        assert (
+            asyncio.run(build_chat_archive([submission], uploads, original_path, include_deletion_requested=True)) == 1
+        )
         with zipfile.ZipFile(original_path) as archive:
             assert archive.read("chat-deletion-requested/original.txt") == b"original"
 
@@ -412,6 +419,9 @@ def test_participant_can_manage_history_and_researcher_deletes_requested_upload(
         )
         researcher_headers = {"Authorization": f"Bearer {researcher_login.json()['accessToken']}"}
         requested = client.get("/api/v1/researcher/chat-submissions/files", headers=researcher_headers)
+        original = client.get(
+            f"/api/v1/researcher/chat-submissions/files/{submission_id}/download", headers=researcher_headers
+        )
         deleted = client.delete(
             f"/api/v1/researcher/chat-submissions/files/{submission_id}", headers=researcher_headers
         )
@@ -421,6 +431,8 @@ def test_participant_can_manage_history_and_researcher_deletes_requested_upload(
     assert history.json()[0]["status"] == "active"
     assert request_deletion.json()["status"] == "deletion_requested"
     assert restore.json()["status"] == "active"
+    assert original.status_code == 200
+    assert original.headers["content-type"].startswith("application/zip")
     assert requested.json()[0]["submissionId"] == submission_id
     assert deleted.json() == {"status": "deleted"}
     assert final_history.json() == []
