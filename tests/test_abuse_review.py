@@ -61,6 +61,9 @@ def test_abuse_review_pairs_by_phone_and_groups_similarity() -> None:
     assert report.candidates[0].paired_phone == "010-3333-4444"
     assert report.candidates[0].similarity_percent == 100
     assert report.candidates[0].similarity_bucket == "100% 일치"
+    assert len(report.speed_candidates) == 2
+    assert report.combined_candidates[0].candidate_type == "복합 의심"
+    assert report.pairing_candidates == []
     assert "필수 응답은 모두 존재함" in report.candidates[0].reasons
     assert "방문한 페이지 수가 전체 페이지 수보다 적음" in report.candidates[0].reasons
     assert "활동시간이 비정상적으로 짧음" in report.candidates[0].reasons

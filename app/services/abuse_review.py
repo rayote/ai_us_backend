@@ -79,6 +79,31 @@ def _priority(reasons: list[str], similarity: int) -> str:
     return "참고"
 
 
+def _speed_reasons(response: SurveyResponseRecord) -> list[str]:
+    detail = response.detail or {}
+    active_seconds = _number(_detail_value(detail, "activeSeconds", "active_seconds"))
+    wall_clock_seconds = _number(_detail_value(detail, "wallClockSeconds", "wall_clock_seconds"))
+    reasons: list[str] = []
+    if active_seconds is not None and active_seconds < 60:
+        reasons.append("활동시간이 60초 미만으로 매우 짧음")
+    if wall_clock_seconds is not None and wall_clock_seconds < 120:
+        reasons.append("전체 경과시간이 120초 미만으로 매우 짧음")
+    return reasons
+
+
+def _candidate_detail(response: SurveyResponseRecord) -> dict[str, object]:
+    detail = response.detail or {}
+    return {
+        "submittedAt": response.submitted_at.isoformat(),
+        "activeSeconds": detail.get("activeSeconds", detail.get("active_seconds")),
+        "wallClockSeconds": detail.get("wallClockSeconds", detail.get("wall_clock_seconds")),
+        "pageCount": detail.get("visitedPageCount", detail.get("pageCount")),
+        "totalPageCount": detail.get("totalPageCount", detail.get("total_page_count")),
+        "navigationCount": detail.get("navigationCount", detail.get("navigation_count")),
+        "resumeCount": detail.get("resumeCount", detail.get("resume_count")),
+    }
+
+
 class AbuseReviewService:
     def __init__(
         self,
@@ -102,8 +127,24 @@ class AbuseReviewService:
         }
         buckets = {"100% 일치": 0, "95~99% 일치": 0, "90~94% 일치": 0, "90% 미만": 0}
         candidates: list[AbuseReviewCandidate] = []
+        speed_candidates: list[AbuseReviewCandidate] = []
+        pairing_candidates: list[AbuseReviewCandidate] = []
+        combined_candidates: list[AbuseReviewCandidate] = []
+        for response in responses:
+            profile = participants.get(response.participant_id)
+            reasons = _speed_reasons(response)
+            if profile is not None and reasons:
+                speed_candidates.append(
+                    AbuseReviewCandidate(
+                        phone=profile.phone,
+                        reasons=reasons,
+                        reviewPriority="확인 필요",
+                        candidateType="개인 단위 속도 이상",
+                        left=_candidate_detail(response),
+                    )
+                )
         for index, left in enumerate(responses):
-            for right in responses[index + 1 :]:
+            for right in responses[index + 1:]:
                 similarity = _similarity(left, right)
                 bucket, minimum = _bucket(similarity)
                 buckets[bucket] += 1
@@ -138,26 +179,22 @@ class AbuseReviewService:
                     reasons.append("다른 참여자와 응답 패턴이 매우 유사함")
                 if not reasons:
                     continue
-                candidates.append(
-                    AbuseReviewCandidate(
-                        phone=left_profile.phone,
-                        pairedPhone=right_profile.phone,
-                        similarityPercent=similarity,
-                        similarityBucket=bucket,
-                        reasons=sorted(set(reasons)),
-                        reviewPriority=_priority(reasons, similarity),
-                        left={
-                            "submittedAt": left.submitted_at.isoformat(),
-                            "activeSeconds": left_detail.get("activeSeconds", left_detail.get("active_seconds")),
-                            "pageCount": left_detail.get("visitedPageCount", left_detail.get("pageCount")),
-                        },
-                        right={
-                            "submittedAt": right.submitted_at.isoformat(),
-                            "activeSeconds": right_detail.get("activeSeconds", right_detail.get("active_seconds")),
-                            "pageCount": right_detail.get("visitedPageCount", right_detail.get("pageCount")),
-                        },
-                    )
+                candidate = AbuseReviewCandidate(
+                    phone=left_profile.phone,
+                    pairedPhone=right_profile.phone,
+                    similarityPercent=similarity,
+                    similarityBucket=bucket,
+                    reasons=sorted(set(reasons)),
+                    reviewPriority=_priority(reasons, similarity),
+                    candidateType="복합 의심" if len(set(reasons)) >= 2 else "응답 패턴 pairing",
+                    left=_candidate_detail(left),
+                    right=_candidate_detail(right),
                 )
+                candidates.append(candidate)
+                if candidate.candidate_type == "복합 의심":
+                    combined_candidates.append(candidate)
+                else:
+                    pairing_candidates.append(candidate)
         candidates.sort(key=lambda item: (-len(item.reasons), -item.similarity_percent, item.phone, item.paired_phone))
         return AbuseReviewReport(
             surveyRound=survey_round,
@@ -168,4 +205,7 @@ class AbuseReviewService:
                 for label, minimum in (("100% 일치", 100), ("95~99% 일치", 95), ("90~94% 일치", 90), ("90% 미만", 0))
             ],
             candidates=candidates[:200],
+            speedCandidates=speed_candidates[:200],
+            pairingCandidates=pairing_candidates[:200],
+            combinedCandidates=combined_candidates[:200],
         )
