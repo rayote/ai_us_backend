@@ -57,6 +57,15 @@ class InMemoryApplications(ApplicationRepository):
                 approved += 1
         return approved
 
+    async def set_chat_consent(self, application_id: str, enabled: bool) -> bool:
+        for index, record in enumerate(self.records):
+            if record.application_id == application_id:
+                self.records[index] = record.model_copy(
+                    update={"consents": record.consents.model_copy(update={"chat": enabled})}
+                )
+                return True
+        return False
+
 
 class InMemoryApplicationSettings(ApplicationSettingsRepository):
     def __init__(self) -> None:
@@ -81,6 +90,25 @@ class InMemoryParticipants(ParticipantAccountRepository):
         return next((account for account in self.accounts.values() if account.participant_id == participant_id), None)
 
     async def update_password(self, participant_id: str, password_hash: str) -> bool:
+        return False
+
+    async def set_chat_consent(self, participant_id: str, enabled: bool) -> bool:
+        for phone, account in self.accounts.items():
+            if account.participant_id == participant_id:
+                self.accounts[phone] = account.__class__(
+                    account.participant_id,
+                    account.phone,
+                    account.password_hash,
+                    account.must_change_password,
+                    enabled,
+                    account.school_level,
+                    account.name,
+                    account.grade,
+                    account.email,
+                    account.guardian_phone,
+                    account.sns,
+                )
+                return True
         return False
 
     async def reset_password_by_phone_email(self, phone: str, email: str, password_hash: str) -> bool:
@@ -191,6 +219,31 @@ def test_researcher_can_list_and_approve_applications() -> None:
     assert participants.accounts["01012345678"].chat_consent is False
     assert participants.accounts["01012345678"].email == "participant@example.com"
     assert participants.accounts["01012345678"].guardian_phone == "01099999999"
+
+
+def test_researcher_chat_consent_update_syncs_application_and_participant() -> None:
+    client, participants = _client()
+    with client:
+        token = _researcher_token(client)
+        approval_response = client.post(
+            "/api/v1/researcher/applications/approve",
+            headers={"Authorization": f"Bearer {token}"},
+            json={"applicationIds": ["65f000000000000000000001"]},
+        )
+        assert approval_response.status_code == 200
+        participants.accounts["01012345678"] = ParticipantAccount(
+            "01012345678", "01012345678", "hash", False, False, "초등", guardian_phone="01099999999"
+        )
+        response = client.put(
+            "/api/v1/researcher/applications/65f000000000000000000001/chat-consent",
+            headers={"Authorization": f"Bearer {token}"},
+            json={"chatConsent": True},
+        )
+
+    assert response.status_code == 200
+    assert response.json() == {"applicationId": "65f000000000000000000001", "chatConsent": True}
+    assert participants.accounts["01012345678"].chat_consent is True
+    assert client.app.state.application_repository.records[0].consents.chat is True
 
 
 def test_participant_cannot_access_researcher_applications() -> None:

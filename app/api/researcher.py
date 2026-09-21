@@ -160,12 +160,17 @@ async def list_applications(
     request: Request = None,
 ) -> list[ApplicationRecord]:
     records = await _application_repository(request).list_applications(school_level)
-    participants: ParticipantAccountRepository | None = getattr(request.app.state, "participant_account_repository", None)
+    participants: ParticipantAccountRepository | None = getattr(
+        request.app.state, "participant_account_repository", None
+    )
     if participants is None:
         return records
     participant_list = await participants.list_participants() or []
     live_consent = {participant.phone: participant.chat_consent for participant in participant_list}
-    return [record.model_copy(update={"chat_consent": live_consent.get(record.phone, record.consents.chat)}) for record in records]
+    return [
+        record.model_copy(update={"chat_consent": live_consent.get(record.phone, record.consents.chat)})
+        for record in records
+    ]
 
 
 @router.post("/applications/approve", response_model=ApplicationApprovalCompleted)
@@ -204,7 +209,13 @@ async def update_application_chat_consent(
     if participant is None:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="승인된 참여자 계정을 찾을 수 없습니다.")
     if not await participants.set_chat_consent(participant.participant_id, update.chat_consent):
-        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="대화문 동의를 변경하지 못했습니다.")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="대화문 동의를 변경하지 못했습니다."
+        )
+    if not await _application_repository(request).set_chat_consent(application_id, update.chat_consent):
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="신청 정보의 대화문 동의를 동기화하지 못했습니다."
+        )
     return {"applicationId": application_id, "chatConsent": update.chat_consent}
 
 

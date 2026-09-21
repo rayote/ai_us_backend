@@ -21,6 +21,8 @@ class ApplicationRepository(Protocol):
 
     async def approve(self, application_ids: list[str]) -> int: ...
 
+    async def set_chat_consent(self, application_id: str, enabled: bool) -> bool: ...
+
 
 _SCHOOL_LEVEL_PATTERNS = {
     "elementary": "^초등",
@@ -86,6 +88,13 @@ class MongoApplicationRepository:
             {"$set": {"status": "approved", "approved_at": datetime.now(UTC)}},
         )
         return result.modified_count
+
+    async def set_chat_consent(self, application_id: str, enabled: bool) -> bool:
+        result = await self._collection.update_one(
+            {"_id": ObjectId(application_id)},
+            {"$set": {"consents.chat": enabled}},
+        )
+        return result.matched_count == 1
 
     async def get_pending(self, application_ids: list[str]) -> list[ApplicationRecord]:
         object_ids = [ObjectId(application_id) for application_id in application_ids]
