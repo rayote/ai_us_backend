@@ -199,15 +199,21 @@ class MongoSurveySessionRepository:
         weekly = active_participants_since(7 * 24 * 60 * 60)
         monthly = active_participants_since(30 * 24 * 60 * 60)
         active_seconds = [int(document.get("active_seconds", 0)) for document in sessions]
+        participant_ids = {str(document["participant_id"]) for document in sessions if document.get("participant_id")}
+        started_at_values = [document.get("started_at") for document in sessions if document.get("started_at")]
+        first_started_at = min(started_at_values) if started_at_values else None
         return {
             "dau": len(daily),
             "wau": len(weekly),
             "mau": len(monthly),
             "activeNow": len(active_now),
             "sessionCount": len(sessions),
+            "totalSessions": len(sessions),
+            "totalParticipants": len(participant_ids),
             "averageActiveSeconds": round(sum(active_seconds) / len(active_seconds)) if active_seconds else 0,
             "hasCampaignData": False,
             "campaigns": [],
+            "firstStartedAt": first_started_at.isoformat() if first_started_at else None,
             "generatedAt": now.isoformat(),
         }
 

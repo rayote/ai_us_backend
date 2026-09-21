@@ -163,6 +163,8 @@ The optional `detail` object is stored separately from `answers`; the server-sid
 
 `POST /api/v1/participant/survey-sessions/heartbeat` requires a participant bearer token and upserts the current session's last heartbeat, active seconds, resume count, and page number.
 
+`GET /api/v1/researcher/activity-summary` aggregates these session records for the researcher console. `dau`, `wau`, `mau`, and `activeNow` are rolling activity metrics based on the last heartbeat. `totalParticipants` is the number of distinct participants in all stored sessions, and `totalSessions` is the cumulative number of stored sessions. `firstStartedAt` is the earliest stored session start; `generatedAt` is the end of the current aggregation. The researcher console requests this endpoint on load and refreshes it every 30 seconds, so a browser refresh is not required.
+
 ## Get survey submission status
 
 `GET /api/v1/submission-jobs/{submissionId}`
