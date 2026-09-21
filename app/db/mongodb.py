@@ -175,6 +175,9 @@ class MongoDatabase:
             [("participant_id", ASCENDING), ("submission_point", ASCENDING), ("submitted_at", ASCENDING)],
             name="chat_submissions_participant_point",
         )
+        await self.database["transcript_parse_runs"].create_index(
+            [("submission_id", ASCENDING), ("completed_at", ASCENDING)], name="transcript_parse_runs_submission"
+        )
         await self.database["submission_jobs"].create_index(
             [("job_type", ASCENDING), ("idempotency_key", ASCENDING)],
             name="submission_jobs_idempotency_unique",

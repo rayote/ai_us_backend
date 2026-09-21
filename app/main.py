@@ -30,6 +30,7 @@ from app.services.surveys import (
     SurveyDefinitionRepository,
     SurveyResponseRepository,
 )
+from app.services.transcript_runs import MongoTranscriptParseRunRepository, TranscriptParseRunRepository
 from fastapi import FastAPI, status
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -49,6 +50,7 @@ def create_app(
     chat_download_upload_repository: ChatUploadRepository | None = None,
     daily_metrics_repository: DailyMetricsRepository | None = None,
     abuse_review_status_repository: AbuseReviewStatusRepository | None = None,
+    transcript_parse_run_repository: TranscriptParseRunRepository | None = None,
 ) -> FastAPI:
     application_settings = settings or Settings.from_environment()
 
@@ -122,6 +124,12 @@ def create_app(
             app.state.chat_submission_repository = chat_submission_repository
         elif application_settings.mongodb_uri:
             app.state.chat_submission_repository = MongoChatSubmissionRepository(database.database["chat_submissions"])
+        if transcript_parse_run_repository is not None:
+            app.state.transcript_parse_run_repository = transcript_parse_run_repository
+        elif application_settings.mongodb_uri:
+            app.state.transcript_parse_run_repository = MongoTranscriptParseRunRepository(
+                database.database["transcript_parse_runs"]
+            )
         if chat_upload_repository is not None:
             app.state.chat_upload_repository = chat_upload_repository
         elif application_settings.mongodb_uri:

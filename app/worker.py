@@ -13,6 +13,7 @@ from app.services.chats import MongoChatSubmissionRepository, build_chat_archive
 from app.services.jobs import MongoJobRepository, QueueWorker
 from app.services.submissions import store_survey_response
 from app.services.surveys import MongoSurveyDefinitionRepository, MongoSurveyResponseRepository
+from app.services.transcript_runs import MongoTranscriptParseRunRepository, process_transcript_parse
 
 
 async def run_worker() -> None:
@@ -27,6 +28,7 @@ async def run_worker() -> None:
     chat_submissions = MongoChatSubmissionRepository(database.database["chat_submissions"])
     chat_download_artifacts = MongoChatDownloadArtifactRepository(database.database["chat_download_artifacts"])
     participants = MongoParticipantAccountRepository(database.database["participants"])
+    transcript_runs = MongoTranscriptParseRunRepository(database.database["transcript_parse_runs"])
 
     async def build_chat_download(payload: dict[str, object]) -> None:
         submissions = await chat_submissions.list_submissions(
@@ -67,6 +69,9 @@ async def run_worker() -> None:
             "survey_response": lambda payload: store_survey_response(payload, definitions, responses),
             "chat_submission": lambda payload: store_chat_submission(payload, chat_submissions),
             "chat_download": build_chat_download,
+            "transcript_parse": lambda payload: process_transcript_parse(
+                payload, chat_submissions, database.gridfs_bucket("chat_uploads"), transcript_runs
+            ),
         },
     )
     await worker.recover()

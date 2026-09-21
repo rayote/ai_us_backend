@@ -5,7 +5,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
-JobType = Literal["survey_response", "chat_submission", "password_reset_email", "chat_download"]
+JobType = Literal["survey_response", "chat_submission", "password_reset_email", "chat_download", "transcript_parse"]
 JobStatus = Literal["queued", "processing", "completed", "failed"]
 
 

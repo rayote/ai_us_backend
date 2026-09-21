@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -103,3 +103,28 @@ class ChatDownloadJobStatus(BaseModel):
     status: str
     error: str | None = None
     download_url: str | None = Field(default=None, alias="downloadUrl")
+
+
+class TranscriptParseRun(BaseModel):
+    run_id: str = Field(alias="runId")
+    submission_id: str = Field(alias="submissionId")
+    status: Literal["queued", "processing", "completed", "failed"]
+    parser_name: str = Field(alias="parserName")
+    parser_version: str = Field(alias="parserVersion")
+    schema_version: str = Field(alias="schemaVersion")
+    normalized_json: dict[str, Any] | None = Field(default=None, alias="normalizedJson")
+    warnings: list[str] = Field(default_factory=list)
+    created_at: datetime = Field(alias="createdAt")
+    completed_at: datetime | None = Field(default=None, alias="completedAt")
+    error: str | None = None
+
+
+class TranscriptParseRequestAccepted(BaseModel):
+    run_id: str = Field(alias="runId")
+    job_id: str = Field(alias="jobId")
+    status: str
+
+
+class TranscriptParsePreview(BaseModel):
+    submission_id: str = Field(alias="submissionId")
+    latest_run: TranscriptParseRun | None = Field(default=None, alias="latestRun")
