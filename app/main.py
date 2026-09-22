@@ -157,7 +157,7 @@ def create_app(
             CORSMiddleware,
             allow_origins=list(application_settings.frontend_origins),
             allow_credentials=True,
-            allow_methods=["GET", "POST", "PUT", "DELETE"],
+            allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE"],
             allow_headers=["Authorization", "Content-Type"],
             expose_headers=["Content-Disposition"],
         )
