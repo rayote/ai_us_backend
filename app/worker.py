@@ -15,6 +15,7 @@ from app.services.chat_downloads import (
     transcript_download_filename,
 )
 from app.services.chats import MongoChatSubmissionRepository, build_chat_archive, store_chat_submission
+from app.services.gemini_screenshot_extractor import GeminiScreenshotTranscriptExtractor
 from app.services.jobs import MongoJobRepository, QueueWorker
 from app.services.submissions import store_survey_response
 from app.services.surveys import MongoSurveyDefinitionRepository, MongoSurveyResponseRepository
@@ -38,6 +39,11 @@ async def run_worker() -> None:
     chat_download_artifacts = MongoChatDownloadArtifactRepository(database.database["chat_download_artifacts"])
     participants = MongoParticipantAccountRepository(database.database["participants"])
     transcript_runs = MongoTranscriptParseRunRepository(database.database["transcript_parse_runs"])
+    screenshot_extractor = (
+        GeminiScreenshotTranscriptExtractor(settings.gemini_api_key, settings.gemini_screenshot_model)
+        if settings.gemini_api_key
+        else None
+    )
 
     async def selected_submissions(payload: dict[str, object]) -> list:
         submissions = await chat_submissions.list_submissions(
@@ -97,6 +103,7 @@ async def run_worker() -> None:
                 transcript_runs,
                 archive_path,
                 participant_profiles,
+                screenshot_extractor,
             )
             await store_download_artifact(payload, archive_path, transcript_download_filename())
         finally:
@@ -110,7 +117,11 @@ async def run_worker() -> None:
             "chat_download": build_chat_download,
             "transcript_download": build_transcript_download,
             "transcript_parse": lambda payload: process_transcript_parse(
-                payload, chat_submissions, database.gridfs_bucket("chat_uploads"), transcript_runs
+                payload,
+                chat_submissions,
+                database.gridfs_bucket("chat_uploads"),
+                transcript_runs,
+                screenshot_extractor,
             ),
         },
     )

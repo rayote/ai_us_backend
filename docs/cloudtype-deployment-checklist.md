@@ -37,11 +37,15 @@ JWT_EXPIRATION_MINUTES=60
 PARTICIPANT_JWT_EXPIRATION_MINUTES=240
 RESEARCHER_BOOTSTRAP_USERNAME=<first admin username>
 RESEARCHER_BOOTSTRAP_PASSWORD=<first admin password>
+GEMINI_API_KEY=<Gemini API key for screenshot parsing>
+GEMINI_SCREENSHOT_MODEL=gemini-2.5-flash
 ```
 
 The backend creates `mongodb://<username>:<password>@<host>:<port>/?authSource=admin` at runtime. `MONGODB_USERNAME` and `MONGODB_PASSWORD` must be CloudType Secrets. The password is URL-encoded by the backend, so do not manually encode special characters. `MONGODB_URI` remains only as an optional legacy override and should not be set for this deployment.
 
 Gmail Secrets are not required. Password reset verifies participant and guardian phone numbers, resets the password to `1234`, and forces first-login password change. Leaving `EMAIL_PROVIDER`, `SMTP_*`, `EMAIL_FROM`, and `PASSWORD_RESET_BASE_URL` unset does not prevent deployment.
+
+`GEMINI_API_KEY` is required only for screenshot transcript parsing. Without it, ZIP/JSON transcript parsers continue to work, while image submissions are reported as unsupported instead of being sent to an external model.
 
 ## First Deployment Checks
 
@@ -75,6 +79,8 @@ JWT_EXPIRATION_MINUTES=60
 PARTICIPANT_JWT_EXPIRATION_MINUTES=240
 RESEARCHER_BOOTSTRAP_USERNAME=<production first admin username>
 RESEARCHER_BOOTSTRAP_PASSWORD=<production first admin password>
+GEMINI_API_KEY=<production Gemini API key>
+GEMINI_SCREENSHOT_MODEL=gemini-2.5-flash
 ```
 
 The frontend maps the development hostname to the development backend and the production hostname to the production backend. Any unknown hostname falls back to the production backend.
@@ -121,3 +127,5 @@ python scripts/sync_frontend_survey_definitions.py --database-name ai_us_develop
 ```
 
 Always run either command with `--dry-run` first when targeting an unfamiliar database.
+
+로컬에서 운영 데이터를 점검해야 할 때는 `.env`를 바꾸지 말고 `.env.production.local`을 사용합니다. 이 파일은 Git에서 제외되며 앱이 자동으로 읽지 않습니다. 운영 조회 도구에서 `--env-file .env.production.local`처럼 명시적으로 지정할 때만 `AI_US_PRODUCTION_MONGODB_URI`와 `AI_US_PRODUCTION_DATABASE_NAME`을 로드하고, DB명이 `ai_us_production`이 아니면 즉시 중단해야 합니다. 가능하면 MongoDB 읽기 전용 계정을 사용하며, 운영 쓰기 작업은 별도 확인 플래그 없이 실행할 수 없도록 유지합니다.

@@ -10,6 +10,12 @@ from zoneinfo import ZoneInfo
 
 from app.schemas.chat import ParsedTranscript, TranscriptMessage, TranscriptParseRun
 from app.services.chats import ChatSubmissionRepository, ChatUploadRepository
+from app.services.screenshot_transcripts import (
+    ScreenshotImage,
+    ScreenshotTranscriptExtractor,
+    normalize_screenshot_extraction,
+    order_screenshot_images,
+)
 from app.services.transcript_adapters import UnsupportedTranscriptError, normalize_export
 from bson import ObjectId
 
@@ -137,6 +143,7 @@ async def process_transcript_parse(
     submissions: ChatSubmissionRepository,
     uploads: ChatUploadRepository,
     runs: TranscriptParseRunRepository,
+    screenshot_extractor: ScreenshotTranscriptExtractor | None = None,
 ) -> None:
     submission_id, run_id = str(payload["submissionId"]), str(payload["runId"])
     submission = next(
@@ -145,7 +152,29 @@ async def process_transcript_parse(
     if submission is None:
         raise ValueError("대화문 제출을 찾을 수 없습니다.")
     try:
-        if submission.attachments:
+        if submission.source_type == "image":
+            if screenshot_extractor is None:
+                raise UnsupportedTranscriptError("이미지 대화문 parser adapter가 설정되지 않았습니다.")
+            images = []
+            for attachment in submission.attachments:
+                filename, content, metadata = await uploads.read_bytes(attachment.file_id)
+                images.append(
+                    ScreenshotImage(
+                        filename=filename,
+                        content_type=str(metadata.get("content_type") or attachment.content_type),
+                        data=content,
+                    )
+                )
+            ordered_images = order_screenshot_images(images)
+            extracted = await screenshot_extractor.extract(ordered_images)
+            normalized, warnings = normalize_screenshot_extraction(
+                extracted,
+                ordered_images,
+                submission.participant_id,
+                submission.tool or "other",
+            )
+            parser_name, parser_version = "screenshot-vlm", "screenshot-vlm-v1"
+        elif submission.attachments:
             attachment = submission.attachments[0]
             filename, content, _ = await uploads.read_bytes(attachment.file_id)
             parser_name, parser_version, normalized, warnings = normalize_export(
@@ -236,6 +265,7 @@ async def build_transcript_archive(
     runs: TranscriptParseRunRepository,
     archive_path: Path,
     participant_profiles: dict[str, tuple[str, str | None, int | None]] | None = None,
+    screenshot_extractor: ScreenshotTranscriptExtractor | None = None,
 ) -> tuple[int, int]:
     completed = 0
     failures: list[list[str]] = []
@@ -251,6 +281,7 @@ async def build_transcript_archive(
                         submission_repository,
                         uploads,
                         runs,
+                        screenshot_extractor,
                     )
                 except Exception:
                     pass
