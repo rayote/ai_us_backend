@@ -77,7 +77,7 @@
 - 참가자가 `삭제 요청`을 확인하면 `POST /api/v1/chat-submissions/{submissionId}/deletion-request`를 호출하고 상태를 `삭제 요청됨`으로 회색 표시한다. `삭제 요청 취소`는 `POST /api/v1/chat-submissions/{submissionId}/restore`를 호출한다.
 - 연구자 파일 관리 화면은 `GET /api/v1/researcher/chat-submissions/files?status_filter=deletion_requested`에서 요청 항목을 조회한다. `파일 삭제`는 되돌릴 수 없다는 확인 뒤 `DELETE /api/v1/researcher/chat-submissions/files/{submissionId}`를 호출한다. 실제 삭제가 끝난 항목은 참가자 내역에 표시하지 않는다.
 - 연구자 대화문 CSV는 `GET /api/v1/researcher/exports/chat-submissions`에 `submission_point`, 필요 시 `school_level`을 전송한다.
-- 연구자 결과 다운로드의 대화문 미리보기는 `GET /api/v1/researcher/chat-submission-previews`로 실제 DB와 동기화한다. 각 첨부 제출은 `GET /api/v1/researcher/chat-submissions/files/{submissionId}/download`로 개별 원본 ZIP을 받을 수 있다.
+- 연구자 결과 다운로드의 대화문 미리보기는 `GET /api/v1/researcher/chat-submission-previews`로 실제 DB와 동기화한다. 기본 `review_filter=unreviewed`이며 `all`, `reviewed` 또는 개별 검토 결과로 필터링할 수 있다. `PATCH /api/v1/researcher/chat-submissions/{submissionId}/review`는 기존 `chat_submissions` 문서에 검토 결과와 선택 메모를 저장하며 `other` 상태만 메모가 필수다. 같은 URL의 `DELETE`는 미검토 상태로 되돌린다. 각 첨부 제출은 `GET /api/v1/researcher/chat-submissions/files/{submissionId}/download`로 개별 원본 ZIP을 받을 수 있다.
 - 선택 파일 또는 현재 필터 전체 파일은 `POST /api/v1/researcher/chat-submissions/download-jobs`로 비동기 ZIP 생성을 요청하고, 상태 polling 후 완료된 `downloadUrl`을 사용한다. 삭제 요청 상태는 기본 다운로드에서 제외한다.
 
 ## 운영 절차

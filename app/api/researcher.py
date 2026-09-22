@@ -28,16 +28,25 @@ from app.schemas.chat import (
     ChatDownloadJobStatus,
     ChatSubmissionDeleted,
     ChatSubmissionPreview,
+    ChatSubmissionReview,
+    ChatSubmissionReviewUpdate,
     ChatSubmissionSummary,
     TranscriptParsePreview,
     TranscriptParseRequestAccepted,
     TranscriptParseRun,
 )
 from app.schemas.imports import ParticipantImportResult
-from app.schemas.reporting import IncompleteParticipantReport, NonparticipantReport, ParticipationStatus
+from app.schemas.reporting import (
+    IncompleteParticipantReport,
+    NonparticipantReport,
+    ParticipationStatus,
+)
 from app.schemas.survey import SurveyDefinitionSummary, SurveyResponsePreview
 from app.services.abuse_review import AbuseReviewService
-from app.services.abuse_review_status import AbuseReviewStatusRepository, abuse_candidate_key
+from app.services.abuse_review_status import (
+    AbuseReviewStatusRepository,
+    abuse_candidate_key,
+)
 from app.services.application_settings import ApplicationSettingsRepository
 from app.services.applications import ApplicationRepository
 from app.services.approvals import ApplicationApprovalService, ExistingParticipantError
@@ -54,9 +63,22 @@ from app.services.chats import (
 from app.services.imports import ParticipantImportService
 from app.services.jobs import JobCreate, JobRepository
 from app.services.reporting import ResearcherReportingService
-from app.services.surveys import SurveyDefinitionRepository, SurveyResponseRepository, survey_responses_to_csv
+from app.services.surveys import (
+    SurveyDefinitionRepository,
+    SurveyResponseRepository,
+    survey_responses_to_csv,
+)
 from app.services.transcript_runs import TranscriptParseRunRepository, normalized_to_csv
-from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile, status
+from fastapi import (
+    APIRouter,
+    Depends,
+    File,
+    HTTPException,
+    Query,
+    Request,
+    UploadFile,
+    status,
+)
 from fastapi.responses import Response
 
 router = APIRouter(prefix="/api/v1/researcher", tags=["researcher"])
@@ -66,7 +88,8 @@ def _application_repository(request: Request) -> ApplicationRepository:
     repository = getattr(request.app.state, "application_repository", None)
     if repository is None:
         raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="신청 관리 서비스를 준비 중입니다."
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="신청 관리 서비스를 준비 중입니다.",
         )
     return repository
 
@@ -75,7 +98,8 @@ def _application_settings_repository(request: Request) -> ApplicationSettingsRep
     repository = getattr(request.app.state, "application_settings_repository", None)
     if repository is None:
         raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="신청 설정 서비스를 준비 중입니다."
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="신청 설정 서비스를 준비 중입니다.",
         )
     return repository
 
@@ -85,8 +109,13 @@ def _approval_service(request: Request) -> ApplicationApprovalService:
         request.app.state, "participant_account_repository", None
     )
     if participant_repository is None:
-        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="승인 서비스를 준비 중입니다.")
-    return ApplicationApprovalService(_application_repository(request), participant_repository)
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="승인 서비스를 준비 중입니다.",
+        )
+    return ApplicationApprovalService(
+        _application_repository(request), participant_repository
+    )
 
 
 def _participant_import_service(request: Request) -> ParticipantImportService:
@@ -95,7 +124,8 @@ def _participant_import_service(request: Request) -> ParticipantImportService:
     )
     if repository is None:
         raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="참여자 등록 서비스를 준비 중입니다."
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="참여자 등록 서비스를 준비 중입니다.",
         )
     return ParticipantImportService(repository)
 
@@ -104,7 +134,8 @@ def _survey_definition_repository(request: Request) -> SurveyDefinitionRepositor
     repository = getattr(request.app.state, "survey_definition_repository", None)
     if repository is None:
         raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="설문 정의 서비스를 준비 중입니다."
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="설문 정의 서비스를 준비 중입니다.",
         )
     return repository
 
@@ -113,7 +144,8 @@ def _survey_response_repository(request: Request) -> SurveyResponseRepository:
     repository = getattr(request.app.state, "survey_response_repository", None)
     if repository is None:
         raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="설문 결과 서비스를 준비 중입니다."
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="설문 결과 서비스를 준비 중입니다.",
         )
     return repository
 
@@ -122,25 +154,36 @@ def _chat_submission_repository(request: Request) -> ChatSubmissionRepository:
     repository = getattr(request.app.state, "chat_submission_repository", None)
     if repository is None:
         raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="대화문 결과 서비스를 준비 중입니다."
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="대화문 결과 서비스를 준비 중입니다.",
         )
     return repository
 
 
-def _chat_submission_management_service(request: Request) -> ChatSubmissionManagementService:
-    uploads: ChatUploadRepository | None = getattr(request.app.state, "chat_upload_repository", None)
+def _chat_submission_management_service(
+    request: Request,
+) -> ChatSubmissionManagementService:
+    uploads: ChatUploadRepository | None = getattr(
+        request.app.state, "chat_upload_repository", None
+    )
     if uploads is None:
         raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="파일 관리 서비스를 준비 중입니다."
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="파일 관리 서비스를 준비 중입니다.",
         )
-    return ChatSubmissionManagementService(_chat_submission_repository(request), uploads)
+    return ChatSubmissionManagementService(
+        _chat_submission_repository(request), uploads
+    )
 
 
-def _chat_download_artifact_repository(request: Request) -> ChatDownloadArtifactRepository:
+def _chat_download_artifact_repository(
+    request: Request,
+) -> ChatDownloadArtifactRepository:
     repository = getattr(request.app.state, "chat_download_artifact_repository", None)
     if repository is None:
         raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="파일 다운로드 서비스를 준비 중입니다."
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="파일 다운로드 서비스를 준비 중입니다.",
         )
     return repository
 
@@ -149,7 +192,8 @@ def _job_repository(request: Request) -> JobRepository:
     repository = getattr(request.app.state, "job_repository", None)
     if repository is None:
         raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="다운로드 작업 서비스를 준비 중입니다."
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="다운로드 작업 서비스를 준비 중입니다.",
         )
     return repository
 
@@ -158,7 +202,8 @@ def _transcript_parse_run_repository(request: Request) -> TranscriptParseRunRepo
     repository = getattr(request.app.state, "transcript_parse_run_repository", None)
     if repository is None:
         raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="대화문 파싱 서비스를 준비 중입니다."
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="대화문 파싱 서비스를 준비 중입니다.",
         )
     return repository
 
@@ -167,12 +212,17 @@ def _reporting_service(request: Request) -> ResearcherReportingService:
     participants: ParticipantAccountRepository | None = getattr(
         request.app.state, "participant_account_repository", None
     )
-    responses: SurveyResponseRepository | None = getattr(request.app.state, "survey_response_repository", None)
+    responses: SurveyResponseRepository | None = getattr(
+        request.app.state, "survey_response_repository", None
+    )
     if participants is None or responses is None:
         raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="참여 현황 서비스를 준비 중입니다."
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="참여 현황 서비스를 준비 중입니다.",
         )
-    chats: ChatSubmissionRepository | None = getattr(request.app.state, "chat_submission_repository", None)
+    chats: ChatSubmissionRepository | None = getattr(
+        request.app.state, "chat_submission_repository", None
+    )
     return ResearcherReportingService(participants, responses, chats)
 
 
@@ -182,7 +232,8 @@ def _abuse_review_service(request: Request) -> AbuseReviewService:
     definitions = getattr(request.app.state, "survey_definition_repository", None)
     if participants is None or responses is None or definitions is None:
         raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="어뷰징 검토 서비스를 준비 중입니다."
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="어뷰징 검토 서비스를 준비 중입니다.",
         )
     return AbuseReviewService(participants, responses, definitions)
 
@@ -191,7 +242,8 @@ def _abuse_review_status_repository(request: Request) -> AbuseReviewStatusReposi
     repository = getattr(request.app.state, "abuse_review_status_repository", None)
     if repository is None:
         raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="어뷰징 검토 상태 서비스를 준비 중입니다."
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="어뷰징 검토 상태 서비스를 준비 중입니다.",
         )
     return repository
 
@@ -204,7 +256,8 @@ async def activity_summary(
     sessions = getattr(request.app.state, "survey_session_repository", None)
     if sessions is None:
         raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="활성 분석 서비스를 준비 중입니다."
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="활성 분석 서비스를 준비 중입니다.",
         )
     summary = await sessions.activity_summary()
     metrics = getattr(request.app.state, "daily_metrics_repository", None)
@@ -227,10 +280,17 @@ async def abuse_review(
 ) -> AbuseReviewReport:
     if (survey_round is None) != (survey_version is None):
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="회차와 설문 버전을 함께 선택해 주세요."
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="회차와 설문 버전을 함께 선택해 주세요.",
         )
     return await _abuse_review_service(request).report(
-        survey_round, survey_version, pair_page, pair_page_size, speed_page, pairing_page, combined_page
+        survey_round,
+        survey_version,
+        pair_page,
+        pair_page_size,
+        speed_page,
+        pairing_page,
+        combined_page,
     )
 
 
@@ -241,7 +301,9 @@ async def abuse_review_statuses(
     request: Request,
     _: str = Depends(require_researcher),
 ) -> list[AbuseReviewStatus]:
-    return await _abuse_review_status_repository(request).list_statuses(survey_round, survey_version)
+    return await _abuse_review_status_repository(request).list_statuses(
+        survey_round, survey_version
+    )
 
 
 @router.put("/abuse-review/statuses", response_model=AbuseReviewStatus)
@@ -252,19 +314,28 @@ async def update_abuse_review_status(
     request: Request,
     reviewer: str = Depends(require_researcher),
 ) -> AbuseReviewStatus:
-    candidate_key = abuse_candidate_key(survey_round, survey_version, update.phone, update.paired_phone)
+    candidate_key = abuse_candidate_key(
+        survey_round, survey_version, update.phone, update.paired_phone
+    )
     repository = _abuse_review_status_repository(request)
-    result = await repository.set_status(survey_round, survey_version, candidate_key, update.reviewed, reviewer)
-    report = await _abuse_review_service(request).report(survey_round, survey_version, 1, 100000)
+    result = await repository.set_status(
+        survey_round, survey_version, candidate_key, update.reviewed, reviewer
+    )
+    report = await _abuse_review_service(request).report(
+        survey_round, survey_version, 1, 100000
+    )
     statuses = await repository.list_statuses(survey_round, survey_version)
     reviewed_keys = {item.candidate_key for item in statuses if item.reviewed}
-    group_statuses = {item.candidate_key: item for item in statuses if item.member_phones}
+    group_statuses = {
+        item.candidate_key: item for item in statuses if item.member_phones
+    }
     for group in report.groups:
         group_phones = set(group.phones)
         group_pair_keys = {
             candidate.candidate_key
             for candidate in report.pairing_candidates + report.combined_candidates
-            if candidate.paired_phone and {candidate.phone, candidate.paired_phone}.issubset(group_phones)
+            if candidate.paired_phone
+            and {candidate.phone, candidate.paired_phone}.issubset(group_phones)
         }
         if not group_pair_keys:
             continue
@@ -291,10 +362,15 @@ async def update_abuse_review_group_status(
     reviewer: str = Depends(require_researcher),
 ) -> AbuseReviewStatus:
     status_repository = _abuse_review_status_repository(request)
-    report = await _abuse_review_service(request).report(survey_round, survey_version, 1, 100000)
+    report = await _abuse_review_service(request).report(
+        survey_round, survey_version, 1, 100000
+    )
     member_phones = set(update.phones)
     for candidate in report.pairing_candidates + report.combined_candidates:
-        if candidate.paired_phone and {candidate.phone, candidate.paired_phone}.issubset(member_phones):
+        if candidate.paired_phone and {
+            candidate.phone,
+            candidate.paired_phone,
+        }.issubset(member_phones):
             await status_repository.set_status(
                 survey_round,
                 survey_version,
@@ -325,9 +401,15 @@ async def list_applications(
     if participants is None:
         return records
     participant_list = await participants.list_participants() or []
-    live_consent = {participant.phone: participant.chat_consent for participant in participant_list}
+    live_consent = {
+        participant.phone: participant.chat_consent for participant in participant_list
+    }
     return [
-        record.model_copy(update={"chat_consent": live_consent.get(record.phone, record.consents.chat)})
+        record.model_copy(
+            update={
+                "chat_consent": live_consent.get(record.phone, record.consents.chat)
+            }
+        )
         for record in records
     ]
 
@@ -339,7 +421,9 @@ async def approve_applications(
     _: str = Depends(require_researcher),
 ) -> ApplicationApprovalCompleted:
     try:
-        approved_count = await _approval_service(request).approve(approval.application_ids)
+        approved_count = await _approval_service(request).approve(
+            approval.application_ids
+        )
     except ExistingParticipantError as error:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -356,24 +440,41 @@ async def update_application_chat_consent(
     _: str = Depends(require_researcher),
 ) -> dict[str, object]:
     applications = await _application_repository(request).list_applications()
-    application = next((item for item in applications if item.application_id == application_id), None)
+    application = next(
+        (item for item in applications if item.application_id == application_id), None
+    )
     if application is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="신청 정보를 찾을 수 없습니다.")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="신청 정보를 찾을 수 없습니다.",
+        )
     participants: ParticipantAccountRepository | None = getattr(
         request.app.state, "participant_account_repository", None
     )
     if participants is None:
-        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="참여자 정보를 준비 중입니다.")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="참여자 정보를 준비 중입니다.",
+        )
     participant = await participants.find_by_phone(application.phone)
     if participant is None:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="승인된 참여자 계정을 찾을 수 없습니다.")
-    if not await participants.set_chat_consent(participant.participant_id, update.chat_consent):
         raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="대화문 동의를 변경하지 못했습니다."
+            status_code=status.HTTP_409_CONFLICT,
+            detail="승인된 참여자 계정을 찾을 수 없습니다.",
         )
-    if not await _application_repository(request).set_chat_consent(application_id, update.chat_consent):
+    if not await participants.set_chat_consent(
+        participant.participant_id, update.chat_consent
+    ):
         raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="신청 정보의 대화문 동의를 동기화하지 못했습니다."
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="대화문 동의를 변경하지 못했습니다.",
+        )
+    if not await _application_repository(request).set_chat_consent(
+        application_id, update.chat_consent
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="신청 정보의 대화문 동의를 동기화하지 못했습니다.",
         )
     return {"applicationId": application_id, "chatConsent": update.chat_consent}
 
@@ -383,7 +484,11 @@ async def get_application_settings(
     request: Request,
     _: str = Depends(require_researcher),
 ) -> ApplicationSettings:
-    return ApplicationSettings(autoApproval=await _application_settings_repository(request).auto_approval_enabled())
+    return ApplicationSettings(
+        autoApproval=await _application_settings_repository(
+            request
+        ).auto_approval_enabled()
+    )
 
 
 @router.post("/participants/imports", response_model=ParticipantImportResult)
@@ -394,7 +499,8 @@ async def import_participants(
 ) -> ParticipantImportResult:
     if not file.filename or not file.filename.lower().endswith(".csv"):
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="CSV 파일만 업로드할 수 있습니다."
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="CSV 파일만 업로드할 수 있습니다.",
         )
     return await _participant_import_service(request).import_csv(await file.read())
 
@@ -414,7 +520,9 @@ async def nonparticipants(
     request: Request,
     _: str = Depends(require_researcher),
 ) -> NonparticipantReport:
-    return await _reporting_service(request).nonparticipants(survey_round, survey_version)
+    return await _reporting_service(request).nonparticipants(
+        survey_round, survey_version
+    )
 
 
 @router.get("/incomplete-participants", response_model=IncompleteParticipantReport)
@@ -430,18 +538,23 @@ async def incomplete_participants(
             survey_round = int(criterion)
         except ValueError as error:
             raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="설문 회차가 올바르지 않습니다."
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="설문 회차가 올바르지 않습니다.",
             ) from error
         if survey_round < 1:
             raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="설문 회차가 올바르지 않습니다."
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="설문 회차가 올바르지 않습니다.",
             )
         criterion = str(survey_round)
     elif criterion not in {"afterRound1", "afterRound4"}:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="대화문 제출 시점이 올바르지 않습니다."
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="대화문 제출 시점이 올바르지 않습니다.",
         )
-    return await _reporting_service(request).incomplete_participants(category, criterion, school_level)
+    return await _reporting_service(request).incomplete_participants(
+        category, criterion, school_level
+    )
 
 
 @router.get("/survey-definitions", response_model=list[SurveyDefinitionSummary])
@@ -460,24 +573,39 @@ async def export_survey_responses(
     school_level: Literal["초등", "중등", "고등"] | None = None,
     _: str = Depends(require_researcher),
 ) -> Response:
-    definition = await _survey_definition_repository(request).get(survey_round, survey_version)
+    definition = await _survey_definition_repository(request).get(
+        survey_round, survey_version
+    )
     if definition is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="설문 정의를 찾을 수 없습니다.")
-    responses = await _survey_response_repository(request).list_responses(survey_round, survey_version)
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="설문 정의를 찾을 수 없습니다.",
+        )
+    responses = await _survey_response_repository(request).list_responses(
+        survey_round, survey_version
+    )
     participants: ParticipantAccountRepository | None = getattr(
         request.app.state, "participant_account_repository", None
     )
     if participants is None:
-        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="참여자 정보를 준비 중입니다.")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="참여자 정보를 준비 중입니다.",
+        )
     profiles = {
-        participant.participant_id: (participant.phone, participant.school_level, participant.grade)
+        participant.participant_id: (
+            participant.phone,
+            participant.school_level,
+            participant.grade,
+        )
         for participant in await participants.list_participants()
     }
     if school_level is not None:
         responses = [
             response
             for response in responses
-            if profiles.get(response.participant_id, ("-", None, None))[1] == school_level
+            if profiles.get(response.participant_id, ("-", None, None))[1]
+            == school_level
         ]
     filename = _survey_export_filename(definition, datetime.now(UTC))
     return Response(
@@ -488,15 +616,23 @@ async def export_survey_responses(
 
 
 def _survey_export_filename(definition, exported_at: datetime) -> str:
-    audience = {"elementary": "elem", "secondary": "secondary"}.get(definition.audience, "all")
+    audience = {"elementary": "elem", "secondary": "secondary"}.get(
+        definition.audience, "all"
+    )
     part = definition.spec.get("part") if isinstance(definition.spec, dict) else None
     part_label = f"part{part}" if isinstance(part, int) and part > 0 else "part"
-    timestamp = exported_at.astimezone(ZoneInfo("Asia/Seoul")).strftime("%Y-%m-%d_%H-%M-%S")
+    timestamp = exported_at.astimezone(ZoneInfo("Asia/Seoul")).strftime(
+        "%Y-%m-%d_%H-%M-%S"
+    )
     return f"T{definition.survey_round}_{audience}_{part_label}_{timestamp}.csv"
 
 
 def _kst_filename_timestamp(exported_at: datetime | None = None) -> str:
-    return (exported_at or datetime.now(UTC)).astimezone(ZoneInfo("Asia/Seoul")).strftime("%Y-%m-%d_%H-%M-%S")
+    return (
+        (exported_at or datetime.now(UTC))
+        .astimezone(ZoneInfo("Asia/Seoul"))
+        .strftime("%Y-%m-%d_%H-%M-%S")
+    )
 
 
 @router.get("/survey-response-previews", response_model=list[SurveyResponsePreview])
@@ -507,21 +643,31 @@ async def survey_response_previews(
     school_level: Literal["초등", "중등", "고등"] | None = None,
     _: str = Depends(require_researcher),
 ) -> list[SurveyResponsePreview]:
-    responses = await _survey_response_repository(request).list_responses(survey_round, survey_version)
+    responses = await _survey_response_repository(request).list_responses(
+        survey_round, survey_version
+    )
     participants: ParticipantAccountRepository | None = getattr(
         request.app.state, "participant_account_repository", None
     )
     if participants is None:
-        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="참여자 정보를 준비 중입니다.")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="참여자 정보를 준비 중입니다.",
+        )
     profiles = {
-        participant.participant_id: (participant.phone, participant.school_level, participant.grade)
+        participant.participant_id: (
+            participant.phone,
+            participant.school_level,
+            participant.grade,
+        )
         for participant in await participants.list_participants()
     }
     if school_level is not None:
         responses = [
             response
             for response in responses
-            if profiles.get(response.participant_id, ("-", None, None))[1] == school_level
+            if profiles.get(response.participant_id, ("-", None, None))[1]
+            == school_level
         ]
     return [
         SurveyResponsePreview(
@@ -548,20 +694,34 @@ async def export_chat_submissions(
         request.app.state, "participant_account_repository", None
     )
     if participants is None:
-        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="참여자 정보를 준비 중입니다.")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="참여자 정보를 준비 중입니다.",
+        )
     profiles = {
-        participant.participant_id: (participant.name, participant.school_level, participant.grade)
+        participant.participant_id: (
+            participant.name,
+            participant.school_level,
+            participant.grade,
+        )
         for participant in await participants.list_participants()
     }
-    submissions = await _chat_submission_repository(request).list_submissions(submission_point)
+    submissions = await _chat_submission_repository(request).list_submissions(
+        submission_point
+    )
     if submission_ids:
         selected_ids = set(submission_ids)
-        submissions = [submission for submission in submissions if submission.submission_id in selected_ids]
+        submissions = [
+            submission
+            for submission in submissions
+            if submission.submission_id in selected_ids
+        ]
     if school_level is not None:
         submissions = [
             submission
             for submission in submissions
-            if profiles.get(submission.participant_id, (None, None, None))[1] == school_level
+            if profiles.get(submission.participant_id, (None, None, None))[1]
+            == school_level
         ]
     csv_text = chat_submissions_to_csv(submissions, profiles)
     point_name = submission_point or "all"
@@ -569,7 +729,9 @@ async def export_chat_submissions(
     return Response(
         content="\ufeff" + csv_text,
         media_type="text/csv; charset=utf-8",
-        headers={"Content-Disposition": f'attachment; filename="chat-submissions-{point_name}_{timestamp}.csv"'},
+        headers={
+            "Content-Disposition": f'attachment; filename="chat-submissions-{point_name}_{timestamp}.csv"'
+        },
     )
 
 
@@ -578,22 +740,48 @@ async def chat_submission_previews(
     request: Request,
     submission_point: Literal["afterRound1", "afterRound4"] | None = None,
     school_level: Literal["초등", "중등", "고등"] | None = None,
+    review_filter: Literal[
+        "all",
+        "unreviewed",
+        "reviewed",
+        "incentive_paid",
+        "excluded",
+        "duplicate",
+        "other",
+    ] = "unreviewed",
     _: str = Depends(require_researcher),
 ) -> list[ChatSubmissionPreview]:
     participants: ParticipantAccountRepository | None = getattr(
         request.app.state, "participant_account_repository", None
     )
     if participants is None:
-        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="참여자 정보를 준비 중입니다.")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="참여자 정보를 준비 중입니다.",
+        )
     profiles = {
-        participant.participant_id: (participant.phone, participant.school_level, participant.grade)
+        participant.participant_id: (
+            participant.phone,
+            participant.school_level,
+            participant.grade,
+        )
         for participant in await participants.list_participants()
     }
-    submissions = await _chat_submission_repository(request).list_submissions(submission_point)
+    submissions = await _chat_submission_repository(request).list_submissions(
+        submission_point
+    )
     rows: list[ChatSubmissionPreview] = []
     for submission in reversed(submissions):
         profile = profiles.get(submission.participant_id, ("-", None, None))
         if school_level is not None and profile[1] != school_level:
+            continue
+        if review_filter == "unreviewed" and submission.review is not None:
+            continue
+        if review_filter == "reviewed" and submission.review is None:
+            continue
+        if review_filter not in ("all", "unreviewed", "reviewed") and (
+            submission.review is None or submission.review.status != review_filter
+        ):
             continue
         rows.append(
             ChatSubmissionPreview(
@@ -604,13 +792,57 @@ async def chat_submission_previews(
                 submissionPoint=submission.submission_point,
                 sourceType=submission.source_type,
                 tool=submission.tool,
-                filenames=[attachment.filename for attachment in submission.attachments],
+                filenames=[
+                    attachment.filename for attachment in submission.attachments
+                ],
                 attachmentCount=len(submission.attachments),
                 parseStatus=submission.transcript.status,
                 submittedAt=submission.submitted_at,
+                review=submission.review,
             )
         )
     return rows[:100]
+
+
+@router.patch(
+    "/chat-submissions/{submission_id}/review", response_model=ChatSubmissionReview
+)
+async def update_chat_submission_review(
+    submission_id: str,
+    payload: ChatSubmissionReviewUpdate,
+    request: Request,
+    researcher_id: str = Depends(require_researcher),
+) -> ChatSubmissionReview:
+    review = ChatSubmissionReview(
+        status=payload.status,
+        note=payload.note,
+        updatedAt=datetime.now(UTC),
+        updatedBy=researcher_id,
+    )
+    if not await _chat_submission_repository(request).update_review(
+        submission_id, review
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="대화문 제출 내역을 찾을 수 없습니다.",
+        )
+    return review
+
+
+@router.delete(
+    "/chat-submissions/{submission_id}/review", status_code=status.HTTP_204_NO_CONTENT
+)
+async def clear_chat_submission_review(
+    submission_id: str,
+    request: Request,
+    _: str = Depends(require_researcher),
+) -> Response:
+    if not await _chat_submission_repository(request).clear_review(submission_id):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="대화문 제출 내역을 찾을 수 없습니다.",
+        )
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.get("/chat-submissions/files/{submission_id}/download")
@@ -622,19 +854,29 @@ async def download_chat_submission_files(
     repository = _chat_submission_repository(request)
     submissions = await repository.list_submissions()
     submissions.extend(await repository.list_submissions(status="deletion_requested"))
-    submission = next((item for item in submissions if item.submission_id == submission_id), None)
+    submission = next(
+        (item for item in submissions if item.submission_id == submission_id), None
+    )
     if submission is None or not submission.attachments:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="다운로드할 제출 파일을 찾을 수 없습니다.")
-    uploads: ChatUploadRepository | None = getattr(request.app.state, "chat_upload_repository", None)
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="다운로드할 제출 파일을 찾을 수 없습니다.",
+        )
+    uploads: ChatUploadRepository | None = getattr(
+        request.app.state, "chat_upload_repository", None
+    )
     if uploads is None:
         raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="파일 다운로드 서비스를 준비 중입니다."
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="파일 다운로드 서비스를 준비 중입니다.",
         )
     fd, temp_name = tempfile.mkstemp(suffix=".zip")
     os.close(fd)
     archive_path = Path(temp_name)
     try:
-        await build_chat_archive([submission], uploads, archive_path, include_deletion_requested=True)
+        await build_chat_archive(
+            [submission], uploads, archive_path, include_deletion_requested=True
+        )
         content = archive_path.read_bytes()
     finally:
         archive_path.unlink(missing_ok=True)
@@ -650,7 +892,9 @@ async def download_chat_submission_files(
 
 
 @router.post(
-    "/chat-submissions/download-jobs", response_model=ChatDownloadJobAccepted, status_code=status.HTTP_202_ACCEPTED
+    "/chat-submissions/download-jobs",
+    response_model=ChatDownloadJobAccepted,
+    status_code=status.HTTP_202_ACCEPTED,
 )
 async def create_chat_download_job(
     request_data: ChatDownloadJobCreate,
@@ -667,13 +911,16 @@ async def create_chat_download_job(
                 "submissionIds": request_data.submission_ids,
                 "submissionPoint": request_data.submission_point,
                 "schoolLevel": request_data.school_level,
+                "reviewFilter": request_data.review_filter,
             },
         )
     )
     return ChatDownloadJobAccepted(jobId=job.id, status=job.status)
 
 
-@router.get("/chat-submissions/download-jobs/{job_id}", response_model=ChatDownloadJobStatus)
+@router.get(
+    "/chat-submissions/download-jobs/{job_id}", response_model=ChatDownloadJobStatus
+)
 async def get_chat_download_job(
     job_id: str,
     request: Request,
@@ -681,7 +928,10 @@ async def get_chat_download_job(
 ) -> ChatDownloadJobStatus:
     job = await _job_repository(request).get(job_id)
     if job is None or job.job_type != "chat_download":
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="다운로드 작업을 찾을 수 없습니다.")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="다운로드 작업을 찾을 수 없습니다.",
+        )
     artifact = (
         await _chat_download_artifact_repository(request).get(job.idempotency_key)
         if job.status == "completed"
@@ -691,11 +941,17 @@ async def get_chat_download_job(
         jobId=job.id,
         status=job.status,
         error=job.error,
-        downloadUrl=f"/api/v1/researcher/chat-submissions/download-jobs/{job.id}/file" if artifact else None,
+        downloadUrl=(
+            f"/api/v1/researcher/chat-submissions/download-jobs/{job.id}/file"
+            if artifact
+            else None
+        ),
     )
 
 
-@router.get("/chat-submissions/download-jobs/{job_id}/file", name="download_chat_job_file")
+@router.get(
+    "/chat-submissions/download-jobs/{job_id}/file", name="download_chat_job_file"
+)
 async def download_chat_job_file(
     job_id: str,
     request: Request,
@@ -703,11 +959,21 @@ async def download_chat_job_file(
 ) -> Response:
     job = await _job_repository(request).get(job_id)
     if job is None or job.job_type != "chat_download":
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="다운로드 작업을 찾을 수 없습니다.")
-    artifact = await _chat_download_artifact_repository(request).get(job.idempotency_key)
-    uploads: ChatUploadRepository | None = getattr(request.app.state, "chat_download_upload_repository", None)
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="다운로드 작업을 찾을 수 없습니다.",
+        )
+    artifact = await _chat_download_artifact_repository(request).get(
+        job.idempotency_key
+    )
+    uploads: ChatUploadRepository | None = getattr(
+        request.app.state, "chat_download_upload_repository", None
+    )
     if artifact is None or uploads is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="다운로드 파일이 아직 준비되지 않았습니다.")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="다운로드 파일이 아직 준비되지 않았습니다.",
+        )
     filename, content, _ = await uploads.read_bytes(artifact.file_id)
     return Response(
         content=content,
@@ -736,13 +1002,17 @@ async def create_transcript_download_job(
                 "submissionIds": request_data.submission_ids,
                 "submissionPoint": request_data.submission_point,
                 "schoolLevel": request_data.school_level,
+                "reviewFilter": request_data.review_filter,
             },
         )
     )
     return ChatDownloadJobAccepted(jobId=job.id, status=job.status)
 
 
-@router.get("/chat-submissions/transcript-download-jobs/{job_id}", response_model=ChatDownloadJobStatus)
+@router.get(
+    "/chat-submissions/transcript-download-jobs/{job_id}",
+    response_model=ChatDownloadJobStatus,
+)
 async def get_transcript_download_job(
     job_id: str,
     request: Request,
@@ -750,7 +1020,10 @@ async def get_transcript_download_job(
 ) -> ChatDownloadJobStatus:
     job = await _job_repository(request).get(job_id)
     if job is None or job.job_type != "transcript_download":
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="대화문 CSV 작업을 찾을 수 없습니다.")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="대화문 CSV 작업을 찾을 수 없습니다.",
+        )
     artifact = (
         await _chat_download_artifact_repository(request).get(job.idempotency_key)
         if job.status == "completed"
@@ -761,7 +1034,9 @@ async def get_transcript_download_job(
         status=job.status,
         error=job.error,
         downloadUrl=(
-            f"/api/v1/researcher/chat-submissions/transcript-download-jobs/{job.id}/file" if artifact else None
+            f"/api/v1/researcher/chat-submissions/transcript-download-jobs/{job.id}/file"
+            if artifact
+            else None
         ),
     )
 
@@ -774,11 +1049,21 @@ async def download_transcript_job_file(
 ) -> Response:
     job = await _job_repository(request).get(job_id)
     if job is None or job.job_type != "transcript_download":
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="대화문 CSV 작업을 찾을 수 없습니다.")
-    artifact = await _chat_download_artifact_repository(request).get(job.idempotency_key)
-    uploads: ChatUploadRepository | None = getattr(request.app.state, "chat_download_upload_repository", None)
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="대화문 CSV 작업을 찾을 수 없습니다.",
+        )
+    artifact = await _chat_download_artifact_repository(request).get(
+        job.idempotency_key
+    )
+    uploads: ChatUploadRepository | None = getattr(
+        request.app.state, "chat_download_upload_repository", None
+    )
     if artifact is None or uploads is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="다운로드 파일이 아직 준비되지 않았습니다.")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="다운로드 파일이 아직 준비되지 않았습니다.",
+        )
     filename, content, _ = await uploads.read_bytes(artifact.file_id)
     return Response(
         content=content,
@@ -793,9 +1078,13 @@ async def list_chat_submission_files(
     status_filter: Literal["active", "deletion_requested"] = "deletion_requested",
     _: str = Depends(require_researcher),
 ) -> list[ChatSubmissionSummary]:
-    submissions = await _chat_submission_repository(request).list_submissions(status=status_filter)
+    submissions = await _chat_submission_repository(request).list_submissions(
+        status=status_filter
+    )
     return [
-        ChatSubmissionSummary.model_validate(submission_summary(submission, include_participant=True))
+        ChatSubmissionSummary.model_validate(
+            submission_summary(submission, include_participant=True)
+        )
         for submission in reversed(submissions)
     ]
 
@@ -812,12 +1101,21 @@ async def request_transcript_parse(
 ) -> TranscriptParseRequestAccepted:
     submission_repository = _chat_submission_repository(request)
     submissions = await submission_repository.list_submissions()
-    submission = next((item for item in submissions if item.submission_id == submission_id), None)
+    submission = next(
+        (item for item in submissions if item.submission_id == submission_id), None
+    )
     if submission is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="대화문 제출을 찾을 수 없습니다.")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="대화문 제출을 찾을 수 없습니다.",
+        )
     if submission.transcript.status != "placeholder":
-        pending_transcript = submission.transcript.model_copy(update={"status": "placeholder"})
-        if not await submission_repository.update_transcript(submission_id, pending_transcript):
+        pending_transcript = submission.transcript.model_copy(
+            update={"status": "placeholder"}
+        )
+        if not await submission_repository.update_transcript(
+            submission_id, pending_transcript
+        ):
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
                 detail="대화문 파싱 상태를 갱신하지 못했습니다.",
@@ -836,7 +1134,11 @@ async def request_transcript_parse(
             return TranscriptParseRequestAccepted(
                 runId=existing.run_id, jobId=existing_job.id, status=existing_job.status
             )
-        await runs.fail(existing.run_id, "연결된 파싱 작업이 이미 종료되어 새 작업을 생성했습니다.", [])
+        await runs.fail(
+            existing.run_id,
+            "연결된 파싱 작업이 이미 종료되어 새 작업을 생성했습니다.",
+            [],
+        )
     run = await runs.create(submission_id, "adapter-router", "adapter-router-v1")
     job = await _job_repository(request).enqueue(
         JobCreate(
@@ -845,25 +1147,40 @@ async def request_transcript_parse(
             payload={"submissionId": submission_id, "runId": run.run_id},
         )
     )
-    return TranscriptParseRequestAccepted(runId=run.run_id, jobId=job.id, status=job.status)
+    return TranscriptParseRequestAccepted(
+        runId=run.run_id, jobId=job.id, status=job.status
+    )
 
 
-@router.get("/chat-submissions/{submission_id}/parse-runs/{run_id}", response_model=TranscriptParseRun)
+@router.get(
+    "/chat-submissions/{submission_id}/parse-runs/{run_id}",
+    response_model=TranscriptParseRun,
+)
 async def get_transcript_parse_run(
-    submission_id: str, run_id: str, request: Request, _: str = Depends(require_researcher)
+    submission_id: str,
+    run_id: str,
+    request: Request,
+    _: str = Depends(require_researcher),
 ) -> TranscriptParseRun:
     run = await _transcript_parse_run_repository(request).get(run_id)
     if run is None or run.submission_id != submission_id:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="파싱 실행 내역을 찾을 수 없습니다.")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="파싱 실행 내역을 찾을 수 없습니다.",
+        )
     return run
 
 
-@router.get("/chat-submissions/{submission_id}/latest-parse", response_model=TranscriptParsePreview)
+@router.get(
+    "/chat-submissions/{submission_id}/latest-parse",
+    response_model=TranscriptParsePreview,
+)
 async def get_latest_transcript_parse(
     submission_id: str, request: Request, _: str = Depends(require_researcher)
 ) -> TranscriptParsePreview:
     return TranscriptParsePreview(
-        submissionId=submission_id, latestRun=await _transcript_parse_run_repository(request).latest(submission_id)
+        submissionId=submission_id,
+        latestRun=await _transcript_parse_run_repository(request).latest(submission_id),
     )
 
 
@@ -876,7 +1193,10 @@ async def download_latest_transcript_parse(
 ) -> Response:
     run = await _transcript_parse_run_repository(request).latest(submission_id)
     if run is None or run.normalized_json is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="완료된 파싱 결과를 찾을 수 없습니다.")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="완료된 파싱 결과를 찾을 수 없습니다.",
+        )
     if format == "csv":
         return Response(
             "\ufeff" + normalized_to_csv(run.normalized_json),
@@ -898,14 +1218,19 @@ async def download_latest_transcript_parse(
     )
 
 
-@router.delete("/chat-submissions/files/{submission_id}", response_model=ChatSubmissionDeleted)
+@router.delete(
+    "/chat-submissions/files/{submission_id}", response_model=ChatSubmissionDeleted
+)
 async def delete_requested_chat_submission(
     submission_id: str,
     request: Request,
     _: str = Depends(require_researcher),
 ) -> ChatSubmissionDeleted:
-    if not await _chat_submission_management_service(request).delete_requested_submission(submission_id):
+    if not await _chat_submission_management_service(
+        request
+    ).delete_requested_submission(submission_id):
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="삭제 요청된 파일 제출 내역을 찾을 수 없습니다."
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="삭제 요청된 파일 제출 내역을 찾을 수 없습니다.",
         )
     return ChatSubmissionDeleted(status="deleted")

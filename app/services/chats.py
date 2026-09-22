@@ -9,7 +9,13 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Protocol
 
-from app.schemas.chat import ChatAttachment, ChatSubmissionCreate, ChatSubmissionRecord, ParsedTranscript
+from app.schemas.chat import (
+    ChatAttachment,
+    ChatSubmissionCreate,
+    ChatSubmissionRecord,
+    ChatSubmissionReview,
+    ParsedTranscript,
+)
 from app.schemas.jobs import Job, JobCreate
 from app.services.auth import ParticipantAccountRepository
 from app.services.jobs import JobRepository
@@ -36,27 +42,47 @@ class ChatSubmissionRepository(Protocol):
         self, submission_point: str | None = None, status: str = "active"
     ) -> list[ChatSubmissionRecord]: ...
 
-    async def list_for_participant(self, participant_id: str) -> list[ChatSubmissionRecord]: ...
+    async def list_for_participant(
+        self, participant_id: str
+    ) -> list[ChatSubmissionRecord]: ...
 
-    async def request_deletion(self, submission_id: str, participant_id: str) -> bool: ...
+    async def request_deletion(
+        self, submission_id: str, participant_id: str
+    ) -> bool: ...
 
-    async def restore_deletion(self, submission_id: str, participant_id: str) -> bool: ...
+    async def restore_deletion(
+        self, submission_id: str, participant_id: str
+    ) -> bool: ...
 
-    async def get_for_deletion(self, submission_id: str) -> ChatSubmissionRecord | None: ...
+    async def get_for_deletion(
+        self, submission_id: str
+    ) -> ChatSubmissionRecord | None: ...
 
     async def remove(self, submission_id: str) -> bool: ...
 
-    async def update_transcript(self, submission_id: str, transcript: ParsedTranscript) -> bool: ...
+    async def update_transcript(
+        self, submission_id: str, transcript: ParsedTranscript
+    ) -> bool: ...
+
+    async def update_review(
+        self, submission_id: str, review: ChatSubmissionReview
+    ) -> bool: ...
+
+    async def clear_review(self, submission_id: str) -> bool: ...
 
 
 class ChatUploadRepository(Protocol):
-    async def upload(self, filename: str, data: bytes, metadata: dict[str, Any]) -> str: ...
+    async def upload(
+        self, filename: str, data: bytes, metadata: dict[str, Any]
+    ) -> str: ...
 
     async def delete(self, file_id: str) -> None: ...
 
     async def download_to_path(self, file_id: str, target: Path) -> dict[str, Any]: ...
 
-    async def upload_file(self, filename: str, source: Path, metadata: dict[str, Any]) -> str: ...
+    async def upload_file(
+        self, filename: str, source: Path, metadata: dict[str, Any]
+    ) -> str: ...
 
     async def read_bytes(self, file_id: str) -> tuple[str, bytes, dict[str, Any]]: ...
 
@@ -80,7 +106,10 @@ class MongoChatSubmissionRepository:
             "raw_input": submission.raw_input,
             "transcript": submission.transcript.model_dump(),
             "submitted_at": submission.submitted_at,
-            "attachments": [attachment.model_dump(by_alias=True) for attachment in submission.attachments],
+            "attachments": [
+                attachment.model_dump(by_alias=True)
+                for attachment in submission.attachments
+            ],
             "status": submission.status,
         }
         if submission.submission_id is not None:
@@ -102,8 +131,12 @@ class MongoChatSubmissionRepository:
         cursor = self._collection.find(filters).sort("submitted_at", 1)
         return [_record_from_document(document) async for document in cursor]
 
-    async def list_for_participant(self, participant_id: str) -> list[ChatSubmissionRecord]:
-        cursor = self._collection.find({"participant_id": participant_id}).sort("submitted_at", -1)
+    async def list_for_participant(
+        self, participant_id: str
+    ) -> list[ChatSubmissionRecord]:
+        cursor = self._collection.find({"participant_id": participant_id}).sort(
+            "submitted_at", -1
+        )
         return [_record_from_document(document) async for document in cursor]
 
     async def request_deletion(self, submission_id: str, participant_id: str) -> bool:
@@ -113,7 +146,12 @@ class MongoChatSubmissionRepository:
                 "participant_id": participant_id,
                 "$or": [{"status": "active"}, {"status": {"$exists": False}}],
             },
-            {"$set": {"status": "deletion_requested", "deletion_requested_at": datetime.now(UTC)}},
+            {
+                "$set": {
+                    "status": "deletion_requested",
+                    "deletion_requested_at": datetime.now(UTC),
+                }
+            },
         )
         return result.modified_count == 1
 
@@ -140,9 +178,36 @@ class MongoChatSubmissionRepository:
         )
         return result.deleted_count == 1
 
-    async def update_transcript(self, submission_id: str, transcript: ParsedTranscript) -> bool:
+    async def update_transcript(
+        self, submission_id: str, transcript: ParsedTranscript
+    ) -> bool:
         result = await self._collection.update_one(
-            {"_id": _object_id_or_none(submission_id)}, {"$set": {"transcript": transcript.model_dump()}}
+            {"_id": _object_id_or_none(submission_id)},
+            {"$set": {"transcript": transcript.model_dump()}},
+        )
+        return result.matched_count == 1
+
+    async def update_review(
+        self, submission_id: str, review: ChatSubmissionReview
+    ) -> bool:
+        result = await self._collection.update_one(
+            {
+                "_id": _object_id_or_none(submission_id),
+                "status": {"$ne": "deletion_requested"},
+            },
+            {"$set": {"review": review.model_dump(by_alias=False)}},
+            upsert=False,
+        )
+        return result.matched_count == 1
+
+    async def clear_review(self, submission_id: str) -> bool:
+        result = await self._collection.update_one(
+            {
+                "_id": _object_id_or_none(submission_id),
+                "status": {"$ne": "deletion_requested"},
+            },
+            {"$unset": {"review": ""}},
+            upsert=False,
         )
         return result.matched_count == 1
 
@@ -164,6 +229,7 @@ def _record_from_document(document: dict[str, Any]) -> ChatSubmissionRecord:
         attachments=document.get("attachments", []),
         status=document.get("status", "active"),
         deletionRequestedAt=document.get("deletion_requested_at"),
+        review=document.get("review"),
     )
 
 
@@ -176,11 +242,16 @@ class ChatSubmissionService:
         self._participants = participants
         self._jobs = jobs
 
-    async def submit(self, participant_id: str, submission: ChatSubmissionCreate) -> Job:
+    async def submit(
+        self, participant_id: str, submission: ChatSubmissionCreate
+    ) -> Job:
         participant = await self._participants.find_by_id(participant_id)
         if participant is None or not participant.chat_consent:
             raise ChatConsentRequiredError
-        if submission.source_type == "link" and parse_transcript("link", submission.raw_input).status == "warning":
+        if (
+            submission.source_type == "link"
+            and parse_transcript("link", submission.raw_input).status == "warning"
+        ):
             raise InvalidChatLinkError
         return await self._jobs.enqueue(
             JobCreate(
@@ -244,7 +315,10 @@ class ChatUploadService:
                 )
                 attachments.append(
                     ChatAttachment(
-                        fileId=file_id, filename=filename, contentType=file.content_type, size=len(file.data)
+                        fileId=file_id,
+                        filename=filename,
+                        contentType=file.content_type,
+                        size=len(file.data),
                     )
                 )
             await self._submissions.create_submission(
@@ -254,13 +328,17 @@ class ChatUploadService:
                     submissionPoint=submission_point,
                     sourceType=source_type,
                     tool=tool,
-                    rawInput=", ".join(attachment.filename for attachment in attachments),
+                    rawInput=", ".join(
+                        attachment.filename for attachment in attachments
+                    ),
                     transcript=ParsedTranscript(
                         status="placeholder",
                         parserVersion="attachment-v1",
                         messages=[],
                         plainText="",
-                        warnings=["원본 첨부 파일은 GridFS에 보관됩니다. 대화문 추출은 아직 수행되지 않았습니다."],
+                        warnings=[
+                            "원본 첨부 파일은 GridFS에 보관됩니다. 대화문 추출은 아직 수행되지 않았습니다."
+                        ],
                     ),
                     submittedAt=datetime.now(UTC),
                     attachments=attachments,
@@ -279,18 +357,26 @@ class ChatUploadService:
         if source_type == "file" and len(files) != 1:
             raise InvalidChatUploadError("ZIP 파일은 한 개만 제출할 수 있습니다.")
         if source_type == "image" and len(files) > self._MAX_IMAGE_FILES:
-            raise InvalidChatUploadError(f"이미지는 최대 {self._MAX_IMAGE_FILES}개까지 제출할 수 있습니다.")
+            raise InvalidChatUploadError(
+                f"이미지는 최대 {self._MAX_IMAGE_FILES}개까지 제출할 수 있습니다."
+            )
         total_bytes = sum(len(file.data) for file in files)
         if any(len(file.data) > self._MAX_FILE_BYTES for file in files):
             raise InvalidChatUploadError("파일 하나의 크기는 25MB를 넘을 수 없습니다.")
         if total_bytes > self._MAX_TOTAL_BYTES:
-            raise InvalidChatUploadError("한 번에 올리는 파일의 총 크기는 100MB를 넘을 수 없습니다.")
+            raise InvalidChatUploadError(
+                "한 번에 올리는 파일의 총 크기는 100MB를 넘을 수 없습니다."
+            )
         if source_type == "file":
             file = files[0]
-            if Path(file.filename).suffix.lower() != ".zip" or not file.data.startswith(b"PK"):
+            if Path(file.filename).suffix.lower() != ".zip" or not file.data.startswith(
+                b"PK"
+            ):
                 raise InvalidChatUploadError("유효한 ZIP 파일만 제출할 수 있습니다.")
         elif any(self._invalid_image(file) for file in files):
-            raise InvalidChatUploadError("JPG, PNG, WEBP, HEIC 이미지 파일만 제출할 수 있습니다.")
+            raise InvalidChatUploadError(
+                "JPG, PNG, WEBP, HEIC 이미지 파일만 제출할 수 있습니다."
+            )
 
     def _invalid_image(self, file: ChatUploadFile) -> bool:
         suffix_valid = Path(file.filename).suffix.lower() in self._IMAGE_SUFFIXES
@@ -305,12 +391,21 @@ async def build_chat_archive(
 ) -> int:
     count = 0
     used_names: set[str] = set()
-    with zipfile.ZipFile(archive_path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+    with zipfile.ZipFile(
+        archive_path, "w", compression=zipfile.ZIP_DEFLATED
+    ) as archive:
         with tempfile.TemporaryDirectory(prefix="chat-download-") as temp_dir:
             temp_path = Path(temp_dir)
             for submission in submissions:
-                allowed_statuses = {"active", "deletion_requested"} if include_deletion_requested else {"active"}
-                if submission.status not in allowed_statuses or not submission.attachments:
+                allowed_statuses = (
+                    {"active", "deletion_requested"}
+                    if include_deletion_requested
+                    else {"active"}
+                )
+                if (
+                    submission.status not in allowed_statuses
+                    or not submission.attachments
+                ):
                     continue
                 folder = submission.submission_id or submission.participant_id
                 for attachment in submission.attachments:
@@ -326,7 +421,9 @@ async def build_chat_archive(
 
 
 class ChatSubmissionManagementService:
-    def __init__(self, submissions: ChatSubmissionRepository, uploads: ChatUploadRepository) -> None:
+    def __init__(
+        self, submissions: ChatSubmissionRepository, uploads: ChatUploadRepository
+    ) -> None:
         self._submissions = submissions
         self._uploads = uploads
 
@@ -345,7 +442,9 @@ class ChatSubmissionManagementService:
         return await self._submissions.remove(submission_id)
 
 
-def submission_summary(submission: ChatSubmissionRecord, include_participant: bool = False) -> dict[str, object]:
+def submission_summary(
+    submission: ChatSubmissionRecord, include_participant: bool = False
+) -> dict[str, object]:
     summary: dict[str, object] = {
         "submissionId": submission.submission_id,
         "submissionPoint": submission.submission_point,
@@ -360,11 +459,17 @@ def submission_summary(submission: ChatSubmissionRecord, include_participant: bo
     return summary
 
 
-async def store_chat_submission(payload: dict[str, object], repository: ChatSubmissionRepository) -> None:
+async def store_chat_submission(
+    payload: dict[str, object], repository: ChatSubmissionRepository
+) -> None:
     source_type = payload["sourceType"]
     raw_input = payload["rawInput"]
     submission_point = payload["submissionPoint"]
-    if not isinstance(source_type, str) or not isinstance(raw_input, str) or not isinstance(submission_point, str):
+    if (
+        not isinstance(source_type, str)
+        or not isinstance(raw_input, str)
+        or not isinstance(submission_point, str)
+    ):
         raise ValueError("Invalid chat submission job payload")
     from datetime import UTC, datetime
 
@@ -383,7 +488,9 @@ async def store_chat_submission(payload: dict[str, object], repository: ChatSubm
 
 def chat_submissions_to_csv(
     submissions: list[ChatSubmissionRecord],
-    participant_profiles: dict[str, tuple[str | None, str | None, int | None]] | None = None,
+    participant_profiles: (
+        dict[str, tuple[str | None, str | None, int | None]] | None
+    ) = None,
 ) -> str:
     output = io.StringIO(newline="")
     writer = csv.writer(output)
@@ -399,12 +506,18 @@ def chat_submissions_to_csv(
             "parseStatus",
             "parserVersion",
             "parseWarnings",
+            "reviewStatus",
+            "reviewNote",
+            "reviewedAt",
+            "reviewedBy",
             "plainText",
             "rawInput",
         ]
     )
     for submission in submissions:
-        profile = (participant_profiles or {}).get(submission.participant_id, (None, None, None))
+        profile = (participant_profiles or {}).get(
+            submission.participant_id, (None, None, None)
+        )
         writer.writerow(
             [
                 submission.participant_id,
@@ -417,6 +530,14 @@ def chat_submissions_to_csv(
                 submission.transcript.status,
                 submission.transcript.parser_version,
                 "; ".join(submission.transcript.warnings),
+                submission.review.status if submission.review else "",
+                (
+                    submission.review.note
+                    if submission.review and submission.review.note
+                    else ""
+                ),
+                submission.review.updated_at.isoformat() if submission.review else "",
+                submission.review.updated_by if submission.review else "",
                 submission.transcript.plain_text,
                 submission.raw_input,
             ]

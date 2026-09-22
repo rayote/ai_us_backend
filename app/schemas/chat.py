@@ -3,12 +3,13 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 ChatSourceType = Literal["link", "text", "file", "image"]
 ChatSubmissionPoint = Literal["afterRound1", "afterRound4"]
 ParseStatus = Literal["parsed", "placeholder", "warning"]
 ChatSubmissionStatus = Literal["active", "deletion_requested"]
+ChatReviewStatus = Literal["incentive_paid", "excluded", "duplicate", "other"]
 
 
 class TranscriptMessage(BaseModel):
@@ -45,6 +46,28 @@ class ChatAttachment(BaseModel):
     size: int
 
 
+class ChatSubmissionReview(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    status: ChatReviewStatus
+    note: str | None = Field(default=None, max_length=500)
+    updated_at: datetime = Field(alias="updatedAt")
+    updated_by: str = Field(alias="updatedBy")
+
+
+class ChatSubmissionReviewUpdate(BaseModel):
+    status: ChatReviewStatus
+    note: str | None = Field(default=None, max_length=500)
+
+    @model_validator(mode="after")
+    def validate_note(self) -> ChatSubmissionReviewUpdate:
+        note = self.note.strip() if self.note else None
+        if self.status == "other" and not note:
+            raise ValueError("기타 사유를 입력해 주세요.")
+        self.note = note
+        return self
+
+
 class ChatSubmissionRecord(BaseModel):
     submission_id: str | None = Field(default=None, alias="submissionId")
     participant_id: str = Field(alias="participantId")
@@ -56,7 +79,10 @@ class ChatSubmissionRecord(BaseModel):
     submitted_at: datetime = Field(alias="submittedAt")
     attachments: list[ChatAttachment] = Field(default_factory=list)
     status: ChatSubmissionStatus = "active"
-    deletion_requested_at: datetime | None = Field(default=None, alias="deletionRequestedAt")
+    deletion_requested_at: datetime | None = Field(
+        default=None, alias="deletionRequestedAt"
+    )
+    review: ChatSubmissionReview | None = None
 
 
 class ChatSubmissionSummary(BaseModel):
@@ -86,12 +112,28 @@ class ChatSubmissionPreview(BaseModel):
     attachment_count: int = Field(alias="attachmentCount")
     parse_status: ParseStatus = Field(alias="parseStatus")
     submitted_at: datetime = Field(alias="submittedAt")
+    review: ChatSubmissionReview | None = None
 
 
 class ChatDownloadJobCreate(BaseModel):
-    submission_ids: list[str] = Field(default_factory=list, alias="submissionIds", max_length=1000)
-    submission_point: ChatSubmissionPoint | None = Field(default=None, alias="submissionPoint")
-    school_level: Literal["초등", "중등", "고등"] | None = Field(default=None, alias="schoolLevel")
+    submission_ids: list[str] = Field(
+        default_factory=list, alias="submissionIds", max_length=1000
+    )
+    submission_point: ChatSubmissionPoint | None = Field(
+        default=None, alias="submissionPoint"
+    )
+    school_level: Literal["초등", "중등", "고등"] | None = Field(
+        default=None, alias="schoolLevel"
+    )
+    review_filter: Literal[
+        "all",
+        "unreviewed",
+        "reviewed",
+        "incentive_paid",
+        "excluded",
+        "duplicate",
+        "other",
+    ] = Field(default="unreviewed", alias="reviewFilter")
 
 
 class ChatDownloadJobAccepted(BaseModel):
