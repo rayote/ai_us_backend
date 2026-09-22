@@ -5,7 +5,8 @@ from typing import Any
 
 from app.services.screenshot_transcripts import ScreenshotExtractionError, ScreenshotImage
 
-DEFAULT_MODEL = "gemini-2.5-flash"
+DEFAULT_MODEL = "gemini-3.8-flash"
+PROMPT_VERSION = "screenshot-transcript-v5"
 MAX_INLINE_REQUEST_BYTES = 20 * 1024 * 1024
 SUPPORTED_IMAGE_TYPES = {"image/jpeg", "image/png", "image/webp", "image/heic", "image/heif"}
 
@@ -19,12 +20,20 @@ EXTRACTION_SCHEMA: dict[str, Any] = {
                 "type": "object",
                 "properties": {
                     "role": {"type": "string", "enum": ["user", "assistant"]},
+                    "speakerLabel": {"type": ["string", "null"]},
                     "content": {"type": "string"},
                     "timestamp": {"type": ["string", "null"]},
                     "sourceImageIndexes": {"type": "array", "items": {"type": "integer"}},
                     "confidence": {"type": "number", "minimum": 0, "maximum": 1},
                 },
-                "required": ["role", "content", "timestamp", "sourceImageIndexes", "confidence"],
+                "required": [
+                    "role",
+                    "speakerLabel",
+                    "content",
+                    "timestamp",
+                    "sourceImageIndexes",
+                    "confidence",
+                ],
                 "additionalProperties": False,
             },
         },
@@ -37,7 +46,9 @@ EXTRACTION_PROMPT = """Transcribe the ordered screenshots as one continuous chat
 
 Rules:
 - Merge text fragments and repeated overlap across adjacent screenshots into one complete turn.
+- Keep visually separate message or narration blocks as separate turns, even when they have the same role.
 - Right-aligned user bubbles are role user. Left-aligned or full-width chatbot text with an avatar/name is role assistant.
+- speakerLabel is the visible sender or character name attached to that block, without punctuation. Use null when no name is visibly attached. Never add speakerLabel to content.
 - Ignore status bars, page titles, date separators, navigation, message composers, buttons, and other interface chrome.
 - Preserve visible message text exactly, including Korean spelling, punctuation, and paragraph breaks.
 - Never invent text hidden above, below, or behind a clipped screenshot edge.
@@ -45,6 +56,15 @@ Rules:
 - Screenshot filename times are capture metadata, not message timestamps.
 - sourceImageIndexes are the 1-based image numbers where any part of the turn is visible.
 - confidence expresses transcription confidence from 0 to 1.
+"""
+
+ZETA_EXTRACTION_PROMPT = """Zeta-specific role rules override the generic alignment rules:
+- A right-aligned bubble is a user turn. Bubble color is only a secondary clue because themes may change it.
+- A left-aligned bubble with a character avatar or character name is an assistant turn.
+- Text outside user bubbles is assistant output, including background narration, instructions, scene descriptions, character dialogue, and NPC dialogue.
+- Do not invent a user turn when no unambiguous user-message bubble is visible.
+- Preserve any visible player or character name in speakerLabel, but never prepend it to content.
+- Keep each visually separate block as a separate turn. Do not merge adjacent assistant blocks.
 """
 
 
@@ -71,11 +91,11 @@ class GeminiScreenshotTranscriptExtractor:
         self._types = types_module
         self._model = model
 
-    async def extract(self, images: list[ScreenshotImage]) -> dict[str, Any]:
+    async def extract(self, images: list[ScreenshotImage], *, platform: str | None = None) -> dict[str, Any]:
         self._validate_images(images)
         extracted_batches = []
         for batch_number, batch in enumerate(self._image_batches(images), start=1):
-            extracted_batches.append(await self._extract_batch(batch, batch_number))
+            extracted_batches.append(await self._extract_batch(batch, batch_number, platform))
 
         return {
             "sessionTitle": next(
@@ -87,12 +107,25 @@ class GeminiScreenshotTranscriptExtractor:
                 "스크린샷 대화",
             ),
             "turns": [turn for extracted in extracted_batches for turn in extracted.get("turns", [])],
+            "extractionMetadata": {
+                "provider": "google-gemini",
+                "model": self._model,
+                "promptVersion": PROMPT_VERSION,
+                "batchCount": len(extracted_batches),
+                "platformHint": platform or None,
+            },
         }
 
     async def _extract_batch(
-        self, indexed_images: list[tuple[int, ScreenshotImage]], batch_number: int
+        self,
+        indexed_images: list[tuple[int, ScreenshotImage]],
+        batch_number: int,
+        platform: str | None,
     ) -> dict[str, Any]:
-        parts = [self._types.Part.from_text(text=EXTRACTION_PROMPT)]
+        prompt = EXTRACTION_PROMPT
+        if (platform or "").lower() == "zeta":
+            prompt += "\n" + ZETA_EXTRACTION_PROMPT
+        parts = [self._types.Part.from_text(text=prompt)]
         for index, image in indexed_images:
             parts.append(self._types.Part.from_text(text=f"Image {index}: {image.filename}"))
             parts.append(self._types.Part.from_bytes(data=image.data, mime_type=image.content_type))
@@ -108,7 +141,9 @@ class GeminiScreenshotTranscriptExtractor:
                 ),
             )
         except Exception as error:
-            raise ScreenshotExtractionError(f"Gemini 스크린샷 {batch_number}번 묶음 추출에 실패했습니다: {error}") from error
+            raise ScreenshotExtractionError(
+                f"Gemini 스크린샷 {batch_number}번 묶음 추출에 실패했습니다: {error}"
+            ) from error
 
         parsed = response.parsed
         if parsed is None:

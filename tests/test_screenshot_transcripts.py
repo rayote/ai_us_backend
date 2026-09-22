@@ -1,4 +1,6 @@
 import asyncio
+import csv
+import io
 import tempfile
 import zipfile
 from datetime import UTC, datetime
@@ -13,11 +15,11 @@ from app.services.screenshot_transcripts import (
     normalize_screenshot_extraction,
     order_screenshot_images,
 )
-from app.services.transcript_runs import build_transcript_archive, process_transcript_parse
+from app.services.transcript_runs import build_transcript_archive, normalized_to_csv, process_transcript_parse
 
 
-def image(filename: str) -> ScreenshotImage:
-    return ScreenshotImage(filename, "image/jpeg", b"jpeg")
+def image(filename: str, data: bytes = b"jpeg") -> ScreenshotImage:
+    return ScreenshotImage(filename, "image/jpeg", data)
 
 
 def test_capture_time_is_parsed_as_kst_capture_metadata() -> None:
@@ -102,15 +104,111 @@ def test_low_confidence_turn_requires_review() -> None:
     )
 
     assert normalized["sessions"][0]["turns"][0]["timestamp"] is None
-    assert warnings == ["1번 발화는 OCR 검토가 필요합니다."]
+    assert warnings == [
+        "1번 발화는 OCR 검토가 필요합니다.",
+        "발화가 1개만 추출되어 대화 왕복 및 발화 경계 검토가 필요합니다.",
+    ]
+    assert normalized["reviewWarnings"] == warnings
+    assert "대화 왕복 및 발화 경계 검토" in normalized_to_csv(normalized)
+
+
+def test_normalizes_visible_korean_time_using_source_image_date() -> None:
+    normalized, warnings = normalize_screenshot_extraction(
+        {
+            "turns": [
+                {
+                    "role": "user",
+                    "content": "질문",
+                    "timestamp": "오후 8:51",
+                    "sourceImageIndexes": [1],
+                    "confidence": 1.0,
+                }
+            ]
+        },
+        [image("Screenshot_20260921_205407.jpg")],
+        "participant-1",
+        "other",
+    )
+
+    turn = normalized["sessions"][0]["turns"][0]
+    assert turn["timestamp"] == "2026-09-21T20:51:00+09:00"
+    assert normalized["sessions"][0]["sessionMetadata"]["startTime"] == turn["timestamp"]
+    assert warnings == ["발화가 1개만 추출되어 대화 왕복 및 발화 경계 검토가 필요합니다."]
+
+
+def test_fingerprint_uses_image_content_and_warns_about_missing_evidence() -> None:
+    extracted = {"turns": [{"role": "user", "content": "질문"}]}
+
+    first, first_warnings = normalize_screenshot_extraction(
+        extracted, [image("same.jpg", b"first")], "participant-1", "other"
+    )
+    second, _ = normalize_screenshot_extraction(extracted, [image("same.jpg", b"second")], "participant-1", "other")
+
+    assert first["sessions"][0]["sessionId"] != second["sessions"][0]["sessionId"]
+    assert first_warnings == [
+        "1번 발화에 출처 이미지 정보가 없습니다.",
+        "1번 발화에 OCR 신뢰도 정보가 없습니다.",
+        "발화가 1개만 추출되어 대화 왕복 및 발화 경계 검토가 필요합니다.",
+    ]
+
+
+def test_warns_when_multiple_turns_have_only_one_role() -> None:
+    _, warnings = normalize_screenshot_extraction(
+        {
+            "turns": [
+                {"role": "assistant", "content": "첫 장면", "sourceImageIndexes": [1], "confidence": 1},
+                {"role": "assistant", "content": "둘째 장면", "sourceImageIndexes": [1], "confidence": 1},
+            ]
+        },
+        [image("screen.png")],
+        "participant-1",
+        "zeta",
+    )
+
+    assert warnings == ["한 역할의 발화만 추출되어 역할 구분 검토가 필요합니다."]
+
+
+def test_preserves_visible_speaker_label_without_prefixing_content() -> None:
+    normalized, _ = normalize_screenshot_extraction(
+        {
+            "turns": [
+                {
+                    "role": "assistant",
+                    "speakerLabel": "류",
+                    "content": "같은 대사",
+                    "sourceImageIndexes": [1],
+                    "confidence": 1,
+                },
+                {
+                    "role": "assistant",
+                    "speakerLabel": "엘나",
+                    "content": "같은 대사",
+                    "sourceImageIndexes": [1],
+                    "confidence": 1,
+                },
+            ]
+        },
+        [image("zeta.png")],
+        "participant-1",
+        "zeta",
+    )
+
+    turns = normalized["sessions"][0]["turns"]
+    assert len(turns) == 2
+    assert [turn["content"] for turn in turns] == ["같은 대사", "같은 대사"]
+    assert [turn["turnMetadata"]["speakerLabel"] for turn in turns] == ["류", "엘나"]
+    csv_rows = list(csv.DictReader(io.StringIO(normalized_to_csv(normalized))))
+    assert [row["speakerLabel"] for row in csv_rows] == ["류", "엘나"]
 
 
 class FakeExtractor:
     def __init__(self) -> None:
         self.filenames: list[str] = []
+        self.platform: str | None = None
 
-    async def extract(self, images: list[ScreenshotImage]) -> dict[str, Any]:
+    async def extract(self, images: list[ScreenshotImage], *, platform: str | None = None) -> dict[str, Any]:
         self.filenames = [image.filename for image in images]
+        self.platform = platform
         return {
             "sessionTitle": "엔믹스 정보",
             "turns": [
@@ -224,9 +322,10 @@ def test_processes_all_image_attachments_through_extractor() -> None:
         "Screenshot_20260921_205407.jpg",
         "Screenshot_20260921_205413.jpg",
     ]
+    assert extractor.platform == "other"
     assert submissions.submission.transcript.status == "parsed"
     assert runs.completed is not None
-    assert runs.completed["parser_version"] == "screenshot-vlm-v1"
+    assert runs.completed["parser_version"] == "screenshot-vlm-v3"
     assert runs.completed["normalized_json"]["summary"]["totalTurns"] == 2
 
 
@@ -242,9 +341,7 @@ def test_transcript_archive_uses_screenshot_extractor() -> None:
             status="placeholder", parserVersion="attachment-v1", messages=[], plainText="", warnings=[]
         ),
         submittedAt=datetime.now(UTC),
-        attachments=[
-            {"fileId": "earlier", "filename": "earlier.jpg", "contentType": "image/jpeg", "size": 4}
-        ],
+        attachments=[{"fileId": "earlier", "filename": "earlier.jpg", "contentType": "image/jpeg", "size": 4}],
     )
     submissions = FakeSubmissions(submission)
     runs = FakeRuns()

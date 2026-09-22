@@ -21,17 +21,13 @@ from bson import ObjectId
 
 
 class TranscriptParseRunRepository(Protocol):
-    async def create(self, submission_id: str, parser_name: str, parser_version: str) -> TranscriptParseRun:
-        ...
+    async def create(self, submission_id: str, parser_name: str, parser_version: str) -> TranscriptParseRun: ...
 
-    async def get(self, run_id: str) -> TranscriptParseRun | None:
-        ...
+    async def get(self, run_id: str) -> TranscriptParseRun | None: ...
 
-    async def latest(self, submission_id: str) -> TranscriptParseRun | None:
-        ...
+    async def latest(self, submission_id: str) -> TranscriptParseRun | None: ...
 
-    async def active(self, submission_id: str) -> TranscriptParseRun | None:
-        ...
+    async def active(self, submission_id: str) -> TranscriptParseRun | None: ...
 
     async def complete(
         self,
@@ -41,11 +37,9 @@ class TranscriptParseRunRepository(Protocol):
         normalized_json: dict[str, Any],
         warnings: list[str],
         status: str = "completed",
-    ) -> None:
-        ...
+    ) -> None: ...
 
-    async def fail(self, run_id: str, error: str, warnings: list[str]) -> None:
-        ...
+    async def fail(self, run_id: str, error: str, warnings: list[str]) -> None: ...
 
 
 def _run(document: dict[str, Any]) -> TranscriptParseRun:
@@ -166,14 +160,14 @@ async def process_transcript_parse(
                     )
                 )
             ordered_images = order_screenshot_images(images)
-            extracted = await screenshot_extractor.extract(ordered_images)
+            extracted = await screenshot_extractor.extract(ordered_images, platform=submission.tool)
             normalized, warnings = normalize_screenshot_extraction(
                 extracted,
                 ordered_images,
                 submission.participant_id,
                 submission.tool or "other",
             )
-            parser_name, parser_version = "screenshot-vlm", "screenshot-vlm-v1"
+            parser_name, parser_version = "screenshot-vlm", "screenshot-vlm-v3"
         elif submission.attachments:
             attachment = submission.attachments[0]
             filename, content, _ = await uploads.read_bytes(attachment.file_id)
@@ -231,11 +225,14 @@ def normalized_to_csv(normalized: dict[str, Any]) -> str:
             "sessionDurationSeconds",
             "turnId",
             "role",
+            "speakerLabel",
             "timestamp",
             "content",
             "errors",
+            "reviewWarnings",
         ]
     )
+    review_warnings = " | ".join(str(warning) for warning in normalized.get("reviewWarnings", []))
     for session in normalized.get("sessions", []):
         meta = session.get("sessionMetadata", {})
         for turn in session.get("turns", []):
@@ -250,9 +247,11 @@ def normalized_to_csv(normalized: dict[str, Any]) -> str:
                     meta.get("durationSeconds", ""),
                     turn.get("turnId", ""),
                     turn.get("role", ""),
+                    (turn.get("turnMetadata") or {}).get("speakerLabel", ""),
                     turn.get("timestamp", ""),
                     turn.get("content", ""),
                     (turn.get("turnMetadata") or {}).get("errors", ""),
+                    review_warnings,
                 ]
             )
     return output.getvalue()

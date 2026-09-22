@@ -38,7 +38,7 @@ PARTICIPANT_JWT_EXPIRATION_MINUTES=240
 RESEARCHER_BOOTSTRAP_USERNAME=<first admin username>
 RESEARCHER_BOOTSTRAP_PASSWORD=<first admin password>
 GEMINI_API_KEY=<Gemini API key for screenshot parsing>
-GEMINI_SCREENSHOT_MODEL=gemini-2.5-flash
+GEMINI_SCREENSHOT_MODEL=gemini-3.8-flash
 ```
 
 The backend creates `mongodb://<username>:<password>@<host>:<port>/?authSource=admin` at runtime. `MONGODB_USERNAME` and `MONGODB_PASSWORD` must be CloudType Secrets. The password is URL-encoded by the backend, so do not manually encode special characters. `MONGODB_URI` remains only as an optional legacy override and should not be set for this deployment.
@@ -80,7 +80,7 @@ PARTICIPANT_JWT_EXPIRATION_MINUTES=240
 RESEARCHER_BOOTSTRAP_USERNAME=<production first admin username>
 RESEARCHER_BOOTSTRAP_PASSWORD=<production first admin password>
 GEMINI_API_KEY=<production Gemini API key>
-GEMINI_SCREENSHOT_MODEL=gemini-2.5-flash
+GEMINI_SCREENSHOT_MODEL=gemini-3.8-flash
 ```
 
 The frontend maps the development hostname to the development backend and the production hostname to the production backend. Any unknown hostname falls back to the production backend.

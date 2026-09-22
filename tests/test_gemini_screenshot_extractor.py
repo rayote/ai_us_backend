@@ -8,8 +8,11 @@ from app.services.gemini_screenshot_extractor import (
     MAX_INLINE_REQUEST_BYTES,
     GeminiScreenshotTranscriptExtractor,
 )
-from app.services.screenshot_transcripts import normalize_screenshot_extraction
-from app.services.screenshot_transcripts import ScreenshotExtractionError, ScreenshotImage
+from app.services.screenshot_transcripts import (
+    ScreenshotExtractionError,
+    ScreenshotImage,
+    normalize_screenshot_extraction,
+)
 
 
 class FakePart:
@@ -58,15 +61,47 @@ def test_sends_ordered_images_in_one_structured_request() -> None:
 
     result = asyncio.run(extractor.extract([image("first.jpg"), image("second.jpg")]))
 
-    assert result == expected
+    assert result == {
+        **expected,
+        "extractionMetadata": {
+            "provider": "google-gemini",
+            "model": "gemini-3.8-flash",
+            "promptVersion": "screenshot-transcript-v5",
+            "batchCount": 1,
+            "platformHint": None,
+        },
+    }
     assert models.request is not None
-    assert models.request["model"] == "gemini-2.5-flash"
+    assert models.request["model"] == "gemini-3.8-flash"
     parts = models.request["contents"][0].parts
+    assert "visually separate" in parts[0][1]
+    assert "Zeta-specific" not in parts[0][1]
     assert parts[1] == ("text", "Image 1: first.jpg")
     assert parts[2] == ("image", b"jpeg", "image/jpeg")
     assert parts[3] == ("text", "Image 2: second.jpg")
     assert parts[4] == ("image", b"jpeg", "image/jpeg")
     assert models.request["config"].response_json_schema is EXTRACTION_SCHEMA
+
+
+def test_adds_zeta_specific_role_rules_only_for_zeta() -> None:
+    models = FakeModels({"sessionTitle": "Zeta", "turns": []})
+    client = SimpleNamespace(aio=SimpleNamespace(models=models))
+    extractor = GeminiScreenshotTranscriptExtractor("", client=client, types_module=FakeTypes)
+
+    result = asyncio.run(extractor.extract([image("zeta.png")], platform="zeta"))
+
+    assert models.request is not None
+    prompt = models.request["contents"][0].parts[0][1]
+    assert "A right-aligned bubble is a user turn" in prompt
+    assert "Bubble color is only a secondary clue" in prompt
+    assert "character avatar or character name" in prompt
+    assert "Do not invent a user turn" in prompt
+    assert "NPC dialogue" in prompt
+    assert "speakerLabel" in prompt
+    turn_schema = EXTRACTION_SCHEMA["properties"]["turns"]["items"]
+    assert turn_schema["properties"]["speakerLabel"] == {"type": ["string", "null"]}
+    assert "speakerLabel" in turn_schema["required"]
+    assert result["extractionMetadata"]["platformHint"] == "zeta"
 
 
 @pytest.mark.parametrize(
