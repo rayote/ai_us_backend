@@ -9,9 +9,15 @@ from app.api.auth import router as auth_router
 from app.api.researcher import router as researcher_router
 from app.core.settings import Settings
 from app.db.mongodb import MongoDatabase
-from app.services.abuse_review_status import AbuseReviewStatusRepository, MongoAbuseReviewStatusRepository
+from app.services.abuse_review_status import (
+    AbuseReviewStatusRepository,
+    MongoAbuseReviewStatusRepository,
+)
 from app.services.analytics import DailyMetricsRepository, MongoDailyMetricsRepository
-from app.services.application_settings import ApplicationSettingsRepository, MongoApplicationSettingsRepository
+from app.services.application_settings import (
+    ApplicationSettingsRepository,
+    MongoApplicationSettingsRepository,
+)
 from app.services.applications import ApplicationRepository, MongoApplicationRepository
 from app.services.auth import (
     MongoParticipantAccountRepository,
@@ -19,8 +25,15 @@ from app.services.auth import (
     ParticipantAccountRepository,
     ResearcherAccountRepository,
 )
-from app.services.chat_downloads import ChatDownloadArtifactRepository, MongoChatDownloadArtifactRepository
-from app.services.chats import ChatSubmissionRepository, ChatUploadRepository, MongoChatSubmissionRepository
+from app.services.chat_downloads import (
+    ChatDownloadArtifactRepository,
+    MongoChatDownloadArtifactRepository,
+)
+from app.services.chats import (
+    ChatSubmissionRepository,
+    ChatUploadRepository,
+    MongoChatSubmissionRepository,
+)
 from app.services.jobs import JobRepository, MongoJobRepository
 from app.services.submissions import store_survey_response
 from app.services.surveys import (
@@ -30,7 +43,10 @@ from app.services.surveys import (
     SurveyDefinitionRepository,
     SurveyResponseRepository,
 )
-from app.services.transcript_runs import MongoTranscriptParseRunRepository, TranscriptParseRunRepository
+from app.services.transcript_runs import (
+    MongoTranscriptParseRunRepository,
+    TranscriptParseRunRepository,
+)
 from fastapi import FastAPI, status
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -66,23 +82,29 @@ def create_app(
                 application_settings.database_name,
             )
             await database.connect()
-            app.state.application_repository = MongoApplicationRepository(database.database["applications"])
+            app.state.application_repository = MongoApplicationRepository(
+                database.database["applications"]
+            )
         if application_settings_repository is not None:
             app.state.application_settings_repository = application_settings_repository
         elif application_settings.mongodb_uri:
-            app.state.application_settings_repository = MongoApplicationSettingsRepository(
-                database.database["application_settings"]
+            app.state.application_settings_repository = (
+                MongoApplicationSettingsRepository(
+                    database.database["application_settings"]
+                )
             )
         if participant_account_repository is not None:
             app.state.participant_account_repository = participant_account_repository
         elif application_settings.mongodb_uri:
-            app.state.participant_account_repository = MongoParticipantAccountRepository(
-                database.database["participants"]
+            app.state.participant_account_repository = (
+                MongoParticipantAccountRepository(database.database["participants"])
             )
         if researcher_account_repository is not None:
             app.state.researcher_account_repository = researcher_account_repository
         elif application_settings.mongodb_uri:
-            repository = MongoResearcherAccountRepository(database.database["researchers"])
+            repository = MongoResearcherAccountRepository(
+                database.database["researchers"]
+            )
             if (
                 application_settings.researcher_bootstrap_username
                 and application_settings.researcher_bootstrap_password
@@ -103,11 +125,15 @@ def create_app(
         if survey_response_repository is not None:
             app.state.survey_response_repository = survey_response_repository
         elif application_settings.mongodb_uri:
-            app.state.survey_response_repository = MongoSurveyResponseRepository(database.database["survey_responses"])
+            app.state.survey_response_repository = MongoSurveyResponseRepository(
+                database.database["survey_responses"]
+            )
         if daily_metrics_repository is not None:
             app.state.daily_metrics_repository = daily_metrics_repository
         elif application_settings.mongodb_uri:
-            app.state.daily_metrics_repository = MongoDailyMetricsRepository(database.database["daily_metrics"])
+            app.state.daily_metrics_repository = MongoDailyMetricsRepository(
+                database.database["daily_metrics"]
+            )
         if abuse_review_status_repository is not None:
             app.state.abuse_review_status_repository = abuse_review_status_repository
         elif application_settings.mongodb_uri:
@@ -115,35 +141,49 @@ def create_app(
                 database.database["abuse_review_status"]
             )
         if application_settings.mongodb_uri:
-            app.state.survey_session_repository = MongoSurveySessionRepository(database.database["survey_sessions"])
+            app.state.survey_session_repository = MongoSurveySessionRepository(
+                database.database["survey_sessions"]
+            )
         if job_repository is not None:
             app.state.job_repository = job_repository
         elif application_settings.mongodb_uri:
-            app.state.job_repository = MongoJobRepository(database.database["submission_jobs"])
+            app.state.job_repository = MongoJobRepository(
+                database.database["submission_jobs"]
+            )
         if chat_submission_repository is not None:
             app.state.chat_submission_repository = chat_submission_repository
         elif application_settings.mongodb_uri:
-            app.state.chat_submission_repository = MongoChatSubmissionRepository(database.database["chat_submissions"])
+            app.state.chat_submission_repository = MongoChatSubmissionRepository(
+                database.database["chat_submissions"]
+            )
         if transcript_parse_run_repository is not None:
             app.state.transcript_parse_run_repository = transcript_parse_run_repository
         elif application_settings.mongodb_uri:
-            app.state.transcript_parse_run_repository = MongoTranscriptParseRunRepository(
-                database.database["transcript_parse_runs"]
+            app.state.transcript_parse_run_repository = (
+                MongoTranscriptParseRunRepository(
+                    database.database["transcript_parse_runs"]
+                )
             )
         if chat_upload_repository is not None:
             app.state.chat_upload_repository = chat_upload_repository
         elif application_settings.mongodb_uri:
             app.state.chat_upload_repository = database.gridfs_bucket("chat_uploads")
         if chat_download_artifact_repository is not None:
-            app.state.chat_download_artifact_repository = chat_download_artifact_repository
+            app.state.chat_download_artifact_repository = (
+                chat_download_artifact_repository
+            )
         elif application_settings.mongodb_uri:
-            app.state.chat_download_artifact_repository = MongoChatDownloadArtifactRepository(
-                database.database["chat_download_artifacts"]
+            app.state.chat_download_artifact_repository = (
+                MongoChatDownloadArtifactRepository(
+                    database.database["chat_download_artifacts"]
+                )
             )
         if chat_download_upload_repository is not None:
             app.state.chat_download_upload_repository = chat_download_upload_repository
         elif application_settings.mongodb_uri:
-            app.state.chat_download_upload_repository = database.gridfs_bucket("chat_downloads")
+            app.state.chat_download_upload_repository = database.gridfs_bucket(
+                "chat_downloads"
+            )
 
         yield
 

@@ -55,7 +55,17 @@ Gmail Secrets are not required. Password reset verifies participant and guardian
 	- Development must return `environment: development`; production must return `environment: production`.
 4. Confirm the first admin can log in using the configured bootstrap credentials.
 5. Confirm the MongoDB container is not publicly exposed.
-6. Set the exact frontend public URL in `FRONTEND_ORIGINS` and verify browser requests are accepted by CORS.
+6. Set the exact frontend public URL in `FRONTEND_ORIGINS` and verify browser requests are accepted by CORS. Allowed methods must include `GET`, `POST`, `PUT`, `PATCH`, and `DELETE`.
+7. Verify the management-status PATCH preflight returns `200` and includes the frontend origin and PATCH method.
+
+```sh
+curl -i -X OPTIONS "$BACKEND_URL/api/v1/researcher/chat-submissions/example/review" \
+	-H "Origin: $FRONTEND_URL" \
+	-H "Access-Control-Request-Method: PATCH" \
+	-H "Access-Control-Request-Headers: authorization,content-type"
+```
+
+8. When `GEMINI_API_KEY` is configured, submit test screenshots, request parsing from the researcher console, and verify that the run reaches `completed` or an explainable `warning`. Confirm both JSON and CSV downloads before production promotion.
 
 ## Production Promotion
 
@@ -108,6 +118,8 @@ python scripts/register_frontend_surveys.py --backend-url <backend-url> --replac
 ```
 
 After registration, verify the definition list, participant submission and Queue completion, preview, and CSV export. The current round-1 v2 flattened counts are 230/209 for elementary part 1/2 and 230/234 for secondary part 1/2. Production promotion must happen only after the same checks pass in development.
+
+After a backend change affecting researcher mutations or downloads, also verify management-status PATCH/DELETE, filtered preview refresh, original ZIP generation, and transcript ZIP generation. The frontend keeps a buttonless loading modal open until each management-status mutation and its subsequent preview request finish.
 
 When adding `followup.researchConsent` to an already-used part-two version, run `scripts/backfill_followup_consent.py` in dry-run mode first. Only after reviewing the count should `--apply --confirm BACKFILL-FOLLOWUP-CONSENT` be used; existing responses are assigned `2` (아니오) only when the key is absent.
 

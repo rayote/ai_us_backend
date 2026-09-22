@@ -91,18 +91,6 @@ This endpoint accepts an `admin` or `researcher` bearer token and returns regist
 
 The API returns both active and historical definitions. The researcher frontend hides versions matching `v1-draft` by default in the nonparticipant and result-download selectors, with an explicit historical-version option for legacy response lookup. Participation status remains aggregated by round and distinct participant, not split by survey version.
 
-## Planned bulk survey-definition import
-
-For large questionnaires, the admin will use a future bulk import endpoint or reviewed backend import command instead of registering items one by one. The preferred source is CSV or Excel with the following columns:
-
-```csv
-surveyRound,surveyVersion,key,csvColumn,order
-2,2026-round-2-v2,q1,AI 사용 빈도,1
-2,2026-round-2-v2,q2,AI 사용 목적,2
-```
-
-Word or PDF sources may be parsed only after the extracted round, version, question keys, column names, and order are shown in a preview and reviewed. The current `POST /api/v1/admin/survey-definitions` endpoint remains the final registration step.
-
 ## Export survey responses
 
 `GET /api/v1/researcher/exports/survey-responses?survey_round=2&survey_version=2026-round-2-v2`
@@ -207,7 +195,7 @@ This endpoint requires a participant bearer token and is available only to parti
 
 `submissionPoint` is `afterRound1` or `afterRound4`; `sourceType` is `link` or `text`. The response is `202 Accepted` with the Queue `submissionId` and current status. Use `GET /api/v1/submission-jobs/{submissionId}` to check completion.
 
-The backend stores `rawInput` separately from the normalized transcript. The current dummy parser normalizes pasted-text speaker labels. A valid shared link receives `placeholder` parser status until a service-specific parser is added; it is not treated as extracted transcript text.
+The backend stores `rawInput` separately from the normalized transcript. The text parser normalizes pasted speaker labels. A valid shared link receives `placeholder` parser status until a service-specific parser is added; it is not treated as extracted transcript text.
 
 ## Upload AI chat files
 
@@ -220,7 +208,7 @@ Required form fields are `files`, `tool`, `submissionPoint`, `sourceType`, and `
 - Each file: at most 25 MB
 - Total request files: at most 100 MB
 
-The endpoint returns `202 Accepted` with the supplied `submissionId` and `completed` status when the files and metadata have been stored. Attached original files are retained for researcher review; transcript extraction and OCR are not performed yet.
+The endpoint returns `202 Accepted` with the supplied `submissionId` and `completed` status when the files and metadata have been stored. Upload completion means only that the original input is durable; transcript parsing is a separate researcher-triggered Queue operation. ZIP files use service-specific adapters when supported. Image files use the configured Gemini screenshot extractor, which preserves source-image provenance and returns warnings when ordering, speaker attribution, or completeness is uncertain. Gemini inline parsing has a stricter per-image limit: an image at or above 20 MB can be uploaded but its parse run fails with a size-limit error.
 
 ## Manage AI chat submissions
 
@@ -236,15 +224,44 @@ Both endpoints require the participant who owns the submission. The participant 
 
 `GET /api/v1/researcher/exports/chat-submissions?submission_point=afterRound1`
 
-This endpoint accepts an `admin` or `researcher` bearer token. It returns a UTF-8 BOM CSV containing active submissions only: participant ID, name, school level, grade, original input, normalized transcript, parser status, parser version, and parser warnings. The optional `submission_point` is `afterRound1` or `afterRound4`; the optional `school_level` is `초등`, `중등`, or `고등`.
+This endpoint accepts an `admin` or `researcher` bearer token. It returns a UTF-8 BOM CSV containing active submissions only: participant ID, name, school level, grade, original input, normalized transcript, parser status, parser version, parser warnings, and review status/note/audit fields. The optional `submission_point` is `afterRound1` or `afterRound4`; the optional `school_level` is `초등`, `중등`, or `고등`.
 
-`GET /api/v1/researcher/chat-submission-previews` returns active chat submissions for the researcher preview table, filtered by optional `submission_point`, `school_level`, and `review_filter` parameters. `review_filter` defaults to `unreviewed`; it also accepts `all`, `reviewed`, `incentive_paid`, `excluded`, `duplicate`, and `other`. Each row includes its embedded `review` object when reviewed.
+`GET /api/v1/researcher/chat-submission-previews` returns up to 100 active chat submissions for the researcher preview table, newest first, filtered by optional `submission_point`, `school_level`, and `review_filter` parameters. `review_filter` defaults to `unreviewed`; it also accepts `all`, `reviewed`, `incentive_paid`, `excluded`, `duplicate`, and `other`. Each row includes its embedded `review` object when reviewed.
 
 `PATCH /api/v1/researcher/chat-submissions/{submissionId}/review` records one review result (`incentive_paid`, `excluded`, `duplicate`, or `other`) in the existing `chat_submissions` document. Every result can retain an optional `note`; `other` requires a non-empty note. `DELETE` on the same URL removes the embedded review and returns the submission to the unreviewed state. Review updates record the timestamp and authenticated researcher ID.
 
-`GET /api/v1/researcher/chat-submissions/files/{submissionId}/download` downloads one submission's original attachments as a ZIP. `POST /api/v1/researcher/chat-submissions/download-jobs` creates an asynchronous ZIP job for selected `submissionIds` or the submitted filters, including `reviewFilter`. Poll `GET /api/v1/researcher/chat-submissions/download-jobs/{jobId}`; when `completed`, download the archive from its `downloadUrl`. Bulk jobs use the `chat_download` queue type and preserve each submission in its own folder.
+```json
+{
+  "status": "excluded",
+  "note": "연구 기준에 맞지 않는 제출"
+}
+```
+
+The stored and returned review object is:
+
+```json
+{
+  "status": "excluded",
+  "note": "연구 기준에 맞지 않는 제출",
+  "updatedAt": "2026-09-23T00:00:00Z",
+  "updatedBy": "<researcher token subject>"
+}
+```
+
+`GET /api/v1/researcher/chat-submissions/files/{submissionId}/download` downloads one submission's original attachments as a ZIP. `POST /api/v1/researcher/chat-submissions/download-jobs` creates an asynchronous ZIP job for explicit `submissionIds` or the submitted filters, including `reviewFilter`. Explicit IDs bypass `reviewFilter` but remain subject to `submissionPoint` and `schoolLevel`; an empty ID list means the current filter set. Poll `GET /api/v1/researcher/chat-submissions/download-jobs/{jobId}`; when `completed`, download the archive from its `downloadUrl`. Bulk jobs use the `chat_download` queue type and preserve each submission in its own folder.
 
 `POST /api/v1/researcher/chat-submissions/transcript-download-jobs` creates an asynchronous transcript ZIP job using the same selection fields. Missing parse results are generated automatically. Each successful submission is stored as a separate CSV entry, while unsupported or failed submissions are listed in `parse-failures.csv`. Poll the returned job at `GET /api/v1/researcher/chat-submissions/transcript-download-jobs/{jobId}` and download its `downloadUrl` when complete.
+
+## Parse AI chat transcripts
+
+`POST /api/v1/researcher/chat-submissions/{submissionId}/parse` creates or reuses an active `transcript_parse` Queue job and returns `202 Accepted` with `runId`, `jobId`, and status. Poll `GET /api/v1/researcher/chat-submissions/{submissionId}/parse-runs/{runId}` until `completed`, `warning`, or `failed`.
+
+- Text submissions are normalized from the stored speaker-labelled text.
+- Supported ZIP exports are routed through the matching service adapter.
+- Image submissions are ordered and sent to the configured Gemini screenshot extractor. The production default model is `gemini-3.8-flash`.
+- Unsupported formats finish with `warning`; processing failures finish with `failed`. Both retain diagnostic text instead of fabricating transcript turns.
+
+`GET /api/v1/researcher/chat-submissions/{submissionId}/latest-parse` returns the latest completed parse run. Add `/download?format=json` or `/download?format=csv` to download the normalized result. A parse run keeps `parserName`, `parserVersion`, `schemaVersion`, warnings, timestamps, normalized JSON, and any error.
 
 ## Researcher login
 

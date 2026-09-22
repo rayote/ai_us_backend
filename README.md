@@ -7,10 +7,12 @@
 - 참여 신청: 동의 항목, 연락처, 학교급·학년을 검증하고 중복 휴대폰 번호 신청을 차단합니다.
 - 참여자 인증: 휴대폰 번호 로그인, JWT 인증, 공통 초기 비밀번호 `1234`의 최초 변경 강제를 지원합니다.
 - 비밀번호 재설정: 참여자 본인 휴대폰 번호와 보호자 휴대폰 번호가 일치하면 비밀번호를 `1234`로 초기화하고 다음 로그인에서 변경을 강제합니다.
-- 연구자 권한: `admin`은 연구자 계정을 생성하고, `admin`과 `researcher`는 신청 조회·승인·CSV 등록·결과 다운로드를 수행합니다.
+- 연구자 권한: `admin`은 연구자 계정을 생성하고, `admin`과 `researcher`는 신청 조회·승인, CSV 등록, 참여 현황, 미완료자·어뷰징 검토, 결과 다운로드를 수행합니다.
 - 설문 응답: `surveyRound`와 `surveyVersion`으로 회차와 문항 버전을 구분하고, 최종 제출을 MongoDB 영속 Queue에 접수합니다.
-- 대화문 제출: 링크 또는 복사 본문의 원본과 정규화 결과를 함께 보존합니다. 현재 본문 화자 표식 기본 parser와 링크 placeholder parser를 제공합니다.
-- CSV: 설문 정의의 문항 순서를 기준으로 설문 응답을 CSV로 변환하며, 참여자와 대화문 자료도 연구자 권한으로 내려받습니다.
+- 대화문 제출: 링크·본문·ZIP·이미지 원본을 보존합니다. 본문 parser, 서비스별 export adapter, Gemini screenshot parser를 비동기 작업으로 실행하고 버전·경고·정규화 결과를 기록합니다.
+- 대화문 검토: 기존 `chat_submissions` 문서에 관리 상태, 메모, 수정 시각, 연구자 ID를 기록하며 미검토/검토 결과별 조회와 다운로드를 지원합니다.
+- 결과 파일: 설문 CSV, 개별 원본 ZIP, 개별 파싱 JSON/CSV, 선택 원본 ZIP, 선택 대화문 CSV ZIP을 제공합니다. 대량 파일 생성은 Queue에서 처리합니다.
+- 운영 분석: 설문 heartbeat와 익명화된 일별 funnel 지표로 참여 현황, 활성 사용자, 유입 경로를 집계합니다.
 
 설문 결과 CSV의 휴대폰 아이디는 Excel에서 앞자리 `0`을 보존하도록 텍스트 형식으로 출력합니다.
 
@@ -28,7 +30,7 @@ CloudType 사전구성 MongoDB의 wire version 7(MongoDB 4.0 계열)과 호환�
 | 역할 | 권한 |
 | --- | --- |
 | `participant` | 본인 설문·대화문 제출 및 제출 상태 조회 |
-| `researcher` | 신청 조회·승인, 참여자 CSV 등록, 설문·대화문 CSV 다운로드 |
+| `researcher` | 신청 조회·승인, 참여자 CSV 등록, 참여·검토 현황 조회, 설문·대화문 결과 다운로드 |
 | `admin` | `researcher`의 모든 권한과 연구자 계정·설문 정의 등록 |
 
 CloudType Secret의 bootstrap 계정은 최초 backend 실행 시 `admin`으로 한 번만 생성됩니다. 이후 `admin`이 공동연구 실무자용 `researcher` 계정을 추가합니다.
@@ -69,8 +71,6 @@ MongoDB container    # CloudType 사전구성 컨테이너
 
 로컬 개발에서는 `.env.example`을 복사해 `.env`를 만들고 MongoDB 및 `RESEARCHER_BOOTSTRAP_USERNAME`/`RESEARCHER_BOOTSTRAP_PASSWORD` 값을 설정합니다. `python-dotenv`가 앱과 관리 스크립트 시작 시 이를 자동으로 읽습니다. CloudType에서는 `.env` 대신 동일한 이름의 Secret을 사용합니다.
 
-Gmail SMTP는 비밀번호 재설정 이메일 기능을 활성화할 때만 설정합니다. 현재 Gmail Secret이 없어도 API와 Queue worker는 실행됩니다.
-
 ## 디렉터리
 
 ```text
@@ -79,19 +79,21 @@ app/
   core/       # 환경설정, JWT, 비밀번호 해시
   db/         # MongoDB 연결과 인덱스 초기화
   schemas/    # 요청·응답 모델
-  services/   # 신청, 인증, Queue, 설문, 대화문, CSV 처리
+  services/   # 신청, 인증, Queue, 설문, 대화문 파싱·검토, 결과 파일 처리
   worker.py   # Queue worker daemon
 deploy/       # CloudType 시작 스크립트
-docs/         # API 계약, 구현 계획, 프론트 Claude 전달 기록
+docs/         # API 계약, 현재 구조, 배포, 프론트 AI 인수인계
 tests/        # API와 서비스 테스트
 ```
 
-## 문서
+## 문서 기준
 
-- [API 계약](docs/api-contract.md)
-- [백엔드 구현 계획](docs/backend-implementation-plan.md)
-- [CloudType 배포 체크리스트](docs/cloudtype-deployment-checklist.md)
-- [프론트엔드 Claude 전달 기록](docs/frontend-claude-handoff.md)
+- [API 계약](docs/api-contract.md): 요청·응답, 필터, 상태값의 기준
+- [백엔드 구조와 남은 과제](docs/backend-implementation-plan.md): 현재 내부 구조와 미구현 범위
+- [CloudType 배포 체크리스트](docs/cloudtype-deployment-checklist.md): 환경변수, 배포, 운영 검증
+- [프론트엔드 AI 인수인계](docs/frontend-claude-handoff.md): `ai_us` 작업 원칙과 저장소 간 계약
+
+과거 설계보다 현재 코드와 `api-contract.md`를 우선합니다. 문서와 구현이 다르면 테스트와 route/schema를 확인한 뒤 문서를 함께 갱신합니다.
 
 ## 로컬 검증
 

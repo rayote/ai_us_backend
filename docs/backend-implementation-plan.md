@@ -1,47 +1,48 @@
-# AI 마음 탐사대 백엔드 구현 계획
+# AI 마음 탐사대 백엔드 구조와 남은 과제
 
-> 이 문서는 초기 설계 기록이다. 현재 동작과 운영 절차는 `README.md`, `docs/api-contract.md`, `docs/frontend-claude-handoff.md`, `docs/cloudtype-deployment-checklist.md`를 우선한다.
+> 이 문서는 현재 내부 구조와 변경 원칙, 아직 확정되지 않은 과제를 설명한다. HTTP 필드와 상태값은 `docs/api-contract.md`, 프론트 동작은 `docs/frontend-claude-handoff.md`, 배포 절차는 `docs/cloudtype-deployment-checklist.md`를 우선한다.
 
-## 1. 확정된 전제
+## 1. 확정된 구조
 
 - 프론트엔드는 별도 `ai_us` 저장소에서 유지한다. 기존 HTML, CSS, 이미지, inline JavaScript 구조는 변경하지 않는다.
 - 백엔드는 별도 `ai_us_backend` 저장소에서 Python과 MongoDB로 구현한다.
 - 프론트와 백엔드는 HTTPS JSON API로만 통신한다. 브라우저에는 MongoDB 접속 정보나 관리자 비밀값을 두지 않는다.
 - 설문 진행 중 임시 저장은 브라우저 `localStorage`에서 약 30초 간격으로 처리하고, 최종 제출 시에만 응답 전체를 API로 전송한다. 같은 브라우저와 기기에서 다시 로그인하면 임시 저장을 복원한다.
 - 최종 제출 API는 MongoDB에 직접 동기 저장하지 않고 영속 대기열에 먼저 접수한다. 별도 작업자가 대기열의 데이터를 MongoDB에 순차 저장한다.
-- Queue는 최종 제출·외부 알림 발송·대용량 파일 생성처럼 지연 허용 작업에만 사용한다. 로그인, 신청 저장, 개별 승인, 목록 조회는 즉시 결과가 필요한 동기 API로 처리한다.
+- Queue는 최종 제출·대화문 파싱·대용량 파일 생성처럼 지연 허용 작업에만 사용한다. 로그인, 신청 저장, 개별 승인, 목록 조회는 즉시 결과가 필요한 동기 API로 처리한다.
 - MongoDB 기반 Queue는 제출 폭주 완화와 작업자 재시도용이다. MongoDB 전체 장애 중에는 새 작업 접수가 불가하므로, MongoDB 백업·복구와 프론트 임시 저장을 별도로 유지한다.
 - CloudType에서 프론트엔드 컨테이너, backend 컨테이너, MongoDB 컨테이너의 3개 서비스로 운영한다. 프론트와 백엔드 서비스는 각 GitHub 저장소를 참조해 CloudType이 배포하고, MongoDB는 CloudType 사전구성 컨테이너를 사용한다.
 - 개발용 무료 CloudType 계정과 실제 운영용 유료 CloudType 계정은 같은 서비스 구성을 사용하되, 데이터베이스와 비밀값, 공개 URL을 완전히 분리한다.
 - 로컬 개발 서버에는 Docker나 MongoDB를 설치하지 않는다. 실제 서비스 연동이 필요한 시점에 CloudType 개발 환경을 구성한다.
 - 이번 범위에서는 별도의 스트레스 테스트를 수행하지 않는다. 기존 회의에서 공유된 결과를 용량 계획의 참고 자료로만 사용한다.
 
-## 2. 실제 프론트엔드 통합 기준
+## 2. 프론트엔드 통합 상태
 
-- 현재 `AppStore.submitApplication`과 `PasswordReset.sendResetLink`만 명시적인 데모 함수로 분리되어 있다. 로그인, 연구자 승인, CSV 등록, CSV 다운로드는 inline script 안에서 바로 데모 동작을 하므로 API 호출로 교체할 지점을 별도 지정해야 한다.
-- 설문 문항 화면, 설문 최종 제출 버튼, 대화문 입력 화면은 아직 구현되어 있지 않다. `localStorage` 임시 복원, 최종 제출 Queue, 제출 상태 조회는 이 화면들이 추가될 때 함께 연결한다.
-- 신청 화면은 동의 체크를 검증하지만 현재 전송 객체에는 `joinSurvey: true`와 `joinChat`만 포함한다. 실제 신청 API에는 설명문 확인, 본인 동의, 보호자 동의의 확인값과 확인 시각을 함께 전송하도록 inline script를 보완한다.
-- 연구자 화면의 신청 목록, 참여 현황, 미참여자, 결과 CSV는 모두 예시 배열과 예시 CSV를 사용한다. 서버 API 연동 전에는 실제 연구 데이터로 보이지 않도록 데모 상태를 유지한다.
-- 연구자 로그인은 현재 입력값 검증 뒤 바로 `researcher.html`로 이동한다. 참여자 로그인도 바로 설문 패널을 열며, 두 흐름 모두 인증 API 연동 시 교체한다.
+- `index.html`의 신청, 로그인, 비밀번호 변경·재설정, 설문 제출, 대화문 제출·삭제 요청은 실제 API에 연결되어 있다.
+- `researcher.html`의 신청 승인, 자동 승인 설정, CSV 등록, 참여 현황, 미완료자, 파일 삭제, 결과 다운로드, 어뷰징 검토, 활성·유입 분석은 실제 API를 사용한다.
+- 설문 임시 답변은 브라우저에 저장하지만 최종 완료 판단은 Queue 상태와 서버의 설문 진행 정보를 따른다.
+- 대화문 ZIP·이미지는 GridFS에 저장하고 연구자가 비동기 parser를 실행한다. 파싱 결과와 실행 이력은 원본 제출과 분리해 추적한다.
+- 대화문 관리 상태는 `chat_submissions.review`에 저장한다. 별도 review collection이나 upsert를 만들지 않는다.
+- frontend는 정적 HTML/CSS/inline JavaScript 구조를 유지한다. 세부 화면 계약은 frontend `README.md`와 `docs/frontend-claude-handoff.md`를 따른다.
 
-## 3. 구현 범위와 우선순위
+## 3. 현재 기능 경계
 
-### 1단계: 계정 신청과 연구자 승인
+### 계정 신청과 연구자 승인
 
-프론트의 `AppStore.submitApplication`을 API 호출로 대체한다.
+프론트의 `AppStore.submitApplication`과 연구자 관리 화면은 아래 API 흐름에 연결되어 있다.
 
 - 참여 신청 저장: 성별, 학교급/학년, 참여자 휴대폰 번호, 보호자 휴대폰 번호, 이메일, 설명문 확인, 설문 참여 동의, AI 대화문 제출 동의, 본인/보호자 동의 여부와 확인 시각
 - 중복 신청 방지: 휴대폰 번호를 정규화한 값에 고유 인덱스를 둔다.
 - 연구자 신청 목록, 학교급 필터, 선택 승인과 전체 승인
 - 승인은 계정 생성 및 첫 로그인 비밀번호 변경 필요 상태로 처리한다.
-- 연구자 CSV 등록 화면은 원본 UTF-8 CSV 파일을 백엔드에 전송하고, 서버에서 `이름`, `휴대폰번호`, `학교급`, `학년` 열과 행별 유효성을 검증한 뒤 참여자 계정을 일괄 등록한다. 현재 Excel 참여자 등록은 지원하지 않는다.
+- 연구자 CSV 등록 화면은 원본 UTF-8 CSV 파일을 백엔드에 전송하고, 서버에서 필수 열 `이름`, `휴대폰번호`, `보호자휴대폰`, `학교급`, `학년`과 행별 유효성을 검증한 뒤 참여자 계정을 일괄 등록한다. `이메일`, `SNS`는 선택 열이며 Excel 참여자 등록은 지원하지 않는다.
 - 웹 신청은 공개 회원가입·참여 신청 경로이며, 신청 목록은 `pending` 신청 검토·승인용이다. CSV 등록은 연구진의 사전 명단을 승인 없이 즉시 계정으로 만드는 별도 경로다.
 - 두 경로의 휴대폰 번호가 겹치면 참여자 계정을 중복 생성하지 않는다. 이미 CSV 등록된 번호의 웹 신청은 `409`으로 승인되지 않고 대기 상태로 남겨 연구자가 확인한다.
 - 연구자용 신청 결과 CSV 다운로드
 
-### 2단계: 로그인과 비밀번호 관리
+### 로그인과 비밀번호 관리
 
-기존 참여자/연구자 로그인 화면을 유지하고 API만 연결한다.
+기존 참여자/연구자 로그인 화면을 유지하며 다음 인증 정책을 적용한다.
 
 - 참여자 로그인: 휴대폰 번호와 비밀번호
 - 참여자 로그인은 선택한 대상 모드(`elementary`: 초등, `secondary`: 중고등)와 계정의 등록 학교급을 backend에서 검증한다. 화면의 색상·이미지 선택만으로 다른 학교급 설문에 접근할 수 없게 한다.
@@ -55,7 +56,7 @@
 - 현재 비밀번호 재설정은 본인 휴대폰과 보호자 휴대폰 일치 여부를 확인하고 초기 비밀번호 `1234`로 되돌린다. 이메일 token/Gmail 발송 방식은 구현하지 않는다.
 - SMS 발송은 보류한다. 참여 안내 또는 비밀번호 재설정에 필요해지면 외부 SMS 공급자, 발신번호, 수신 동의 절차를 확정한 뒤 별도 Queue 작업으로 추가한다.
 
-### 3단계: 설문 응답과 대화문 제출
+### 설문 응답과 대화문 제출
 
 - 설문 1건은 설문 회차(`surveyRound`)별 최종 제출 때 하나의 작업으로 대기열에 접수하고, 작업자가 하나의 MongoDB 문서로 저장한다.
 - 제출 API는 대기열 접수 성공 뒤 `202 Accepted`와 제출 추적 ID를 반환한다. MongoDB 저장이 끝난 뒤에만 제출을 완료 상태로 전환한다.
@@ -67,16 +68,18 @@
 - `admin`은 응답 수집 전에 회차·버전별 문항 키와 CSV 열 순서를 설문 정의로 등록한다. `admin`과 `researcher`는 해당 정의에 따라 버전별 설문 결과 CSV를 내려받는다.
 - 문항이 많은 설문은 관리자가 하나씩 등록하지 않는다. CSV 또는 Excel 원본을 우선 사용해 회차, 버전, 문항 키, CSV 열 이름, 순서를 일괄 import한다. Word·PDF는 파싱 결과 미리보기에서 해당 값들을 검토한 뒤 최종 등록한다.
 - 개발 환경에서는 실제 연구 문항과 분리된 더미 설문 정의로 `localStorage` 임시 저장, Queue 접수, `completed` 상태 확인을 검증할 수 있다. 더미 정의는 실제 설문 버전으로 교체할 때 제거한다.
-- 현재는 같은 참여자와 설문 회차·설문 버전의 최종 응답을 1건으로 제한한다. 재최종 제출을 허용하려면 기존 응답 갱신 이력과 연구진 승인 정책을 별도로 확정한다.
+- 같은 참여자와 설문 회차·설문 버전의 최종 응답은 1건으로 제한한다. 최종 제출이 완료된 뒤에는 참여자가 응답을 수정하거나 재제출할 수 없다.
 - 설문 1차 및 4차 뒤의 AI 대화문 제출은 대화문 동의 참여자만 허용한다.
-- AI 대화문은 링크 또는 본문으로 제출할 수 있다. 원본 입력(`rawInput`)과 정규화된 대화문 결과를 함께 보관해 parser 변경 뒤 재처리할 수 있게 한다.
-- 현재 더미 parser는 복사 본문의 기본 화자 표식을 정규화하고, 공유 링크는 서비스별 parser 전까지 `placeholder` 상태로 보관한다. 링크를 실제 대화문으로 추출한 것처럼 기록하지 않는다.
+- AI 대화문은 링크, 본문, ZIP 또는 이미지로 제출할 수 있다. 링크·본문의 `rawInput`과 첨부 원본을 정규화 결과와 함께 보존해 parser 변경 뒤 재처리할 수 있게 한다.
+- 본문 parser는 화자 표식을 정규화한다. ZIP은 지원 서비스 adapter, 이미지는 Gemini screenshot parser로 처리한다. 공유 링크를 crawler나 AI로 자동 수집하는 기능은 서비스별 접근 차단과 높은 오류 가능성 때문에 지원하지 않는다.
 - parser는 추출 결과의 상태, 버전, 경고를 남긴다. 본문이 앞·뒤까지 완전한지 자동으로 확정할 수 없는 경우에는 가용 부분을 보관하고 경고로 표시한다.
 
-### 4단계: 연구자 관리와 결과 다운로드
+### 연구자 관리와 결과 다운로드
 
 - 신청 현황, 회차별 참여 현황, 미참여자 목록의 조회 API. 참여 현황은 `participants`와 `survey_responses`에서 계산하고, 미참여자는 지정한 `surveyRound`·`surveyVersion`의 응답이 없는 참여자로 계산한다.
 - 조건별 설문 결과와 대화문 자료 CSV 생성 및 다운로드. 작은 결과는 동기로 반환하고, 파일 생성 시간이 길어질 때만 Queue 작업으로 전환한다.
+- 대화문 관리 상태는 `incentive_paid`, `excluded`, `duplicate`, `other`를 사용하고, 상태별 필터와 optional note를 제공한다. `other`의 note만 필수다.
+- 선택 원본 ZIP과 대화문 CSV ZIP은 Queue에서 생성한다. 대화문 ZIP은 누락된 parse를 먼저 실행하고 실패 항목을 `parse-failures.csv`에 기록한다.
 - 연구자 권한이 있는 토큰만 이 기능에 접근하도록 제한
 - `admin`과 `researcher`는 신청·참여·결과 관리 기능을 함께 사용하고, 연구자 계정 생성은 `admin`만 수행한다.
 
@@ -85,14 +88,14 @@
 | 기능 | 처리 방식 | 목적 |
 | --- | --- | --- |
 | 설문 최종 제출 | MongoDB 영속 Queue | 동시 제출을 평준화하고 저장 재시도 |
-| AI 대화문 최종 제출 | MongoDB 영속 Queue | 본문 데이터의 비동기 저장과 재시도 |
-| 비밀번호 재설정 이메일 | MongoDB 영속 Queue | Gmail SMTP 발송 지연·실패 격리 |
-| 대용량 CSV 생성 | 필요할 때만 MongoDB 영속 Queue | 긴 파일 생성이 연구자 화면을 막지 않게 처리 |
+| AI 대화문 본문 제출 | MongoDB 영속 Queue | 본문 데이터의 비동기 저장과 재시도 |
+| 대화문 파싱 | MongoDB 영속 Queue | ZIP adapter·Gemini 처리 지연과 실패 격리 |
+| 대화문 원본/CSV ZIP 생성 | MongoDB 영속 Queue | 대용량 파일 생성이 연구자 화면을 막지 않게 처리 |
 | 로그인, 비밀번호 변경, 신청 저장, 개별 승인, 조회 | 동기 API | 사용자에게 즉시 확정 결과 제공 |
 
-## 4. API 초안
+## 4. 주요 API 범주
 
-API의 실제 URL과 JSON 필드명은 프론트 소스를 받은 뒤 기존 함수와 대조하여 확정한다.
+정확한 query와 JSON 필드는 `docs/api-contract.md`를 따른다. 이 표는 기능 위치를 찾기 위한 색인이다.
 
 | 기능 | 메서드와 경로 | 기존 프론트 연결 지점 |
 | --- | --- | --- |
@@ -103,7 +106,6 @@ API의 실제 URL과 JSON 필드명은 프론트 소스를 받은 뒤 기존 함
 | 연구자 로그인 | `POST /api/v1/auth/researcher/login` | 연구자 로그인 모달 |
 | 연구자 계정 생성 | `POST /api/v1/admin/researchers` | 관리자 전용 기능, 연구자 화면 추가 시 연동 |
 | 설문 정의 등록 | `POST /api/v1/admin/survey-definitions` | 관리자 전용, 설문 문항 확정 뒤 등록 |
-| 설문 정의 일괄 등록 | 추후 `POST /api/v1/admin/survey-definition-imports` 또는 backend import 명령 | CSV·Excel 우선, Word·PDF는 미리보기 검토 뒤 등록 |
 | 비밀번호 재설정 | `POST /api/v1/auth/participant/password-reset` | 본인·보호자 휴대폰 번호 확인 |
 | 참여자 최초 비밀번호 변경 | `POST /api/v1/auth/participant/password` | 첫 로그인 비밀번호 변경 화면 |
 | 신청 목록 | `GET /api/v1/researcher/applications` | `applications` 배열 |
@@ -112,12 +114,15 @@ API의 실제 URL과 JSON 필드명은 프론트 소스를 받은 뒤 기존 함
 | 설문 제출 | `POST /api/v1/survey-responses` | 설문 최종 제출 버튼 |
 | 설문 제출 상태 | `GET /api/v1/submission-jobs/{submission_id}` | 제출 완료 확인 및 임시 저장 삭제 |
 | 대화문 제출 | `POST /api/v1/chat-submissions` | 대화문 제출 화면 |
-| 대화문 결과 CSV | `GET /api/v1/researcher/exports/chat-submissions` | 대화문 결과 다운로드 |
 | 연구 결과 CSV | `GET /api/v1/researcher/exports/survey-responses` | 결과 다운로드 |
 | 대화문 CSV | `GET /api/v1/researcher/exports/chat-submissions` | 결과 다운로드 |
+| 대화문 관리 상태 | `PATCH`/`DELETE /api/v1/researcher/chat-submissions/{submission_id}/review` | 결과 다운로드 관리 상태 |
+| 대화문 파싱 | `POST /api/v1/researcher/chat-submissions/{submission_id}/parse` | 파싱 요청과 상태 polling |
+| 대화문 원본 ZIP 작업 | `POST /api/v1/researcher/chat-submissions/download-jobs` | 선택 원본 ZIP |
+| 대화문 CSV ZIP 작업 | `POST /api/v1/researcher/chat-submissions/transcript-download-jobs` | 선택 대화문 CSV ZIP |
 | 상태 확인 | `GET /health` | CloudType health check |
 
-## 5. MongoDB 컬렉션 초안
+## 5. MongoDB 컬렉션
 
 - `applications`: 신규 신청과 승인 상태. 휴대폰 번호 정규화 값에 고유 인덱스.
 - `application_settings`: 자동 승인 상태를 저장하는 단일 설정 문서. 설정이 없으면 자동 승인은 비활성화되며, 마지막 변경 시각과 admin ID를 함께 기록한다.
@@ -130,14 +135,12 @@ API의 실제 URL과 JSON 필드명은 프론트 소스를 받은 뒤 기존 함
 - `survey_sessions`: 참여자별 설문 세션의 시작시각, 마지막 heartbeat, 누적 활동초, 재개횟수, 현재 페이지를 저장한다. 프런트 heartbeat는 30초 간격이며 답변값은 포함하지 않는다.
 - `daily_metrics`: KST 일자와 campaign/UTM 조합별 유입·신청·로그인·설문·대화문 카운터를 저장한다. 원시 이벤트와 IP는 저장하지 않고, 고유 방문자 중복 제거용 익명 ID는 축약 해시로만 보관한다.
 - `submission_jobs`: 최종 설문 제출 대기열. 제출 추적 ID, 멱등성 키, 상태, 작업 데이터, 재시도 횟수, 오류 사유, 생성/처리 시각을 저장한다. 처리 상태와 생성 시각의 복합 인덱스.
-- `chat_submissions`: 참여자 ID, 제출 시점(1차 후/4차 후), 입력 형식, AI 도구, 원본 링크 또는 본문, 첨부 파일 메타데이터, 정규화된 대화문, parser 상태·버전·경고, 제출시각, 상태(`active`, `deletion_requested`). 삭제 요청은 상태와 `deletion_requested_at`만 기록하고 원본 파일은 유지한다.
+- `chat_submissions`: 참여자 ID, 제출 시점(1차 후/4차 후), 입력 형식, AI 도구, 원본 링크 또는 본문, 첨부 파일 메타데이터, 정규화된 대화문, parser 상태·버전·경고, 제출시각, 상태(`active`, `deletion_requested`)와 embedded `review`. `review`는 관리 상태, 메모, 수정 시각, 연구자 ID를 가진다. 삭제 요청은 상태와 `deletion_requested_at`만 기록하고 원본 파일은 유지한다.
 - `chat_uploads.files`/`chat_uploads.chunks`: GridFS bucket. ZIP 또는 이미지 원본을 저장하며, 연구자가 삭제 요청된 제출을 실제 삭제할 때 연결된 파일과 chunk를 함께 삭제한다.
-- `participant_reports`(tentative TODO): 참가자 개인 리포트 snapshot. 설문 제출 request에서 직접 계산하지 않고 별도 `report_generation` Queue job 또는 background worker가 lazy하게 생성한다. 후보 필드는 참여자 ID, 회차, 리포트 버전, 상태(`pending`, `processing`, `ready`, `failed`, `hidden`), 원본 설문 버전, 점수, chart data, 해석 섹션, 생성시각, 오류 사유다.
-- `notification_jobs`: 비밀번호 재설정 Gmail SMTP 이메일 발송 대기열. 수신 대상, 템플릿 유형, 상태, 재시도 횟수, 오류 사유, 생성/처리 시각을 저장한다. SMS는 별도 공급자 확정 뒤 확장한다.
-- `password_reset_tokens`: 만료시각을 가진 일회용 토큰. TTL 인덱스.
-- `audit_logs`: 연구자 승인, CSV 내보내기 같은 민감한 관리자 작업의 기록.
+- `transcript_parse_runs`: 대화문별 parser 실행 상태, parser/schema 버전, normalized JSON, warning/error와 완료 시각.
+- `chat_download_artifacts`와 `chat_downloads` GridFS bucket: 비동기 원본·대화문 ZIP 작업의 결과 metadata와 파일.
 
-보호자 연락처, 이메일, 대화문 등은 개인정보 또는 민감 가능 데이터이므로 최소 권한 원칙을 적용한다. 백업·보존 기간·삭제 절차는 연구 윤리 및 기관 정책에 맞춰 연구진이 확정한다.
+보호자 연락처, 이메일, 대화문 등은 개인정보 또는 민감 가능 데이터이므로 최소 권한 원칙을 적용한다. 프론트엔드 하단에는 개인정보처리방침을 접고 펼칠 수 있는 영역으로 제공한다. 백업·보존 기간·삭제 절차는 연구 윤리 및 기관 정책에 맞춰 연구진이 확정한다.
 
 ## 6. FastAPI 내부 구조
 
@@ -147,7 +150,8 @@ app/
   core/       # 환경변수, CORS, 토큰, 비밀번호 해시 설정
   db/         # MongoDB 클라이언트와 컬렉션/인덱스 초기화
   schemas/    # API 요청/응답 Pydantic 모델
-  services/   # 승인, 인증, 설문 저장, CSV 생성 로직
+  services/   # 승인, 인증, 설문 저장, 대화문 파싱, 결과 생성
+  worker.py   # Queue worker daemon
 tests/        # API와 서비스 단위 테스트
 deploy/       # Dockerfile 및 CloudType 실행 설정
 docs/         # 프론트 연동 계약과 운영 문서
@@ -159,38 +163,28 @@ docs/         # 프론트 연동 계약과 운영 문서
 - 운영 환경: 별도 유료 CloudType 계정에 동일한 3개 서비스 구성을 만들고, 개발 환경과 별도의 MongoDB 데이터와 Secret을 사용한다.
 - 프론트: CloudType이 GitHub의 정적 HTML을 현재 구조 그대로 배포한다.
 - 백엔드: CloudType이 GitHub 저장소에서 container를 배포하며, 하나의 backend 컨테이너에서 Uvicorn FastAPI와 대기열 작업자 daemon을 별도 OS 프로세스로 실행한다.
-- 대기열 작업자: 같은 backend 컨테이너에서 `python -m app.worker` 명령으로 실행한다. 현재는 설문 최종 제출 저장을 처리하며, 대화문 저장과 알림 발송 handler는 해당 기능 구현 시 추가한다. FastAPI 프로세스 안에서 임시 task로 실행하지 않으며, 기동 시 `processing` 작업을 복구하고 MongoDB 작업 상태를 원자적으로 바꿔 중복 처리를 막는다.
+- 대기열 작업자: 같은 backend 컨테이너에서 `python -m app.worker` 명령으로 실행한다. 설문·본문 대화문 저장, 대화문 파싱, 원본 ZIP, 대화문 CSV ZIP을 처리한다. FastAPI 프로세스 안에서 임시 task로 실행하지 않으며, 기동 시 `processing` 작업을 복구하고 MongoDB 작업 상태를 원자적으로 바꿔 중복 처리를 막는다.
 - MongoDB: CloudType 사전구성 컨테이너를 사용하고 외부 공개를 피한다. backend 서비스에서만 접속하도록 설정하며, MongoDB용 GitHub 저장소는 만들지 않는다.
 - CloudType MongoDB가 wire version 7(MongoDB 4.0 계열)인 경우 PyMongo 4.x는 연결할 수 없다. backend는 `pymongo>=3.12,<4.0`과 동기 클라이언트를 thread 기반 비동기 호환 계층으로 사용한다. MongoDB가 4.4 이상으로 업그레이드될 때만 PyMongo 4.x 전환을 검토한다.
-- 환경변수: `MONGODB_HOST`, `MONGODB_PORT`, `MONGODB_USERNAME`, `MONGODB_PASSWORD`, `DATABASE_NAME`, `JWT_SECRET`, `FRONTEND_ORIGINS`, `SMTP_HOST`, `SMTP_PORT`, `SMTP_USERNAME`, `SMTP_APP_PASSWORD`, `EMAIL_FROM`, `PASSWORD_RESET_BASE_URL`을 CloudType Configure 패널에서 관리한다. MongoDB host·port는 접속 주소이고 사용자명·비밀번호는 Secret으로 분리한다. backend는 이를 URL 인코딩해 `authSource=admin` URI로 조합한다. Gmail은 2단계 인증과 앱 비밀번호를 사용한다. CloudType이 backend 프로세스 환경변수로 주입하고 `Settings.from_environment()`가 직접 읽는다. `.env.example`은 이름 목록일 뿐이며 실제 `.env` 파일은 배포에 사용하거나 저장소에 커밋하지 않는다.
+- 환경변수: `APP_ENV`, `MONGODB_HOST`, `MONGODB_PORT`, `MONGODB_USERNAME`, `MONGODB_PASSWORD`, `DATABASE_NAME`, `JWT_SECRET`, token 만료 설정, `FRONTEND_ORIGINS`, bootstrap 연구자 계정, `GEMINI_API_KEY`, `GEMINI_SCREENSHOT_MODEL`을 CloudType Configure 패널에서 관리한다. MongoDB 비밀번호와 API/JWT key는 Secret으로 저장한다. 전체 목록은 `.env.example`과 배포 체크리스트를 따른다.
 - backend 서비스는 저장소 루트의 `Dockerfile`을 사용한다. CloudType의 Flask 예시는 Python 3.9와 Gunicorn을 전제로 하므로 그대로 사용하지 않고, Python 3.11에서 FastAPI 의존성을 설치하도록 적용한다.
 - Dockerfile의 backend 시작 명령은 `./deploy/start.sh`를 사용한다. 이 스크립트는 CloudType의 `PORT`로 Uvicorn을 실행하고 같은 컨테이너에서 Queue worker daemon을 함께 시작한다. `PORT`가 없으면 CloudType 예시와 같은 `5000`을 사용한다.
-- Gmail Secret은 비밀번호 재설정 이메일 기능을 구현·활성화할 때까지 입력하지 않아도 backend API와 현재 Queue worker의 실행에는 영향을 주지 않는다.
-- CORS: 배포된 참여자/연구자 프론트 도메인만 허용한다.
+- CORS: 배포된 참여자/연구자 프론트 도메인만 허용하고 `GET`, `POST`, `PUT`, `PATCH`, `DELETE`를 포함한다. 관리 상태 저장은 PATCH preflight가 통과해야 한다.
 - `/health`를 CloudType 상태 점검 경로로 등록한다.
 - API와 작업자의 상태 점검은 각각 분리하고, 실패 작업 수와 가장 오래된 대기 작업 시간을 운영 지표로 확인한다.
 - 운영 배포 전 MongoDB 백업과 복구 절차를 문서화하고 실제 복구를 1회 확인한다.
 
-## 8. 프론트 연동 작업 순서
+## 8. 변경 작업 순서
 
-1. `/data/ai_us_joint_research/ai_us`에 프론트 저장소를 clone한다.
-2. `AppStore.submitApplication`, `PasswordReset.sendResetLink`, 로그인 처리, `approve()`, `confirmBtn`, `downloadBlob`, `CHAT_CONSENT`와 예시 배열을 확인한다.
-3. 각 함수가 기대하는 입력·성공·실패 화면 상태를 표로 기록한다.
-4. 신청 동의값을 API 요청에 추가하고, 참여자 로그인 성공 뒤 `needsPasswordChange`가 `true`이면 비밀번호 변경 화면을 먼저 표시한다.
-5. 로그인·승인·CSV 등록·다운로드의 데모 동작을 각 API 호출로 교체한다.
-6. 설문 문항과 대화문 입력 화면이 추가되면 같은 참여자와 설문 회차·설문 버전의 `localStorage` 임시 저장을 재로그인 뒤 복원하고, 제출 작업 상태가 `completed`일 때만 자동 삭제하도록 연결한다.
-7. 해당 계약에 맞춘 FastAPI 요청/응답 모델과 MongoDB 스키마를 확정한다.
-8. 백엔드 최소 기능부터 구현하고, 프론트 변경은 inline script의 API 호출부에 한정한다.
-9. 문항이 많은 설문은 확정 원본을 CSV 또는 Excel 형식으로 받아 설문 정의 일괄 등록 결과를 검토한다.
-10. 2회차 이후 설문은 frontend `SURVEY_SETS`에 `surveyRound`, `surveyVersion`, `audience`, `part`, `_meta.title`을 명시하고, backend 담당자가 `scripts/register_frontend_surveys.py`로 admin API 등록을 수행한다. Claude나 프론트 작업자는 MongoDB에 직접 접속하지 않는다.
+1. frontend와 backend의 branch, dirty state, 관련 route/schema/test를 확인한다.
+2. 기존 API로 해결할 수 있는지 먼저 판단하고, 계약 변경 시 `api-contract.md`를 함께 수정한다.
+3. backend는 schema → repository/service → route/worker 순서로 변경하고 해당 범위 테스트를 추가한다.
+4. frontend는 `aiUsRequest`와 기존 modal·polling 패턴을 재사용하고 성공 전 완료 UI를 표시하지 않는다.
+5. 설문 정의를 바꾸면 `SURVEY_SETS`와 등록된 definition의 key·version 호환성을 확인한다. frontend 작업자가 MongoDB를 직접 수정하지 않는다.
+6. backend 테스트와 frontend inline JavaScript parse를 실행하고, UI는 desktop/mobile 및 성공·4xx·네트워크 실패·지연 응답으로 확인한다.
+7. backend 계약 변경을 먼저 배포하고 CORS/preflight를 확인한 뒤 frontend를 배포한다.
 
 ## 9. 연구진 확인이 필요한 결정
 
-- AI 대화문: 링크, 본문, 또는 둘 다 허용 여부
-- 설문 최종 제출 뒤 수정/재제출 허용 여부
-- 첫 로그인 비밀번호 변경 화면의 프론트 구현 방식
-- 전용 Gmail 발송 계정 생성, 2단계 인증, 앱 비밀번호 발급과 CloudType Secret 입력
-- 연구자 계정 생성·권한 부여 절차
-- 개인정보처리방침, 데이터 보존 기간, 삭제·백업 정책
-- 참여자와 연구자 도메인의 최종 분리 방식
+- 새 AI 서비스 ZIP export adapter의 우선순위와 검증 샘플
 - 참가자 개인 리포트(tentative): MBTI 결과지처럼 요약 문구와 radar/radial chart, 영역별 해석을 제공할지, 어떤 척도와 점수 기준을 사용할지, `reportVersion`별 문구와 차트 구성을 어떻게 승인·보존할지

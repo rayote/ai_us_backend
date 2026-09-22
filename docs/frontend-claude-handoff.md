@@ -1,13 +1,13 @@
-# 프론트엔드 Claude 연동 기준 및 변경 기록
+# 프론트엔드 AI 작업 인수인계
 
-`ai_us` 프론트엔드를 작업하는 Claude에게 전달할 현재 계약과 변경 이력이다. 새 작업은 아래 **현재 구현 계약**과 **작업 원칙**을 기본으로 하고, 필요한 경우에만 **향후 작업 후보**의 해당 항목을 함께 전달한다.
+이 문서는 Claude 등 다른 AI가 `ai_us` 프론트엔드를 수정할 때 지켜야 할 현재 계약을 정리한다. 화면 구조와 로컬 확인 방법은 frontend `README.md`, 정확한 요청·응답은 backend `docs/api-contract.md`, 배포 설정은 `docs/cloudtype-deployment-checklist.md`를 우선한다.
 
 ## 사용 방법
 
 1. 새 프론트 작업 시 이 문서의 공통 원칙과 관련 현재 계약, 필요한 향후 작업 후보를 함께 제공한다.
-2. Claude는 현재 `main`에서 새 브랜치를 만들고 작업한다. 완료 후 커밋 ID와 검증 결과를 전달한다.
-3. backend 담당자는 API 계약, MongoDB 정의, 배포 상태를 확인한 뒤 프론트 변경을 `main`에 병합한다.
-4. 새 요구사항은 완료된 전달 내용을 수정하지 않고, 아래 변경 이력 또는 향후 작업 후보에 추가한다.
+2. 작업 전 frontend와 backend의 현재 branch·dirty state를 확인하고 사용자 변경을 보존한다.
+3. API 변경이 필요하면 schema, route, service, worker, 테스트, `api-contract.md`를 함께 갱신한다.
+4. 완료 후 변경 파일, 실행한 검증, 배포 필요 여부를 전달한다. 요청 없이 branch나 commit을 만들지 않는다.
 
 ## 공통 작업 원칙
 
@@ -18,7 +18,8 @@
 - API 기본 URL은 CloudType에 배포된 해당 환경의 backend 공개 URL만 사용한다. 개발과 운영의 URL, 비밀값, 데이터는 분리한다.
 - `AI_US_API_BASE`는 `window.location.hostname`의 정확한 매핑으로 선택한다. 개발 frontend `web-ai-us-mtmm0sg55da4c824.sel3.cloudtype.app`은 개발 backend `https://port-0-ai-us-backend-mtmm0sg55da4c824.sel3.cloudtype.app`, 운영 frontend `web-ai-us-mu2jfq4sfccf2f38.sel3.cloudtype.app`은 운영 backend `https://port-0-ai-us-backend-mu2jfq4sfccf2f38.sel3.cloudtype.app`을 사용한다. 알 수 없는 hostname의 fallback은 운영 backend로 둔다.
 - API 실패 시 성공 화면이나 완료 상태로 이동하지 않는다. `detail` 오류 메시지를 우선 표시한다.
-- 서버 네트워크 오류나 5xx 응답은 기존의 `일시적인 연결 문제가 있어요` full-modal로 안내한다. 409/422는 기존 입력 오류 영역, 401/403은 로그인 만료/권한 흐름으로 처리한다.
+- 서버 네트워크 오류나 5xx 응답은 기존의 `일시적인 연결 문제가 있어요` full-modal로 안내한다. 409/422는 해당 화면의 입력 오류 영역 또는 업무 맥락에 맞는 modal, 401/403은 로그인 만료/권한 흐름으로 처리한다.
+- 오래 걸리는 저장·다운로드는 진행 메시지와 spinner가 있는 full-modal을 사용한다. 진행 중에는 확인 버튼을 두지 않고, 작업과 후속 목록 재조회가 끝난 뒤 자동으로 닫는다.
 - 구현 뒤 `index.html`과 `researcher.html`의 inline JavaScript가 파싱되는지 확인하고, 기존 흐름을 훼손하지 않는다.
 
 ## 현재 구현 계약
@@ -44,8 +45,7 @@
 - `GET /api/v1/researcher/application-settings`는 두 역할 모두 `autoApproval` 상태를 읽는다.
 - `PUT /api/v1/admin/application-settings`는 `admin`만 `{ "autoApproval": true | false }`로 변경할 수 있다. 연구자 화면은 일반 `researcher`에게 현재 상태를 읽기 전용으로 표시한다.
 - 자동 승인을 켜도 기존 `pending` 신청은 그대로 유지한다. 새 신청에만 적용된다.
-- CSV 등록은 `POST /api/v1/researcher/participants/imports`의 `file` field로 UTF-8 CSV를 전송한다. 필수 열은 `이름,휴대폰번호,학교급,학년,이메일`이다.
-- CSV 등록 필수 열은 `이름,휴대폰번호,보호자휴대폰,학교급,학년`이며 `이메일,SNS`는 선택 열이다. 연구자 신청/참여자 표와 CSV에는 이메일과 SNS를 함께 표시한다.
+- CSV 등록은 `POST /api/v1/researcher/participants/imports`의 `file` field로 UTF-8 CSV를 전송한다. 필수 열은 `이름,휴대폰번호,보호자휴대폰,학교급,학년`이며 `이메일,SNS`는 선택 열이다. 연구자 신청/참여자 표와 CSV에는 이메일과 SNS를 함께 표시한다.
 
 ### 설문 정의와 제출
 
@@ -59,6 +59,7 @@
 - v2의 `usage.q13`처럼 정해진 AI 도구 목록을 묻는 순위 문항은 styled dropdown을 사용한다. `기타 (직접 입력)`을 선택하면 해당 순위에서만 텍스트 입력칸을 표시하고, 그 입력값을 답변으로 저장·복원한다. 2·3순위의 `없음` 선택도 문자열 값으로 보존한다.
 - frontend 변경 후 backend 담당자가 `scripts/register_frontend_surveys.py` 또는 개발 DB 동기화 스크립트로 `survey_definitions`를 갱신한다. Claude는 MongoDB에 직접 접속하거나 definition을 직접 넣지 않는다.
 - 최종 설문 제출은 `POST /api/v1/survey-responses`에 `surveyRound`, `surveyVersion`, `answers`, `submissionId`를 전송한다. `GET /api/v1/submission-jobs/{submissionId}`가 `completed`일 때만 임시 저장을 삭제한다.
+- 서버에서 완료된 같은 회차·버전의 설문은 참여자가 수정하거나 재제출할 수 없다. frontend도 완료 상태에서 입력과 제출을 다시 열지 않는다.
 - 기기 간 파트 완료 상태는 `GET /api/v1/participant/survey-progress?survey_round=1`에서 복원한다. 브라우저 `localStorage` 완료 marker는 임시 최적화로만 사용하고, 서버에 저장된 완료 응답이 파트 2 잠금 해제의 기준이다.
 - 설문 답변 key는 spec의 일반 문항 `key`, grid `rows[].key`, 조건부 `detail.field.key`/`other.field.key`를 그대로 사용한다.
 - 연구자 설문 버전 목록은 `GET /api/v1/researcher/survey-definitions`로 채운다. 결과 조회/CSV는 선택된 `surveyRound`와 `surveyVersion`을 그대로 전송한다.
@@ -70,15 +71,20 @@
 
 - 대화문 제출은 AI 대화문 제출 동의(`chatConsent`)가 있는 참여자에게만 열어 준다. 로그아웃 시 `chatConsent`도 삭제한다.
 - 링크/붙여넣기 본문은 `POST /api/v1/chat-submissions`에 `submissionPoint`, `sourceType`(`link` 또는 `text`), `rawInput`, `submissionId`를 보낸다.
+- 공유 링크는 원문을 보존하지만 crawler나 AI로 자동 수집하지 않는다. 서비스별 접근 차단과 높은 오류 가능성 때문에 링크를 추출 완료 대화문처럼 표시하지 않는다.
 - ZIP 또는 이미지 첨부는 `POST /api/v1/chat-submissions/uploads`에 multipart `FormData`로 보낸다. fields는 `files`, `tool`, `submissionPoint`, `sourceType`(`file` 또는 `image`), `submissionId`다.
-- ZIP은 한 개만, 이미지는 JPG/PNG/WEBP/HEIC 최대 20개까지 허용한다. 파일당 25MB, 요청 전체 100MB 제한을 넘으면 backend의 422 오류를 표시한다.
-- 첨부 원본은 backend가 MongoDB GridFS `chat_uploads` bucket에 저장한다. ZIP 대화문 추출과 이미지 OCR은 아직 구현하지 않았으므로, 프론트에서 추출 완료처럼 표시하지 않는다.
+- ZIP은 한 개만, 이미지는 JPG/PNG/WEBP/HEIC 최대 20개까지 허용한다. 업로드는 파일당 25MB, 요청 전체 100MB 제한이다. Gemini inline 파싱은 별도로 이미지 한 장당 20MB 미만만 지원하므로 20MB 이상인 이미지는 업로드 후 파싱 단계에서 크기 오류가 난다.
+- 첨부 원본은 backend가 MongoDB GridFS `chat_uploads` bucket에 저장한다. 업로드 완료와 파싱 완료는 별개다. 연구자의 파싱 요청 이후 ZIP은 서비스별 adapter, 이미지는 Gemini screenshot parser로 비동기 처리하며 frontend는 Queue 상태를 polling한다.
 - 대화문 탭의 `제출 내역`은 `GET /api/v1/chat-submissions/mine`으로 최신순 목록을 표시한다. 목록에는 도구, 제출 방식, 파일명, 상태만 표시하며 GridFS file ID나 원문은 표시하지 않는다.
 - 참가자가 `삭제 요청`을 확인하면 `POST /api/v1/chat-submissions/{submissionId}/deletion-request`를 호출하고 상태를 `삭제 요청됨`으로 회색 표시한다. `삭제 요청 취소`는 `POST /api/v1/chat-submissions/{submissionId}/restore`를 호출한다.
 - 연구자 파일 관리 화면은 `GET /api/v1/researcher/chat-submissions/files?status_filter=deletion_requested`에서 요청 항목을 조회한다. `파일 삭제`는 되돌릴 수 없다는 확인 뒤 `DELETE /api/v1/researcher/chat-submissions/files/{submissionId}`를 호출한다. 실제 삭제가 끝난 항목은 참가자 내역에 표시하지 않는다.
-- 연구자 대화문 CSV는 `GET /api/v1/researcher/exports/chat-submissions`에 `submission_point`, 필요 시 `school_level`을 전송한다.
-- 연구자 결과 다운로드의 대화문 미리보기는 `GET /api/v1/researcher/chat-submission-previews`로 실제 DB와 동기화한다. 기본 `review_filter=unreviewed`이며 `all`, `reviewed` 또는 개별 검토 결과로 필터링할 수 있다. `PATCH /api/v1/researcher/chat-submissions/{submissionId}/review`는 기존 `chat_submissions` 문서에 검토 결과와 선택 메모를 저장하며 `other` 상태만 메모가 필수다. 같은 URL의 `DELETE`는 미검토 상태로 되돌린다. 각 첨부 제출은 `GET /api/v1/researcher/chat-submissions/files/{submissionId}/download`로 개별 원본 ZIP을 받을 수 있다.
-- 선택 파일 또는 현재 필터 전체 파일은 `POST /api/v1/researcher/chat-submissions/download-jobs`로 비동기 ZIP 생성을 요청하고, 상태 polling 후 완료된 `downloadUrl`을 사용한다. 삭제 요청 상태는 기본 다운로드에서 제외한다.
+- 연구자 대화문 CSV는 `GET /api/v1/researcher/exports/chat-submissions`에 `submission_point`, 필요 시 `school_level`을 전송한다. 검토 상태·메모·수정 시각·연구자도 CSV에 포함된다.
+- 결과 다운로드 미리보기는 `GET /api/v1/researcher/chat-submission-previews`로 실제 DB와 동기화한다. 기본 `review_filter=unreviewed`이며 `all`, `reviewed` 또는 개별 검토 결과로 필터링할 수 있다.
+- 관리 상태는 `incentive_paid`, `excluded`, `duplicate`, `other` 중 하나이며 기존 `chat_submissions.review`에 저장한다. 모든 상태에서 메모는 선택이고 `other`에서만 필수다. 상태 변경과 미검토 복귀는 모두 `저장` 버튼을 눌러야 확정한다. 미검토 복귀는 같은 URL의 `DELETE`를 사용한다.
+- `other` 메모가 비어 있으면 native `alert()` 대신 확인 버튼이 있는 `reviewSaveDialog`를 표시하고 닫은 뒤 메모 입력으로 포커스를 돌려준다. 저장 시에는 같은 dialog를 버튼 없는 spinner 상태로 열고 PATCH/DELETE와 `loadPreview()`가 모두 끝난 뒤 자동으로 닫는다.
+- 행 체크박스는 다운로드 선택 전용이다. 명시적으로 고른 `submissionIds`는 `reviewFilter`를 우회하지만 현재 `submissionPoint`와 `schoolLevel` 조건은 유지한다. `현재 조건 전체 선택`은 빈 ID 목록과 세 필터를 모두 보낸다.
+- 개별 첨부는 `GET /api/v1/researcher/chat-submissions/files/{submissionId}/download`로 받고, 선택 원본 ZIP은 `POST /api/v1/researcher/chat-submissions/download-jobs`, 선택 대화문 CSV ZIP은 `POST /api/v1/researcher/chat-submissions/transcript-download-jobs`로 생성한다. 두 작업 모두 상태 polling 후 `downloadUrl`을 사용하며 삭제 요청 상태는 기본 다운로드에서 제외한다.
+- 개별 파싱은 `POST /api/v1/researcher/chat-submissions/{submissionId}/parse` 후 run 상태를 polling한다. 완료 결과는 `latest-parse/download?format=json|csv`로 받는다. 파싱 불가 항목은 성공으로 꾸미지 않고 warning/error를 표시한다.
 
 ## 운영 절차
 
@@ -96,7 +102,7 @@
 - 개발과 운영은 별도의 CloudType backend, MongoDB, Secret, JWT secret을 사용한다.
 - 개발 DB 접근 정보는 Git ignore된 backend `.env`에만 둔다. 운영 MongoDB 접속정보는 CloudType Secret으로 관리한다.
 - 운영 설문 definition 동기화는 배포 backend의 admin API를 우선 사용한다.
-- 현재 v2 flattened field 수는 초등 파트 1/2 `230/208`, 중고등 파트 1/2 `230/233`이다.
+- 현재 v2 flattened field 수는 초등 파트 1/2 `230/209`, 중고등 파트 1/2 `230/234`이다.
 
 ## 향후 작업 후보
 
@@ -115,26 +121,17 @@
 - 설문 문항을 같은 `surveyRound`/`surveyVersion`으로 교체해야 할 때는 backend 담당자가 검증된 replace 절차를 사용한다.
 - 이미 운영 응답이 존재할 때 문항 key나 CSV 열이 바뀌면 새 `surveyVersion`을 사용해야 하는지 연구진과 먼저 결정한다.
 
-### AI 대화문 후처리
+### AI 대화문 후처리 확장
 
 상태: 보류.
 
-- ZIP 내 서비스별 export 파서, 이미지 OCR, 원본 첨부 파일의 연구자 전용 다운로드 정책을 별도 요구사항으로 설계한다.
-- 대용량 파일이 장기간 누적되면 GridFS 백업 비용을 검토하고 S3 호환 object storage 이전을 검토한다.
+- 아직 지원하지 않는 AI 서비스의 ZIP export adapter와 공유 링크 수집 정책은 샘플·서비스 약관·연구 기준이 확보된 뒤 추가한다.
+- 대용량 원본과 생성 ZIP이 장기간 누적되면 GridFS 보존 기간과 백업 비용을 검토하고 S3 호환 object storage 이전을 검토한다.
 - 기존 GridFS 파일 제출의 `tool`/`status` 메타데이터가 없는 경우 backend 담당자는 `scripts/backfill_chat_submission_metadata.py`로 GridFS metadata에서 도구 값을 보정한다.
 
-## 변경 이력
+## 현재 기준선
 
-| 항목 | 상태 | 핵심 결과 |
-| --- | --- | --- |
-| FH-001 | 완료 | 신청, 로그인, 신청 승인, CSV 등록 API 연동 |
-| FH-002 | 완료 | 설문 Queue 제출, 임시 저장, 완료 잠금 연동 |
-| FH-003 | 완료 및 확장 | 링크/본문 대화문 제출 후 ZIP/이미지 GridFS 첨부 지원 |
-| FH-004 | 완료 | 최초 로그인 비밀번호 변경 |
-| FH-005~FH-007 | 완료 | 대상 전환, 세션/중복 승인, 입력 UX 보완 |
-| FH-008~FH-011 | 완료 | 연구자 현황, 미참여자, 설문/대화문 결과 조회 및 CSV |
-| FH-012~FH-015 | 완료 | 실제 설문 spec, 대화문 동의, 비밀번호 재설정, 대상 자동 전환 |
-| FH-017 | 완료 | 연구자 설문 버전 동적 조회 |
-| FH-019 | 완료 | 일시적 연결 문제 full-modal |
-| FH-020 | 완료 | MongoDB 자동 승인 설정 및 신청 직후 로그인 |
-| FH-021 | 완료 | ZIP/이미지 파일 첨부 및 GridFS 저장 |
+- 신청·인증·승인·CSV 등록, 설문 Queue 제출, 서버 기반 파트 완료 복원은 운영 흐름으로 확정됐다.
+- 연구자 현황·미완료자·어뷰징 검토·설문 결과·대화문 원본/파싱 결과 다운로드는 실제 API를 사용한다.
+- ZIP/이미지 첨부, GridFS 저장, Gemini screenshot parser, 관리 상태와 검토 필터는 구현 완료 상태다.
+- 향후 기능은 위 `향후 작업 후보`에만 기록하고, 완료된 기능의 세부 이력은 Git history를 사용한다.
