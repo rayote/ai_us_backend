@@ -23,7 +23,8 @@ def normalize_export(
     tool: str | None, filename: str, content: bytes, participant_id: str
 ) -> tuple[str, str, dict[str, Any], list[str]]:
     name = filename.lower()
-    if "chatgpt" in (tool or "").lower() or name == "conversations.json":
+    selected_tool = (tool or "").lower()
+    if "chatgpt" in selected_tool or (not selected_tool and name == "conversations.json"):
         payload, warnings = _chatgpt_payload(content)
         return (
             "chatgpt-json",
@@ -31,7 +32,16 @@ def normalize_export(
             _parse_chatgpt(payload, participant_id),
             warnings,
         )
-    if "grok" in (tool or "").lower() or "grok" in name:
+    if "claude" in selected_tool or (not selected_tool and "claude" in name):
+        payload, warnings = _claude_payload(content)
+        normalized, parse_warnings = _parse_claude(payload, participant_id)
+        return (
+            "claude-json",
+            "claude-json-v1",
+            normalized,
+            warnings + parse_warnings,
+        )
+    if "grok" in selected_tool or (not selected_tool and "grok" in name):
         payload, warning = _grok_payload(content)
         return (
             "grok-json",
@@ -39,7 +49,7 @@ def normalize_export(
             _parse_grok(payload, participant_id),
             warning,
         )
-    if "gemini" in (tool or "").lower() or "takeout" in name:
+    if "gemini" in selected_tool or (not selected_tool and "takeout" in name):
         payload, source_name = _gemini_payload(content)
         return (
             "gemini-takeout-html",
@@ -106,6 +116,45 @@ def find_grok_export_member(archive: zipfile.ZipFile) -> str:
     )
 
 
+def _is_claude_export(payload: Any) -> bool:
+    if not isinstance(payload, list) or not payload:
+        return False
+    for conversation in payload:
+        if not isinstance(conversation, dict) or not isinstance(
+            conversation.get("uuid"), str
+        ):
+            return False
+        messages = conversation.get("chat_messages")
+        if not isinstance(messages, list):
+            return False
+        for message in messages:
+            if not isinstance(message, dict):
+                return False
+            if message.get("sender") not in {"human", "assistant"}:
+                return False
+    return True
+
+
+def find_claude_export_member(archive: zipfile.ZipFile) -> str:
+    candidates = [name for name in archive.namelist() if name.lower().endswith(".json")]
+    candidates.sort(
+        key=lambda name: (
+            PurePosixPath(name).name.lower() != "conversations.json",
+            name.lower(),
+        )
+    )
+    for name in candidates:
+        try:
+            payload = _decode_json(archive.read(name))
+        except ValueError:
+            continue
+        if _is_claude_export(payload):
+            return name
+    raise ValueError(
+        "ZIP 파일 안에서 올바른 Claude conversations.json을 찾지 못했습니다."
+    )
+
+
 def _chatgpt_payload(content: bytes) -> tuple[bytes, list[str]]:
     if not zipfile.is_zipfile(io.BytesIO(content)):
         return content, []
@@ -122,6 +171,16 @@ def _chatgpt_payload(content: bytes) -> tuple[bytes, list[str]]:
             raise ValueError(
                 "ZIP 파일 안에서 ChatGPT conversations.json 파일을 찾지 못했습니다."
             )
+        return archive.read(source_name), [
+            f"ZIP 내부의 {source_name} 파일을 파싱했습니다."
+        ]
+
+
+def _claude_payload(content: bytes) -> tuple[bytes, list[str]]:
+    if not zipfile.is_zipfile(io.BytesIO(content)):
+        return content, []
+    with zipfile.ZipFile(io.BytesIO(content)) as archive:
+        source_name = find_claude_export_member(archive)
         return archive.read(source_name), [
             f"ZIP 내부의 {source_name} 파일을 파싱했습니다."
         ]
@@ -352,6 +411,18 @@ def _iso(value: object) -> str | None:
         return None
 
 
+def _iso_datetime(value: object) -> str | None:
+    if not isinstance(value, str) or not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=UTC)
+    return parsed.astimezone(KST).isoformat()
+
+
 def _summary(
     participant_id: str, platform: str, source_type: str, sessions: list[dict[str, Any]]
 ) -> dict[str, Any]:
@@ -442,6 +513,71 @@ def _parse_chatgpt(content: bytes, participant_id: str) -> dict[str, Any]:
                 )
             )
     return _summary(participant_id, "chatgpt", "chatgpt_export_json", sessions)
+
+
+def _parse_claude(
+    content: bytes, participant_id: str
+) -> tuple[dict[str, Any], list[str]]:
+    conversations = _decode_json(content)
+    if not _is_claude_export(conversations):
+        raise ValueError("올바른 Claude conversations.json 구조가 아닙니다.")
+    sessions: list[dict[str, Any]] = []
+    empty_messages = 0
+    attachment_messages = 0
+    for index, conversation in enumerate(conversations, start=1):
+        turns: list[dict[str, Any]] = []
+        for message in conversation.get("chat_messages", []):
+            attachments = message.get("attachments") or []
+            files = message.get("files") or []
+            if attachments or files:
+                attachment_messages += 1
+            text = message.get("text")
+            if not isinstance(text, str) or not text.strip():
+                empty_messages += 1
+                continue
+            role = "user" if message.get("sender") == "human" else "assistant"
+            metadata = {
+                "messageUuid": message.get("uuid"),
+                "parentMessageUuid": message.get("parent_message_uuid"),
+            }
+            turn_metadata = {
+                key: value for key, value in metadata.items() if value
+            } or None
+            turns.append(
+                {
+                    "turnId": len(turns) + 1,
+                    "role": role,
+                    "content": text.strip(),
+                    "contentFormat": "markdown" if role == "assistant" else "plainText",
+                    "timestamp": _iso_datetime(message.get("created_at")),
+                    "turnMetadata": turn_metadata,
+                }
+            )
+        if turns:
+            title = conversation.get("name")
+            sessions.append(
+                _session(
+                    "claude",
+                    conversation.get("uuid") or f"conversation-{index}",
+                    title if isinstance(title, str) else "",
+                    turns,
+                )
+            )
+    if not sessions:
+        raise ValueError("Claude conversations.json에서 대화 내역을 찾지 못했습니다.")
+    warnings: list[str] = []
+    if attachment_messages:
+        warnings.append(
+            f"Claude 첨부 파일이 포함된 메시지 {attachment_messages}개의 파일 본문은 대화문에 포함하지 않았습니다."
+        )
+    if empty_messages:
+        warnings.append(
+            f"Claude 본문이 비어 있는 메시지 {empty_messages}개를 제외했습니다."
+        )
+    return (
+        _summary(participant_id, "claude", "claude_export_json", sessions),
+        warnings,
+    )
 
 
 def _parse_grok(content: bytes, participant_id: str) -> dict[str, Any]:

@@ -8,7 +8,10 @@ from datetime import UTC, datetime
 from pathlib import Path, PurePosixPath
 from typing import Any, Protocol
 
-from app.services.transcript_adapters import find_grok_export_member
+from app.services.transcript_adapters import (
+    find_claude_export_member,
+    find_grok_export_member,
+)
 from bson import Binary, ObjectId
 from pymongo.errors import DuplicateKeyError
 
@@ -372,6 +375,8 @@ def inspect_chat_import(
                     raise ValueError(
                         "ZIP에서 ChatGPT conversations.json을 찾지 못했습니다."
                     )
+                if tool == "claude":
+                    find_claude_export_member(archive)
                 if tool == "grok":
                     find_grok_export_member(archive)
 

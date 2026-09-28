@@ -132,6 +132,96 @@ def test_chatgpt_adapter_preserves_multiple_conversations_as_sessions() -> None:
     ]
 
 
+def test_claude_adapter_decodes_unicode_and_excludes_internal_content() -> None:
+    export = [
+        {
+            "uuid": "claude-conversation-1",
+            "name": "상담 대화",
+            "summary": "\\uc0c1\\ub2f4 요약은 대화 본문으로 사용하지 않음",
+            "created_at": "2026-09-28T01:00:00.000Z",
+            "updated_at": "2026-09-28T01:01:00.000Z",
+            "account": {"uuid": "account-1"},
+            "chat_messages": [
+                {
+                    "uuid": "message-1",
+                    "parent_message_uuid": None,
+                    "sender": "human",
+                    "text": "안녕하세요",
+                    "content": [{"type": "text", "text": "안녕하세요"}],
+                    "created_at": "2026-09-28T01:00:00.000Z",
+                    "updated_at": "2026-09-28T01:00:00.000Z",
+                    "attachments": [{"file_name": "private.txt"}],
+                    "files": [],
+                },
+                {
+                    "uuid": "message-2",
+                    "parent_message_uuid": "message-1",
+                    "sender": "assistant",
+                    "text": "반갑습니다",
+                    "content": [
+                        {"type": "thinking", "thinking": "내부 추론"},
+                        {"type": "text", "text": "반갑습니다"},
+                    ],
+                    "created_at": "2026-09-28T01:01:00.000Z",
+                    "updated_at": "2026-09-28T01:01:00.000Z",
+                    "attachments": [],
+                    "files": [],
+                },
+                {
+                    "uuid": "message-3",
+                    "parent_message_uuid": "message-2",
+                    "sender": "assistant",
+                    "text": "",
+                    "content": [{"type": "thinking", "thinking": "제외"}],
+                    "created_at": "2026-09-28T01:02:00.000Z",
+                    "updated_at": "2026-09-28T01:02:00.000Z",
+                    "attachments": [],
+                    "files": [],
+                },
+            ],
+        }
+    ]
+    archive = io.BytesIO()
+    with zipfile.ZipFile(archive, "w") as zipper:
+        zipper.writestr("metadata.json", "{}")
+        zipper.writestr("conversations.json", json.dumps(export).encode())
+
+    name, version, normalized, warnings = normalize_export(
+        "claude", "conversations-000.zip", archive.getvalue(), "participant-1"
+    )
+
+    assert (name, version) == ("claude-json", "claude-json-v1")
+    assert normalized["platform"] == "claude"
+    assert normalized["summary"]["totalSessions"] == 1
+    assert normalized["summary"]["totalTurns"] == 2
+    assert normalized["sessions"][0]["sessionTitle"] == "상담 대화"
+    assert [turn["content"] for turn in normalized["sessions"][0]["turns"]] == [
+        "안녕하세요",
+        "반갑습니다",
+    ]
+    assert all("\\u" not in turn["content"] for turn in normalized["sessions"][0]["turns"])
+    assert normalized["sessions"][0]["turns"][0]["timestamp"] == "2026-09-28T10:00:00+09:00"
+    assert warnings == [
+        "ZIP 내부의 conversations.json 파일을 파싱했습니다.",
+        "Claude 첨부 파일이 포함된 메시지 1개의 파일 본문은 대화문에 포함하지 않았습니다.",
+        "Claude 본문이 비어 있는 메시지 1개를 제외했습니다.",
+    ]
+
+
+def test_claude_adapter_rejects_chatgpt_conversations_json() -> None:
+    archive = io.BytesIO()
+    with zipfile.ZipFile(archive, "w") as zipper:
+        zipper.writestr(
+            "conversations.json",
+            json.dumps([{"id": "chatgpt-1", "mapping": {}}]).encode(),
+        )
+
+    with pytest.raises(ValueError, match="올바른 Claude conversations.json"):
+        normalize_export(
+            "claude", "conversations-000.zip", archive.getvalue(), "participant-1"
+        )
+
+
 def test_grok_adapter_preserves_errors_and_csv_rows() -> None:
     export = {
         "conversations": [
@@ -366,7 +456,7 @@ def test_gemini_adapter_groups_activity_cards_by_conversation() -> None:
 
 def test_unsupported_export_reports_actionable_warning() -> None:
     with pytest.raises(UnsupportedTranscriptError, match="parser adapter"):
-        normalize_export("claude", "export.zip", b"not-supported", "participant-1")
+        normalize_export("perplexity", "export.zip", b"not-supported", "participant-1")
 
 
 def test_normalized_result_projects_to_legacy_transcript() -> None:

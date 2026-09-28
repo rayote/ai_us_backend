@@ -546,33 +546,67 @@ def test_researcher_resumable_takeout_import_accepts_retried_chunks() -> None:
     assert submissions.submissions[0].attachments[0].file_id == upload_id
 
 
-def test_researcher_claude_import_is_disabled_until_parser_is_ready() -> None:
+def test_researcher_claude_import_accepts_valid_export() -> None:
     imports = InMemoryChatImports()
-    app, _, _, _ = _app(True, chat_imports=imports)
+    app, _, submissions, _ = _app(True, chat_imports=imports)
+    archive_buffer = io.BytesIO()
+    with zipfile.ZipFile(archive_buffer, "w") as archive:
+        archive.writestr(
+            "conversations.json",
+            json.dumps(
+                [
+                    {
+                        "uuid": "claude-conversation-1",
+                        "name": "테스트",
+                        "chat_messages": [
+                            {
+                                "uuid": "message-1",
+                                "sender": "human",
+                                "text": "질문",
+                                "created_at": "2026-09-28T01:00:00.000Z",
+                            }
+                        ],
+                    }
+                ]
+            ).encode(),
+        )
+    content = archive_buffer.getvalue()
 
     with TestClient(app) as client:
         login = client.post(
             "/api/v1/auth/researcher/login",
             json={"username": "researcher", "password": "researcher-password"},
         )
-        response = client.post(
+        initialized = client.post(
             "/api/v1/researcher/chat-submission-imports",
             headers={"Authorization": f"Bearer {login.json()['accessToken']}"},
             json={
                 "phone": "01012345678",
                 "submissionPoint": "afterRound1",
                 "tool": "claude",
-                "filename": "claude.zip",
+                "filename": "conversations-000.zip",
                 "contentType": "application/zip",
-                "size": 1024,
+                "size": len(content),
             },
         )
+        upload_id = initialized.json()["uploadId"]
+        headers = {"Authorization": f"Bearer {login.json()['accessToken']}"}
+        for number, offset in enumerate(range(0, len(content), imports.chunk_size)):
+            uploaded = client.put(
+                f"/api/v1/researcher/chat-submission-imports/{upload_id}/chunks/{number}",
+                headers={**headers, "Content-Type": "application/octet-stream"},
+                content=content[offset : offset + imports.chunk_size],
+            )
+            assert uploaded.status_code == 204
+        completed = client.post(
+            f"/api/v1/researcher/chat-submission-imports/{upload_id}/complete",
+            headers=headers,
+            json={"uploadIds": [upload_id]},
+        )
 
-    assert response.status_code == 422
-    assert (
-        response.json()["detail"]
-        == "Claude 내보내기 파일 등록은 파서 준비 후 지원할 예정입니다."
-    )
+    assert initialized.status_code == 201
+    assert completed.status_code == 200
+    assert submissions.submissions[0].tool == "claude"
 
 
 def test_researcher_grok_import_rejects_unrelated_json_zip() -> None:

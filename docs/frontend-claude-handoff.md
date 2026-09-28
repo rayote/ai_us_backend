@@ -78,7 +78,7 @@
 - 대화문 탭의 `제출 내역`은 `GET /api/v1/chat-submissions/mine`으로 최신순 목록을 표시한다. 목록에는 도구, 제출 방식, 파일명, 상태만 표시하며 GridFS file ID나 원문은 표시하지 않는다.
 - 참가자가 `삭제 요청`을 확인하면 `POST /api/v1/chat-submissions/{submissionId}/deletion-request`를 호출하고 상태를 `삭제 요청됨`으로 회색 표시한다. `삭제 요청 취소`는 `POST /api/v1/chat-submissions/{submissionId}/restore`를 호출한다.
 - 연구자 파일 관리 화면은 `GET /api/v1/researcher/chat-submissions/files?status_filter=deletion_requested`에서 요청 항목을 조회한다. `파일 삭제`는 되돌릴 수 없다는 확인 뒤 `DELETE /api/v1/researcher/chat-submissions/files/{submissionId}`를 호출한다. 실제 삭제가 끝난 항목은 참가자 내역에 표시하지 않는다.
-- 연구자 파일 관리 화면의 `대화문 강제 등록` 서비스 value는 참여자 화면의 `CHAT_TOOLS`와 동일한 ChatGPT/chatgpt, Gemini/gemini, Claude/claude, Grok/grok, 제타/zeta, 크랙/crack, 기타 캐릭터AI 챗봇/other를 사용한다. Claude는 대표 내보내기 사례와 parser가 준비될 때까지 `준비 중`으로 비활성화한다. 별도 입력 방식은 선택하지 않으며 서비스가 ZIP 또는 이미지 형식을 결정한다.
+- 연구자 파일 관리 화면의 `대화문 강제 등록` 서비스 value는 참여자 화면의 `CHAT_TOOLS`와 동일한 ChatGPT/chatgpt, Gemini/gemini, Claude/claude, Grok/grok, 제타/zeta, 크랙/crack, 기타 캐릭터AI 챗봇/other를 사용한다. 별도 입력 방식은 선택하지 않으며 서비스가 ZIP 또는 이미지 형식을 결정한다.
 - 강제 등록은 휴대폰 번호, 제출 시점, 서비스, 파일을 받아 파일별 `POST /api/v1/researcher/chat-submission-imports` 세션을 만든다. 응답의 `chunkSize`대로 파일을 나눠 numbered chunk endpoint에 순차 전송하고 실제 완료 chunk 수를 진행률로 표시한다. 각 chunk는 최대 3회 재시도하며, 모든 파일이 저장된 뒤 선택 순서의 `uploadIds`로 `/complete`를 한 번 호출한다.
 - ZIP은 최대 1GB이고 이미지는 최대 20장, 장당 20MB 미만, 합계 100MB다. backend가 참여자 존재 여부와 대화문 제출 동의, 파일 signature, 서비스별 내보내기 구조, 동일 참여자의 중복 파일 묶음을 검증한다. 브라우저는 MongoDB/GridFS ID를 만들거나 DB 자격 증명을 다루지 않는다. `/complete`가 성공하기 전에는 화면에서 등록 완료로 표시하지 않는다.
 - 연구자 대화문 CSV는 `GET /api/v1/researcher/exports/chat-submissions`에 `submission_point`, 필요 시 `school_level`을 전송한다. 검토 상태·메모·수정 시각·연구자도 CSV에 포함된다.
@@ -129,7 +129,7 @@
 상태: 보류.
 
 - 아직 지원하지 않는 AI 서비스의 ZIP export adapter와 공유 링크 수집 정책은 샘플·서비스 약관·연구 기준이 확보된 뒤 추가한다.
-- Claude 대표 내보내기 ZIP을 확보한 뒤 구조 식별, adapter, fixture를 추가하고 researcher 강제 등록의 UI/API 비활성화를 함께 해제한다.
+- Claude ZIP은 `conversations.json`의 `uuid`, `chat_messages[]`, `human|assistant` sender 구조로 식별한다. parser는 JSON의 `\uXXXX` escape를 표준 decode한 뒤 사용자에게 표시된 `chat_messages[].text`만 정규화하고 thinking/tool 내부 content와 첨부 파일 본문은 포함하지 않는다.
 - Grok ZIP은 파일명이 아니라 최상위 `conversations[]`와 각 항목의 `conversation`, `responses[]` 구조로 식별한다. 실제 export 형식이 변경되면 fixture를 먼저 추가해 validator와 adapter를 함께 갱신한다.
 - 대용량 원본과 생성 ZIP이 장기간 누적되면 GridFS 보존 기간과 백업 비용을 검토하고 S3 호환 object storage 이전을 검토한다.
 - 기존 GridFS 파일 제출의 `tool`/`status` 메타데이터가 없는 경우 backend 담당자는 `scripts/backfill_chat_submission_metadata.py`로 GridFS metadata에서 도구 값을 보정한다.

@@ -1135,11 +1135,6 @@ async def create_chat_submission_import(
     request: Request,
     _: str = Depends(require_researcher),
 ) -> ChatImportSessionStatus:
-    if import_data.tool == "claude":
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="Claude 내보내기 파일 등록은 파서 준비 후 지원할 예정입니다.",
-        )
     phone = "".join(character for character in import_data.phone if character.isdigit())
     if len(phone) != 11 or not phone.startswith("01"):
         raise HTTPException(
