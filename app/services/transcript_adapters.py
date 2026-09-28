@@ -25,10 +25,20 @@ def normalize_export(
     name = filename.lower()
     if "chatgpt" in (tool or "").lower() or name == "conversations.json":
         payload, warnings = _chatgpt_payload(content)
-        return "chatgpt-json", "chatgpt-json-v1", _parse_chatgpt(payload, participant_id), warnings
+        return (
+            "chatgpt-json",
+            "chatgpt-json-v1",
+            _parse_chatgpt(payload, participant_id),
+            warnings,
+        )
     if "grok" in (tool or "").lower() or "grok" in name:
         payload, warning = _grok_payload(content)
-        return "grok-json", "grok-json-v1", _parse_grok(payload, participant_id), warning
+        return (
+            "grok-json",
+            "grok-json-v1",
+            _parse_grok(payload, participant_id),
+            warning,
+        )
     if "gemini" in (tool or "").lower() or "takeout" in name:
         payload, source_name = _gemini_payload(content)
         return (
@@ -37,7 +47,9 @@ def normalize_export(
             _parse_gemini(payload, participant_id),
             [f"ZIP 내부의 {source_name} 파일을 파싱했습니다."] if source_name else [],
         )
-    raise UnsupportedTranscriptError(f"{filename} 파일 형식에 대한 parser adapter가 아직 없습니다.")
+    raise UnsupportedTranscriptError(
+        f"{filename} 파일 형식에 대한 parser adapter가 아직 없습니다."
+    )
 
 
 def _decode_json(content: bytes) -> Any:
@@ -47,7 +59,51 @@ def _decode_json(content: bytes) -> Any:
             return json.loads(content.decode(encoding))
         except (UnicodeDecodeError, json.JSONDecodeError) as error:
             errors.append(f"{encoding}: {error}")
-    raise ValueError("JSON 파일 인코딩 또는 형식을 읽을 수 없습니다. " + " / ".join(errors))
+    raise ValueError(
+        "JSON 파일 인코딩 또는 형식을 읽을 수 없습니다. " + " / ".join(errors)
+    )
+
+
+def _is_grok_export(payload: Any) -> bool:
+    if not isinstance(payload, dict):
+        return False
+    conversations = payload.get("conversations")
+    if not isinstance(conversations, list) or not conversations:
+        return False
+    for item in conversations:
+        if not isinstance(item, dict):
+            return False
+        if not isinstance(item.get("conversation"), dict):
+            return False
+        responses = item.get("responses")
+        if not isinstance(responses, list):
+            return False
+        if not all(
+            isinstance(row, dict) and isinstance(row.get("response"), dict)
+            for row in responses
+        ):
+            return False
+    return True
+
+
+def find_grok_export_member(archive: zipfile.ZipFile) -> str:
+    candidates = [name for name in archive.namelist() if name.lower().endswith(".json")]
+    candidates.sort(
+        key=lambda name: (
+            "grok" not in name.lower() and "conversation" not in name.lower(),
+            name.lower(),
+        )
+    )
+    for name in candidates:
+        try:
+            payload = _decode_json(archive.read(name))
+        except ValueError:
+            continue
+        if _is_grok_export(payload):
+            return name
+    raise ValueError(
+        "ZIP 파일 안에서 올바른 Grok 대화 내보내기 파일을 찾지 못했습니다."
+    )
 
 
 def _chatgpt_payload(content: bytes) -> tuple[bytes, list[str]]:
@@ -55,25 +111,30 @@ def _chatgpt_payload(content: bytes) -> tuple[bytes, list[str]]:
         return content, []
     with zipfile.ZipFile(io.BytesIO(content)) as archive:
         source_name = next(
-            (name for name in archive.namelist() if PurePosixPath(name).name.lower() == "conversations.json"),
+            (
+                name
+                for name in archive.namelist()
+                if PurePosixPath(name).name.lower() == "conversations.json"
+            ),
             None,
         )
         if source_name is None:
-            raise ValueError("ZIP 파일 안에서 ChatGPT conversations.json 파일을 찾지 못했습니다.")
-        return archive.read(source_name), [f"ZIP 내부의 {source_name} 파일을 파싱했습니다."]
+            raise ValueError(
+                "ZIP 파일 안에서 ChatGPT conversations.json 파일을 찾지 못했습니다."
+            )
+        return archive.read(source_name), [
+            f"ZIP 내부의 {source_name} 파일을 파싱했습니다."
+        ]
 
 
 def _grok_payload(content: bytes) -> tuple[bytes, list[str]]:
     if not zipfile.is_zipfile(io.BytesIO(content)):
         return content, []
     with zipfile.ZipFile(io.BytesIO(content)) as archive:
-        candidates = [name for name in archive.namelist() if name.lower().endswith(".json")]
-        if not candidates:
-            raise ValueError("ZIP 파일 안에서 Grok JSON 내보내기 파일을 찾지 못했습니다.")
-        preferred = next(
-            (name for name in candidates if "grok" in name.lower() or "conversation" in name.lower()), candidates[0]
-        )
-        return archive.read(preferred), [f"ZIP 내부의 {preferred} 파일을 파싱했습니다."]
+        source_name = find_grok_export_member(archive)
+        return archive.read(source_name), [
+            f"ZIP 내부의 {source_name} 파일을 파싱했습니다."
+        ]
 
 
 def _decode_html(content: bytes) -> str:
@@ -89,22 +150,44 @@ def _gemini_payload(content: bytes) -> tuple[bytes, str | None]:
     if not zipfile.is_zipfile(io.BytesIO(content)):
         return content, None
     with zipfile.ZipFile(io.BytesIO(content)) as archive:
-        candidates = [name for name in archive.namelist() if name.lower().endswith((".html", ".htm"))]
+        candidates = [
+            name
+            for name in archive.namelist()
+            if name.lower().endswith((".html", ".htm"))
+        ]
         source_name = next(
             (
                 name
                 for name in candidates
-                if "gemini" in name.lower() and PurePosixPath(name).name.lower() in {"myactivity.html", "내활동.html"}
+                if "gemini" in name.lower()
+                and PurePosixPath(name).name.lower()
+                in {"myactivity.html", "내활동.html"}
             ),
             next((name for name in candidates if "gemini" in name.lower()), None),
         )
         if source_name is None:
-            raise ValueError("ZIP 파일 안에서 Gemini 내 활동 HTML 파일을 찾지 못했습니다.")
+            raise ValueError(
+                "ZIP 파일 안에서 Gemini 내 활동 HTML 파일을 찾지 못했습니다."
+            )
         return archive.read(source_name), source_name
 
 
 class _GeminiTakeoutParser(HTMLParser):
-    _VOID_TAGS = {"area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "source", "track", "wbr"}
+    _VOID_TAGS = {
+        "area",
+        "base",
+        "br",
+        "col",
+        "embed",
+        "hr",
+        "img",
+        "input",
+        "link",
+        "meta",
+        "source",
+        "track",
+        "wbr",
+    }
     _BLOCK_TAGS = {"p", "li", "h1", "h2", "h3", "h4", "h5", "h6", "pre", "blockquote"}
 
     def __init__(self) -> None:
@@ -127,7 +210,10 @@ class _GeminiTakeoutParser(HTMLParser):
             if href:
                 self._links.append(href)
         elif self._direct is not None and "content-cell" in classes:
-            self._in_body = "mdl-typography--caption" not in classes and "mdl-typography--text-right" not in classes
+            self._in_body = (
+                "mdl-typography--caption" not in classes
+                and "mdl-typography--text-right" not in classes
+            )
         elif self._in_body and self._blocks is not None and tag in self._BLOCK_TAGS:
             self._block_parts = []
         if tag in self._VOID_TAGS:
@@ -142,7 +228,11 @@ class _GeminiTakeoutParser(HTMLParser):
         if tag == "div" and self._stack and "content-cell" in self._stack[-1][1]:
             self._in_body = False
         if tag == "div" and self._stack and "outer-cell" in self._stack[-1][1]:
-            if self._direct is not None and self._blocks is not None and self._links is not None:
+            if (
+                self._direct is not None
+                and self._blocks is not None
+                and self._links is not None
+            ):
                 self.activities.append((self._direct, self._blocks, self._links))
             self._direct = None
             self._blocks = None
@@ -171,7 +261,15 @@ def _gemini_timestamp(value: str) -> str | None:
         return None
     year, month, day, period, hour, minute, second = match.groups()
     hour_value = int(hour) % 12 + (12 if period == "오후" else 0)
-    return datetime(int(year), int(month), int(day), hour_value, int(minute), int(second), tzinfo=KST).isoformat()
+    return datetime(
+        int(year),
+        int(month),
+        int(day),
+        hour_value,
+        int(minute),
+        int(second),
+        tzinfo=KST,
+    ).isoformat()
 
 
 def _gemini_conversation_id(links: list[str]) -> str | None:
@@ -180,7 +278,11 @@ def _gemini_conversation_id(links: list[str]) -> str | None:
         if parsed.hostname not in {"gemini.google.com", "bard.google.com"}:
             continue
         parts = [part for part in parsed.path.split("/") if part]
-        if len(parts) >= 2 and parts[-2] == "app" and re.fullmatch(r"[A-Za-z0-9_-]+", parts[-1]):
+        if (
+            len(parts) >= 2
+            and parts[-2] == "app"
+            and re.fullmatch(r"[A-Za-z0-9_-]+", parts[-1])
+        ):
             return parts[-1]
     return None
 
@@ -192,22 +294,38 @@ def _parse_gemini(content: bytes, participant_id: str) -> dict[str, Any]:
     for index, (direct, blocks, links) in enumerate(parser.activities, start=1):
         timestamps = [_gemini_timestamp(value) for value in direct]
         timestamp = next((value for value in timestamps if value is not None), None)
-        prompt = next((value for value in direct if _gemini_timestamp(value) is None), "")
+        prompt = next(
+            (value for value in direct if _gemini_timestamp(value) is None), ""
+        )
         prompt = re.sub(r"\s*항목을 검색함\s*$", "", prompt).strip()
         response = "\n".join(blocks).strip()
         if prompt or response:
             session_id = _gemini_conversation_id(links) or f"takeout-{index}"
-            grouped.setdefault(session_id, []).append((index, timestamp, prompt, response))
+            grouped.setdefault(session_id, []).append(
+                (index, timestamp, prompt, response)
+            )
     sessions: list[dict[str, Any]] = []
     for session_id, activities in grouped.items():
         activities.sort(key=lambda item: (item[1] is None, item[1] or "", item[0]))
         turns: list[dict[str, Any]] = []
         for _, timestamp, prompt, response in activities:
             if prompt:
-                turns.append({"turnId": len(turns) + 1, "role": "user", "content": prompt, "timestamp": timestamp})
+                turns.append(
+                    {
+                        "turnId": len(turns) + 1,
+                        "role": "user",
+                        "content": prompt,
+                        "timestamp": timestamp,
+                    }
+                )
             if response:
                 turns.append(
-                    {"turnId": len(turns) + 1, "role": "assistant", "content": response, "timestamp": timestamp}
+                    {
+                        "turnId": len(turns) + 1,
+                        "role": "assistant",
+                        "content": response,
+                        "timestamp": timestamp,
+                    }
                 )
         if turns:
             title = next((prompt for _, _, prompt, _ in activities if prompt), "")
@@ -225,14 +343,28 @@ def _parse_gemini(content: bytes, participant_id: str) -> dict[str, Any]:
 
 def _iso(value: object) -> str | None:
     try:
-        return datetime.fromtimestamp(float(value), tz=UTC).astimezone(KST).isoformat() if value else None
+        return (
+            datetime.fromtimestamp(float(value), tz=UTC).astimezone(KST).isoformat()
+            if value
+            else None
+        )
     except (TypeError, ValueError, OSError):
         return None
 
 
-def _summary(participant_id: str, platform: str, source_type: str, sessions: list[dict[str, Any]]) -> dict[str, Any]:
-    starts = [item["sessionMetadata"]["startTime"] for item in sessions if item["sessionMetadata"].get("startTime")]
-    ends = [item["sessionMetadata"]["endTime"] for item in sessions if item["sessionMetadata"].get("endTime")]
+def _summary(
+    participant_id: str, platform: str, source_type: str, sessions: list[dict[str, Any]]
+) -> dict[str, Any]:
+    starts = [
+        item["sessionMetadata"]["startTime"]
+        for item in sessions
+        if item["sessionMetadata"].get("startTime")
+    ]
+    ends = [
+        item["sessionMetadata"]["endTime"]
+        for item in sessions
+        if item["sessionMetadata"].get("endTime")
+    ]
     return {
         "participantId": participant_id,
         "platform": platform,
@@ -291,14 +423,20 @@ def _parse_chatgpt(content: bytes, participant_id: str) -> dict[str, Any]:
                     "content": text,
                     "contentFormat": "markdown" if role == "assistant" else "plainText",
                     "timestamp": _iso(message.get("create_time")),
-                    "turnMetadata": {"modelSlug": metadata.get("model_slug")} if metadata.get("model_slug") else None,
+                    "turnMetadata": (
+                        {"modelSlug": metadata.get("model_slug")}
+                        if metadata.get("model_slug")
+                        else None
+                    ),
                 }
             )
         if turns:
             sessions.append(
                 _session(
                     "chatgpt",
-                    conversation.get("conversation_id") or conversation.get("id") or "unknown",
+                    conversation.get("conversation_id")
+                    or conversation.get("id")
+                    or "unknown",
                     conversation.get("title") or "",
                     turns,
                 )
@@ -308,15 +446,26 @@ def _parse_chatgpt(content: bytes, participant_id: str) -> dict[str, Any]:
 
 def _parse_grok(content: bytes, participant_id: str) -> dict[str, Any]:
     data = _decode_json(content)
+    if not _is_grok_export(data):
+        raise ValueError("올바른 Grok 대화 내보내기 구조가 아닙니다.")
     sessions: list[dict[str, Any]] = []
     for item in data.get("conversations", []) if isinstance(data, dict) else []:
         conversation = item.get("conversation") or {}
         turns: list[dict[str, Any]] = []
-        responses = [row.get("response") or {} for row in item.get("responses", []) if isinstance(row, dict)]
+        responses = [
+            row.get("response") or {}
+            for row in item.get("responses", [])
+            if isinstance(row, dict)
+        ]
         for response in sorted(
-            responses, key=lambda row: ((row.get("create_time") or {}).get("$date", {}).get("$numberLong", 0))
+            responses,
+            key=lambda row: (
+                (row.get("create_time") or {}).get("$date", {}).get("$numberLong", 0)
+            ),
         ):
-            value = ((response.get("create_time") or {}).get("$date", {}) or {}).get("$numberLong")
+            value = ((response.get("create_time") or {}).get("$date", {}) or {}).get(
+                "$numberLong"
+            )
             timestamp = _iso(float(value) / 1000) if value else None
             role = "user" if response.get("sender") == "human" else "assistant"
             metadata = response.get("metadata") or {}
@@ -328,7 +477,10 @@ def _parse_grok(content: bytes, participant_id: str) -> dict[str, Any]:
                     "contentFormat": "markdown" if role == "assistant" else "plainText",
                     "timestamp": timestamp,
                     "turnMetadata": (
-                        {"model": response.get("model"), "errors": metadata.get("stream_errors")}
+                        {
+                            "model": response.get("model"),
+                            "errors": metadata.get("stream_errors"),
+                        }
                         if role == "assistant"
                         else None
                     ),
@@ -336,16 +488,29 @@ def _parse_grok(content: bytes, participant_id: str) -> dict[str, Any]:
             )
         if turns:
             sessions.append(
-                _session("grok", conversation.get("id") or "unknown", conversation.get("title") or "", turns)
+                _session(
+                    "grok",
+                    conversation.get("id") or "unknown",
+                    conversation.get("title") or "",
+                    turns,
+                )
             )
     return _summary(participant_id, "grok", "grok_export_json", sessions)
 
 
-def _session(platform: str, original_id: str, title: str, turns: list[dict[str, Any]]) -> dict[str, Any]:
+def _session(
+    platform: str, original_id: str, title: str, turns: list[dict[str, Any]]
+) -> dict[str, Any]:
     timestamps = [turn["timestamp"] for turn in turns if turn.get("timestamp")]
     start, end = (timestamps[0], timestamps[-1]) if timestamps else (None, None)
     duration = (
-        int((datetime.fromisoformat(end) - datetime.fromisoformat(start)).total_seconds()) if start and end else None
+        int(
+            (
+                datetime.fromisoformat(end) - datetime.fromisoformat(start)
+            ).total_seconds()
+        )
+        if start and end
+        else None
     )
     return {
         "sessionId": f"{platform}_{original_id}",

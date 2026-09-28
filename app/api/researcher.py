@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import tempfile
@@ -23,14 +24,20 @@ from app.schemas.application import (
     ChatConsentUpdate,
 )
 from app.schemas.chat import (
+    ChatAttachment,
     ChatDownloadJobAccepted,
     ChatDownloadJobCreate,
     ChatDownloadJobStatus,
+    ChatImportComplete,
+    ChatImportCreate,
+    ChatImportSessionStatus,
     ChatSubmissionDeleted,
     ChatSubmissionPreview,
+    ChatSubmissionRecord,
     ChatSubmissionReview,
     ChatSubmissionReviewUpdate,
     ChatSubmissionSummary,
+    ParsedTranscript,
     TranscriptParsePreview,
     TranscriptParseRequestAccepted,
     TranscriptParseRun,
@@ -52,6 +59,14 @@ from app.services.applications import ApplicationRepository
 from app.services.approvals import ApplicationApprovalService, ExistingParticipantError
 from app.services.auth import ParticipantAccountRepository
 from app.services.chat_downloads import ChatDownloadArtifactRepository
+from app.services.chat_imports import (
+    CHAT_IMPORT_TOOL_TYPES,
+    IMAGE_CONTENT_TYPES,
+    MAX_IMAGE_BYTES,
+    ChatImportRepository,
+    ChatImportSession,
+    inspect_chat_import,
+)
 from app.services.chats import (
     ChatSubmissionManagementService,
     ChatSubmissionRepository,
@@ -158,6 +173,27 @@ def _chat_submission_repository(request: Request) -> ChatSubmissionRepository:
             detail="대화문 결과 서비스를 준비 중입니다.",
         )
     return repository
+
+
+def _chat_import_repository(request: Request) -> ChatImportRepository:
+    repository = getattr(request.app.state, "chat_import_repository", None)
+    if repository is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="대용량 파일 등록 서비스를 준비 중입니다.",
+        )
+    return repository
+
+
+def _chat_import_status(session: ChatImportSession) -> ChatImportSessionStatus:
+    return ChatImportSessionStatus(
+        uploadId=session.upload_id,
+        chunkSize=session.chunk_size,
+        totalChunks=session.total_chunks,
+        uploadedChunks=list(session.uploaded_chunks),
+        status=session.status,
+        submissionId=session.submission_id,
+    )
 
 
 def _chat_submission_management_service(
@@ -1087,6 +1123,276 @@ async def list_chat_submission_files(
         )
         for submission in reversed(submissions)
     ]
+
+
+@router.post(
+    "/chat-submission-imports",
+    response_model=ChatImportSessionStatus,
+    status_code=status.HTTP_201_CREATED,
+)
+async def create_chat_submission_import(
+    import_data: ChatImportCreate,
+    request: Request,
+    _: str = Depends(require_researcher),
+) -> ChatImportSessionStatus:
+    if import_data.tool == "claude":
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Claude 내보내기 파일 등록은 파서 준비 후 지원할 예정입니다.",
+        )
+    phone = "".join(character for character in import_data.phone if character.isdigit())
+    if len(phone) != 11 or not phone.startswith("01"):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="휴대폰 번호는 숫자 11자리여야 합니다.",
+        )
+    filename = Path(import_data.filename).name
+    source_type = CHAT_IMPORT_TOOL_TYPES[import_data.tool]
+    suffix = Path(filename).suffix.lower()
+    image_suffixes = {".jpg", ".jpeg", ".png", ".webp", ".heic", ".heif"}
+    invalid_file = source_type == "file" and suffix != ".zip"
+    invalid_image_suffix = suffix not in image_suffixes
+    invalid_image_type = import_data.content_type not in IMAGE_CONTENT_TYPES
+    invalid_image = source_type == "image" and (
+        invalid_image_suffix or invalid_image_type
+    )
+    if filename != import_data.filename or invalid_file or invalid_image:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=(
+                "선택한 서비스는 ZIP 파일을 등록해야 합니다."
+                if source_type == "file"
+                else "JPG, PNG, WEBP, HEIC 이미지만 등록할 수 있습니다."
+            ),
+        )
+    if source_type == "image" and import_data.size > MAX_IMAGE_BYTES:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="이미지 한 장은 20MB 미만이어야 합니다.",
+        )
+    participants: ParticipantAccountRepository | None = getattr(
+        request.app.state, "participant_account_repository", None
+    )
+    participant = await participants.find_by_phone(phone) if participants else None
+    if participant is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="해당 휴대폰 번호의 참여자를 찾지 못했습니다.",
+        )
+    if not participant.chat_consent:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="AI 대화문 제출에 동의한 참여자만 등록할 수 있습니다.",
+        )
+    session = await _chat_import_repository(request).create(
+        participant.participant_id,
+        import_data.submission_point,
+        filename,
+        import_data.tool,
+        source_type,
+        import_data.content_type,
+        import_data.size,
+    )
+    return _chat_import_status(session)
+
+
+@router.get(
+    "/chat-submission-imports/{upload_id}", response_model=ChatImportSessionStatus
+)
+async def get_chat_submission_import(
+    upload_id: str,
+    request: Request,
+    _: str = Depends(require_researcher),
+) -> ChatImportSessionStatus:
+    session = await _chat_import_repository(request).get(upload_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail="업로드 세션을 찾을 수 없습니다.")
+    return _chat_import_status(session)
+
+
+@router.put(
+    "/chat-submission-imports/{upload_id}/chunks/{chunk_number}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+async def upload_chat_submission_import_chunk(
+    upload_id: str,
+    chunk_number: int,
+    request: Request,
+    _: str = Depends(require_researcher),
+) -> Response:
+    session = await _chat_import_repository(request).get(upload_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail="업로드 세션을 찾을 수 없습니다.")
+    content_length = request.headers.get("content-length")
+    if content_length is not None and int(content_length) > session.chunk_size:
+        raise HTTPException(status_code=413, detail="chunk 크기 제한을 초과했습니다.")
+    content = await request.body()
+    try:
+        await _chat_import_repository(request).put_chunk(
+            upload_id, chunk_number, content
+        )
+    except ValueError as error:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail=str(error)
+        ) from error
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.post(
+    "/chat-submission-imports/{upload_id}/complete",
+    response_model=ChatImportSessionStatus,
+)
+async def complete_chat_submission_import(
+    upload_id: str,
+    completion: ChatImportComplete,
+    request: Request,
+    _: str = Depends(require_researcher),
+) -> ChatImportSessionStatus:
+    imports = _chat_import_repository(request)
+    upload_ids = list(dict.fromkeys(completion.upload_ids))
+    if upload_id not in upload_ids:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="완료할 업로드 목록이 올바르지 않습니다.",
+        )
+    sessions = [await imports.get(item) for item in upload_ids]
+    if any(session is None for session in sessions):
+        raise HTTPException(status_code=404, detail="업로드 세션을 찾을 수 없습니다.")
+    resolved_sessions = [session for session in sessions if session is not None]
+    first_session = resolved_sessions[0]
+    if all(session.status == "completed" for session in resolved_sessions):
+        return _chat_import_status(first_session)
+    identity = {
+        (
+            session.participant_id,
+            session.submission_point,
+            session.tool,
+            session.source_type,
+        )
+        for session in resolved_sessions
+    }
+    if len(identity) != 1 or any(
+        session.status != "uploading" for session in resolved_sessions
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="서로 다른 업로드 세션은 함께 완료할 수 없습니다.",
+        )
+    if first_session.source_type == "file" and len(resolved_sessions) != 1:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="내보내기 ZIP은 한 개만 등록할 수 있습니다.",
+        )
+    total_size = sum(session.size for session in resolved_sessions)
+    if first_session.source_type == "image" and total_size > 100 * 1024 * 1024:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="이미지 전체 크기는 100MB를 넘을 수 없습니다.",
+        )
+
+    temporary_paths: list[Path] = []
+    try:
+        file_sha256_values: list[str] = []
+        for session in resolved_sessions:
+            with tempfile.NamedTemporaryFile(
+                suffix=Path(session.filename).suffix, delete=False
+            ) as temporary:
+                temporary_path = Path(temporary.name)
+                temporary_paths.append(temporary_path)
+            await imports.write_to_path(session.upload_id, temporary_path)
+            file_sha256_values.append(
+                inspect_chat_import(
+                    temporary_path,
+                    session.tool,
+                    session.source_type,
+                    session.content_type,
+                )
+            )
+        digest = hashlib.sha256()
+        for session, file_sha256 in zip(resolved_sessions, file_sha256_values):
+            digest.update(session.filename.encode("utf-8"))
+            digest.update(b"\0")
+            digest.update(file_sha256.encode("ascii"))
+            digest.update(b"\0")
+        archive_sha256 = digest.hexdigest()
+        if await imports.has_sha256(
+            first_session.participant_id, archive_sha256, upload_ids
+        ):
+            for item in upload_ids:
+                await imports.discard(item)
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="같은 참여자의 동일한 파일 묶음이 이미 등록되어 있습니다.",
+            )
+        submission_id = f"researcher-dashboard-{upload_id}"
+        attachments: list[ChatAttachment] = []
+        for session in resolved_sessions:
+            metadata = {
+                "participant_id": session.participant_id,
+                "submission_point": session.submission_point,
+                "source_type": session.source_type,
+                "tool": session.tool,
+                "content_type": session.content_type,
+                "client_submission_id": submission_id,
+                "uploaded_by": "researcher-dashboard",
+            }
+            file_id = await imports.finalize_file(
+                session.upload_id, archive_sha256, metadata
+            )
+            attachments.append(
+                ChatAttachment(
+                    fileId=file_id,
+                    filename=session.filename,
+                    contentType=session.content_type,
+                    size=session.size,
+                )
+            )
+        if not await imports.has_submission(submission_id):
+            try:
+                await _chat_submission_repository(request).create_submission(
+                    ChatSubmissionRecord(
+                        submissionId=submission_id,
+                        participantId=first_session.participant_id,
+                        submissionPoint=first_session.submission_point,
+                        sourceType=first_session.source_type,
+                        tool=first_session.tool,
+                        rawInput=", ".join(
+                            session.filename for session in resolved_sessions
+                        ),
+                        transcript=ParsedTranscript(
+                            status="placeholder",
+                            parserVersion="attachment-v1",
+                            messages=[],
+                            plainText="",
+                            warnings=[
+                                "원본 첨부 파일은 GridFS에 보관됩니다. 대화문 추출은 아직 수행되지 않았습니다."
+                            ],
+                        ),
+                        submittedAt=datetime.now(UTC),
+                        attachments=attachments,
+                    )
+                )
+            except Exception:
+                for item in upload_ids:
+                    await imports.discard(item)
+                raise
+        for item in upload_ids:
+            await imports.mark_completed(item, submission_id)
+        completed = await imports.get(upload_id)
+        if completed is None:
+            raise RuntimeError("완료된 업로드 세션을 확인하지 못했습니다.")
+        return _chat_import_status(completed)
+    except HTTPException:
+        raise
+    except ValueError as error:
+        for item in upload_ids:
+            await imports.discard(item)
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(error)
+        ) from error
+    finally:
+        for temporary_path in temporary_paths:
+            temporary_path.unlink(missing_ok=True)
 
 
 @router.post(

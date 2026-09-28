@@ -39,6 +39,28 @@ class ChatSubmissionAccepted(BaseModel):
     status: str
 
 
+class ChatImportCreate(BaseModel):
+    phone: str = Field(min_length=1, max_length=30)
+    submission_point: ChatSubmissionPoint = Field(alias="submissionPoint")
+    tool: Literal["chatgpt", "gemini", "claude", "grok", "zeta", "crack", "other"]
+    filename: str = Field(min_length=1, max_length=255)
+    content_type: str = Field(alias="contentType", min_length=1, max_length=100)
+    size: int = Field(gt=0, le=1024 * 1024 * 1024)
+
+
+class ChatImportComplete(BaseModel):
+    upload_ids: list[str] = Field(alias="uploadIds", min_length=1, max_length=20)
+
+
+class ChatImportSessionStatus(BaseModel):
+    upload_id: str = Field(alias="uploadId")
+    chunk_size: int = Field(alias="chunkSize")
+    total_chunks: int = Field(alias="totalChunks")
+    uploaded_chunks: list[int] = Field(alias="uploadedChunks")
+    status: str
+    submission_id: str | None = Field(default=None, alias="submissionId")
+
+
 class ChatAttachment(BaseModel):
     file_id: str = Field(alias="fileId")
     filename: str

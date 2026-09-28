@@ -137,6 +137,7 @@
 - `submission_jobs`: 최종 설문 제출 대기열. 제출 추적 ID, 멱등성 키, 상태, 작업 데이터, 재시도 횟수, 오류 사유, 생성/처리 시각을 저장한다. 처리 상태와 생성 시각의 복합 인덱스.
 - `chat_submissions`: 참여자 ID, 제출 시점(1차 후/4차 후), 입력 형식, AI 도구, 원본 링크 또는 본문, 첨부 파일 메타데이터, 정규화된 대화문, parser 상태·버전·경고, 제출시각, 상태(`active`, `deletion_requested`)와 embedded `review`. `review`는 관리 상태, 메모, 수정 시각, 연구자 ID를 가진다. 삭제 요청은 상태와 `deletion_requested_at`만 기록하고 원본 파일은 유지한다.
 - `chat_uploads.files`/`chat_uploads.chunks`: GridFS bucket. ZIP 또는 이미지 원본을 저장하며, 연구자가 삭제 요청된 제출을 실제 삭제할 때 연결된 파일과 chunk를 함께 삭제한다.
+- `chat_import_sessions`: 연구자 대용량 Takeout 업로드의 참여자, 제출 시점, 원본 크기, chunk 구성을 보존한다. 4MiB chunk는 최종 GridFS file ID 아래 직접 저장하며, ZIP 검증과 SHA 중복 확인이 끝난 뒤 `chat_uploads.files`와 `chat_submissions`를 확정한다.
 - `transcript_parse_runs`: 대화문별 parser 실행 상태, parser/schema 버전, normalized JSON, warning/error와 완료 시각.
 - `chat_download_artifacts`와 `chat_downloads` GridFS bucket: 비동기 원본·대화문 ZIP 작업의 결과 metadata와 파일.
 

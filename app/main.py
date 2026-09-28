@@ -29,6 +29,7 @@ from app.services.chat_downloads import (
     ChatDownloadArtifactRepository,
     MongoChatDownloadArtifactRepository,
 )
+from app.services.chat_imports import ChatImportRepository, MongoChatImportRepository
 from app.services.chats import (
     ChatSubmissionRepository,
     ChatUploadRepository,
@@ -62,6 +63,7 @@ def create_app(
     job_repository: JobRepository | None = None,
     chat_submission_repository: ChatSubmissionRepository | None = None,
     chat_upload_repository: ChatUploadRepository | None = None,
+    chat_import_repository: ChatImportRepository | None = None,
     chat_download_artifact_repository: ChatDownloadArtifactRepository | None = None,
     chat_download_upload_repository: ChatUploadRepository | None = None,
     daily_metrics_repository: DailyMetricsRepository | None = None,
@@ -168,6 +170,12 @@ def create_app(
             app.state.chat_upload_repository = chat_upload_repository
         elif application_settings.mongodb_uri:
             app.state.chat_upload_repository = database.gridfs_bucket("chat_uploads")
+        if chat_import_repository is not None:
+            app.state.chat_import_repository = chat_import_repository
+        elif application_settings.mongodb_uri:
+            app.state.chat_import_repository = MongoChatImportRepository(
+                database.raw_database
+            )
         if chat_download_artifact_repository is not None:
             app.state.chat_download_artifact_repository = (
                 chat_download_artifact_repository

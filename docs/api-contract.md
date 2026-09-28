@@ -210,6 +210,17 @@ Required form fields are `files`, `tool`, `submissionPoint`, `sourceType`, and `
 
 The endpoint returns `202 Accepted` with the supplied `submissionId` and `completed` status when the files and metadata have been stored. Upload completion means only that the original input is durable; transcript parsing is a separate researcher-triggered Queue operation. ZIP files use service-specific adapters when supported. Image files use the configured Gemini screenshot extractor, which preserves source-image provenance and returns warnings when ordering, speaker attribution, or completeness is uncertain. Gemini inline parsing has a stricter per-image limit: an image at or above 20 MB can be uploaded but its parse run fails with a size-limit error.
 
+## Researcher proxy registration of chat files
+
+The researcher file-management dashboard uses a resumable API instead of one large multipart request. All endpoints require an `admin` or `researcher` bearer token. The participant must exist and have AI chat submission consent. Its service values match the participant UI: `chatgpt`, `gemini`, `claude`, `grok`, `zeta`, `crack`, and `other`; however, researcher proxy registration for `claude` is temporarily disabled until a representative export and parser are available.
+
+1. `POST /api/v1/researcher/chat-submission-imports` initializes one file with `phone`, `submissionPoint`, `tool`, `filename`, `contentType`, and `size`. ChatGPT, Gemini, and Grok accept one ZIP up to 1 GB. Claude currently returns `422` in this researcher-only flow. Zeta, Crack, and Other accept up to 20 JPG/PNG/WEBP/HEIC images, each below 20 MB and at most 100 MB total. The response contains `uploadId`, `chunkSize` (currently 4 MiB), `totalChunks`, `uploadedChunks`, and `status`.
+2. `PUT /api/v1/researcher/chat-submission-imports/{uploadId}/chunks/{chunkNumber}` stores one `application/octet-stream` chunk. Sending the same number and bytes again is idempotent; conflicting bytes are rejected.
+3. `GET /api/v1/researcher/chat-submission-imports/{uploadId}` returns persisted chunk progress for retry clients.
+4. `POST /api/v1/researcher/chat-submission-imports/{uploadId}/complete` receives ordered `uploadIds`. It verifies all chunks and file signatures, applies service-specific ZIP validation, computes a bundle SHA-256, rejects an identical participant bundle, and only then creates one active `chat_submissions` record. Grok validation requires its `conversations[]` / `conversation` / `responses[]` JSON structure rather than merely any JSON member. Attachment order follows `uploadIds` and is preserved for screenshot parsing.
+
+The selected service determines `sourceType`; there is no separate input-mode field. Chunks are written directly to the `chat_uploads` GridFS bucket, so the backend never buffers a complete file in memory. Completion temporarily assembles each file on backend disk for validation. Upload completion does not parse the transcript; parsing remains researcher-triggered.
+
 ## Manage AI chat submissions
 
 `GET /api/v1/chat-submissions/mine` returns the authenticated participant's submissions in descending submission-time order. The response contains only `submissionId`, `submissionPoint`, `sourceType`, `tool`, filenames, `submittedAt`, and `status`; it does not expose GridFS file IDs or transcript content.

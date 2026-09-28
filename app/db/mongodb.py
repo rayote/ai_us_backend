@@ -34,26 +34,40 @@ class AsyncCollection:
     async def insert_one(self, document: dict[str, Any]) -> Any:
         return await asyncio.to_thread(self._collection.insert_one, document)
 
-    async def replace_one(self, filters: dict[str, Any], replacement: dict[str, Any], **kwargs: Any) -> Any:
-        return await asyncio.to_thread(self._collection.replace_one, filters, replacement, **kwargs)
+    async def replace_one(
+        self, filters: dict[str, Any], replacement: dict[str, Any], **kwargs: Any
+    ) -> Any:
+        return await asyncio.to_thread(
+            self._collection.replace_one, filters, replacement, **kwargs
+        )
 
     async def create_index(self, keys: list[tuple[str, int]], **kwargs: Any) -> str:
         return await asyncio.to_thread(self._collection.create_index, keys, **kwargs)
 
-    async def find_one(self, filters: dict[str, Any], **kwargs: Any) -> dict[str, Any] | None:
+    async def find_one(
+        self, filters: dict[str, Any], **kwargs: Any
+    ) -> dict[str, Any] | None:
         return await asyncio.to_thread(self._collection.find_one, filters, **kwargs)
 
     def find(self, filters: dict[str, Any]) -> AsyncCursor:
         return AsyncCursor(self._collection.find(filters))
 
-    async def update_one(self, filters: dict[str, Any], update: dict[str, Any], **kwargs: Any) -> Any:
-        return await asyncio.to_thread(self._collection.update_one, filters, update, **kwargs)
+    async def update_one(
+        self, filters: dict[str, Any], update: dict[str, Any], **kwargs: Any
+    ) -> Any:
+        return await asyncio.to_thread(
+            self._collection.update_one, filters, update, **kwargs
+        )
 
     async def update_many(self, filters: dict[str, Any], update: dict[str, Any]) -> Any:
         return await asyncio.to_thread(self._collection.update_many, filters, update)
 
-    async def find_one_and_update(self, filters: dict[str, Any], update: dict[str, Any], **kwargs: Any) -> Any:
-        return await asyncio.to_thread(self._collection.find_one_and_update, filters, update, **kwargs)
+    async def find_one_and_update(
+        self, filters: dict[str, Any], update: dict[str, Any], **kwargs: Any
+    ) -> Any:
+        return await asyncio.to_thread(
+            self._collection.find_one_and_update, filters, update, **kwargs
+        )
 
     async def delete_one(self, filters: dict[str, Any]) -> Any:
         return await asyncio.to_thread(self._collection.delete_one, filters)
@@ -79,7 +93,9 @@ class AsyncGridFSBucket:
         self._bucket = GridFSBucket(database, bucket_name=bucket_name)
 
     async def upload(self, filename: str, data: bytes, metadata: dict[str, Any]) -> str:
-        file_id = await asyncio.to_thread(self._bucket.upload_from_stream, filename, data, metadata=metadata)
+        file_id = await asyncio.to_thread(
+            self._bucket.upload_from_stream, filename, data, metadata=metadata
+        )
         return str(file_id)
 
     async def delete(self, file_id: str) -> None:
@@ -102,10 +118,14 @@ class AsyncGridFSBucket:
 
         return await asyncio.to_thread(download)
 
-    async def upload_file(self, filename: str, source: Path, metadata: dict[str, Any]) -> str:
+    async def upload_file(
+        self, filename: str, source: Path, metadata: dict[str, Any]
+    ) -> str:
         def upload() -> Any:
             with source.open("rb") as input_file:
-                return self._bucket.upload_from_stream(filename, input_file, metadata=metadata)
+                return self._bucket.upload_from_stream(
+                    filename, input_file, metadata=metadata
+                )
 
         file_id = await asyncio.to_thread(upload)
         return str(file_id)
@@ -129,8 +149,18 @@ class MongoDatabase:
     def gridfs_bucket(self, bucket_name: str) -> AsyncGridFSBucket:
         return AsyncGridFSBucket(self._raw_database, bucket_name)
 
+    @property
+    def raw_database(self) -> Any:
+        return self._raw_database
+
     async def connect(self) -> None:
         await asyncio.to_thread(self._client.admin.command, "ping")
+        await asyncio.to_thread(
+            self._raw_database["chat_uploads.chunks"].create_index,
+            [("files_id", ASCENDING), ("n", ASCENDING)],
+            unique=True,
+            name="files_id_1_n_1",
+        )
         await self.database["applications"].create_index(
             [("phone_normalized", ASCENDING)],
             name="applications_phone_normalized_unique",
@@ -152,7 +182,11 @@ class MongoDatabase:
             unique=True,
         )
         await self.database["survey_responses"].create_index(
-            [("participant_id", ASCENDING), ("survey_round", ASCENDING), ("survey_version", ASCENDING)],
+            [
+                ("participant_id", ASCENDING),
+                ("survey_round", ASCENDING),
+                ("survey_version", ASCENDING),
+            ],
             name="survey_responses_participant_round_version_unique",
             unique=True,
         )
@@ -162,21 +196,35 @@ class MongoDatabase:
             unique=True,
         )
         await self.database["daily_metrics"].create_index(
-            [("date", ASCENDING), ("campaign", ASCENDING), ("utm_source", ASCENDING), ("utm_medium", ASCENDING)],
+            [
+                ("date", ASCENDING),
+                ("campaign", ASCENDING),
+                ("utm_source", ASCENDING),
+                ("utm_medium", ASCENDING),
+            ],
             name="daily_metrics_date_campaign_unique",
             unique=True,
         )
         await self.database["abuse_review_status"].create_index(
-            [("survey_round", ASCENDING), ("survey_version", ASCENDING), ("candidate_key", ASCENDING)],
+            [
+                ("survey_round", ASCENDING),
+                ("survey_version", ASCENDING),
+                ("candidate_key", ASCENDING),
+            ],
             name="abuse_review_status_candidate_unique",
             unique=True,
         )
         await self.database["chat_submissions"].create_index(
-            [("participant_id", ASCENDING), ("submission_point", ASCENDING), ("submitted_at", ASCENDING)],
+            [
+                ("participant_id", ASCENDING),
+                ("submission_point", ASCENDING),
+                ("submitted_at", ASCENDING),
+            ],
             name="chat_submissions_participant_point",
         )
         await self.database["transcript_parse_runs"].create_index(
-            [("submission_id", ASCENDING), ("completed_at", ASCENDING)], name="transcript_parse_runs_submission"
+            [("submission_id", ASCENDING), ("completed_at", ASCENDING)],
+            name="transcript_parse_runs_submission",
         )
         await self.database["submission_jobs"].create_index(
             [("job_type", ASCENDING), ("idempotency_key", ASCENDING)],

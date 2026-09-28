@@ -5,7 +5,12 @@ from unittest.mock import MagicMock
 
 import pytest
 from bson import ObjectId
-from scripts.import_chat_upload import import_submission, inspect_gemini_zip, normalize_phone
+from scripts.import_chat_upload import (
+    import_submission,
+    inspect_gemini_zip,
+    normalize_phone,
+    resumable_file_id,
+)
 
 
 def test_normalizes_participant_phone() -> None:
@@ -14,10 +19,20 @@ def test_normalizes_participant_phone() -> None:
         normalize_phone("02-123-4567")
 
 
+def test_resumable_file_id_is_stable_and_scoped() -> None:
+    first = resumable_file_id("participant-1", "afterRound1", "archive-sha")
+
+    assert first == resumable_file_id("participant-1", "afterRound1", "archive-sha")
+    assert first != resumable_file_id("participant-1", "afterRound4", "archive-sha")
+    assert first != resumable_file_id("participant-2", "afterRound1", "archive-sha")
+
+
 def test_inspects_gemini_takeout_zip(tmp_path: Path) -> None:
     archive_path = tmp_path / "takeout.zip"
     with zipfile.ZipFile(archive_path, "w") as archive:
-        archive.writestr("Takeout/My Activity/Gemini Apps/MyActivity.html", "<html>activity</html>")
+        archive.writestr(
+            "Takeout/My Activity/Gemini Apps/MyActivity.html", "<html>activity</html>"
+        )
 
     result = inspect_gemini_zip(archive_path)
 
@@ -40,13 +55,24 @@ def test_import_submission_associates_participant_and_file(tmp_path: Path) -> No
     source.write_bytes(b"PK-test")
     database = SimpleNamespace(chat_submissions=MagicMock())
     inserted_id = ObjectId()
-    database.chat_submissions.insert_one.return_value = SimpleNamespace(inserted_id=inserted_id)
+    database.chat_submissions.insert_one.return_value = SimpleNamespace(
+        inserted_id=inserted_id
+    )
     database.chat_submissions.find_one.return_value = {"_id": inserted_id}
     bucket = MagicMock()
     file_id = ObjectId()
     bucket.upload_from_stream.return_value = file_id
 
-    result = import_submission(database, bucket, source, "participant-1", "afterRound1", "gemini", "id-1", "abc")
+    result = import_submission(
+        database,
+        bucket,
+        source,
+        "participant-1",
+        "afterRound1",
+        "gemini",
+        "id-1",
+        "abc",
+    )
 
     assert result == (str(inserted_id), str(file_id))
     document = database.chat_submissions.insert_one.call_args.args[0]
@@ -70,6 +96,15 @@ def test_import_submission_rolls_back_gridfs_when_insert_fails(tmp_path: Path) -
     bucket.upload_from_stream.return_value = file_id
 
     with pytest.raises(RuntimeError, match="insert failed"):
-        import_submission(database, bucket, source, "participant-1", "afterRound1", "gemini", "id-1", "abc")
+        import_submission(
+            database,
+            bucket,
+            source,
+            "participant-1",
+            "afterRound1",
+            "gemini",
+            "id-1",
+            "abc",
+        )
 
     bucket.delete.assert_called_once_with(file_id)

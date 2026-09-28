@@ -5,6 +5,7 @@ import json
 import re
 import tempfile
 import zipfile
+from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -29,6 +30,7 @@ from app.services.chat_downloads import (
     chat_download_filename,
     transcript_download_filename,
 )
+from app.services.chat_imports import ChatImportRepository, ChatImportSession
 from app.services.chats import (
     ChatSubmissionRepository,
     ChatUploadRepository,
@@ -357,6 +359,94 @@ class InMemoryChatUploads(ChatUploadRepository):
         return self.files[file_id]
 
 
+class InMemoryChatImports(ChatImportRepository):
+    def __init__(self, chunk_size: int = 8) -> None:
+        self.chunk_size = chunk_size
+        self.sessions: dict[str, ChatImportSession] = {}
+        self.chunks: dict[str, dict[int, bytes]] = {}
+        self.sha256_values: set[tuple[str, str]] = set()
+
+    async def create(
+        self,
+        participant_id: str,
+        submission_point: str,
+        filename: str,
+        tool: str,
+        source_type: str,
+        content_type: str,
+        size: int,
+    ) -> ChatImportSession:
+        upload_id = f"upload-{len(self.sessions) + 1}"
+        session = ChatImportSession(
+            upload_id,
+            participant_id,
+            submission_point,
+            filename,
+            tool,
+            source_type,
+            content_type,
+            size,
+            self.chunk_size,
+            (size + self.chunk_size - 1) // self.chunk_size,
+        )
+        self.sessions[upload_id] = session
+        self.chunks[upload_id] = {}
+        return session
+
+    async def get(self, upload_id: str) -> ChatImportSession | None:
+        session = self.sessions.get(upload_id)
+        if session is None:
+            return None
+        return replace(session, uploaded_chunks=tuple(sorted(self.chunks[upload_id])))
+
+    async def put_chunk(self, upload_id: str, number: int, data: bytes) -> None:
+        session = await self.get(upload_id)
+        if session is None:
+            raise ValueError("업로드 세션을 찾을 수 없습니다.")
+        existing = self.chunks[upload_id].get(number)
+        if existing is not None and existing != data:
+            raise ValueError("이미 저장된 chunk와 내용이 다릅니다.")
+        self.chunks[upload_id][number] = data
+
+    async def write_to_path(self, upload_id: str, target: Path) -> None:
+        session = await self.get(upload_id)
+        if session is None or session.uploaded_chunks != tuple(
+            range(session.total_chunks)
+        ):
+            raise ValueError("아직 업로드되지 않은 chunk가 있습니다.")
+        target.write_bytes(
+            b"".join(
+                self.chunks[upload_id][number] for number in range(session.total_chunks)
+            )
+        )
+
+    async def has_sha256(
+        self, participant_id: str, archive_sha256: str, upload_ids: list[str]
+    ) -> bool:
+        return (participant_id, archive_sha256) in self.sha256_values
+
+    async def has_submission(self, submission_id: str) -> bool:
+        return False
+
+    async def finalize_file(
+        self, upload_id: str, archive_sha256: str, metadata: dict[str, Any]
+    ) -> str:
+        session = self.sessions[upload_id]
+        self.sha256_values.add((session.participant_id, archive_sha256))
+        return upload_id
+
+    async def mark_completed(self, upload_id: str, submission_id: str) -> None:
+        self.sessions[upload_id] = replace(
+            self.sessions[upload_id],
+            status="completed",
+            submission_id=submission_id,
+        )
+
+    async def discard(self, upload_id: str) -> None:
+        self.sessions.pop(upload_id, None)
+        self.chunks.pop(upload_id, None)
+
+
 class InMemoryResearchers(ResearcherAccountRepository):
     def __init__(self) -> None:
         self.account = ResearcherAccount(
@@ -377,7 +467,9 @@ class InMemoryResearchers(ResearcherAccountRepository):
 
 
 def _app(
-    chat_consent: bool, transcript_runs: TranscriptParseRunRepository | None = None
+    chat_consent: bool,
+    transcript_runs: TranscriptParseRunRepository | None = None,
+    chat_imports: ChatImportRepository | None = None,
 ) -> tuple[object, InMemoryJobs, InMemoryChatSubmissions, InMemoryChatUploads]:
     jobs = InMemoryJobs()
     submissions = InMemoryChatSubmissions()
@@ -391,9 +483,196 @@ def _app(
         job_repository=jobs,
         chat_submission_repository=submissions,
         chat_upload_repository=uploads,
+        chat_import_repository=chat_imports,
         transcript_parse_run_repository=transcript_runs,
     )
     return app, jobs, submissions, uploads
+
+
+def test_researcher_resumable_takeout_import_accepts_retried_chunks() -> None:
+    imports = InMemoryChatImports()
+    app, _, submissions, _ = _app(True, chat_imports=imports)
+    archive_buffer = io.BytesIO()
+    with zipfile.ZipFile(archive_buffer, "w") as archive:
+        archive.writestr("Takeout/내 활동/Gemini 앱/내활동.html", "Gemini activity")
+    content = archive_buffer.getvalue()
+
+    with TestClient(app) as client:
+        login = client.post(
+            "/api/v1/auth/researcher/login",
+            json={"username": "researcher", "password": "researcher-password"},
+        )
+        headers = {"Authorization": f"Bearer {login.json()['accessToken']}"}
+        initialized = client.post(
+            "/api/v1/researcher/chat-submission-imports",
+            headers=headers,
+            json={
+                "phone": "010-1234-5678",
+                "submissionPoint": "afterRound1",
+                "tool": "gemini",
+                "filename": "takeout.zip",
+                "contentType": "application/zip",
+                "size": len(content),
+            },
+        )
+        upload_id = initialized.json()["uploadId"]
+        chunks = [
+            content[offset : offset + imports.chunk_size]
+            for offset in range(0, len(content), imports.chunk_size)
+        ]
+        for number, chunk in enumerate(chunks):
+            response = client.put(
+                f"/api/v1/researcher/chat-submission-imports/{upload_id}/chunks/{number}",
+                headers={**headers, "Content-Type": "application/octet-stream"},
+                content=chunk,
+            )
+            assert response.status_code == 204
+        retried = client.put(
+            f"/api/v1/researcher/chat-submission-imports/{upload_id}/chunks/0",
+            headers={**headers, "Content-Type": "application/octet-stream"},
+            content=chunks[0],
+        )
+        completed = client.post(
+            f"/api/v1/researcher/chat-submission-imports/{upload_id}/complete",
+            headers=headers,
+            json={"uploadIds": [upload_id]},
+        )
+
+    assert initialized.status_code == 201
+    assert retried.status_code == 204
+    assert completed.status_code == 200
+    assert completed.json()["status"] == "completed"
+    assert len(submissions.submissions) == 1
+    assert submissions.submissions[0].attachments[0].file_id == upload_id
+
+
+def test_researcher_claude_import_is_disabled_until_parser_is_ready() -> None:
+    imports = InMemoryChatImports()
+    app, _, _, _ = _app(True, chat_imports=imports)
+
+    with TestClient(app) as client:
+        login = client.post(
+            "/api/v1/auth/researcher/login",
+            json={"username": "researcher", "password": "researcher-password"},
+        )
+        response = client.post(
+            "/api/v1/researcher/chat-submission-imports",
+            headers={"Authorization": f"Bearer {login.json()['accessToken']}"},
+            json={
+                "phone": "01012345678",
+                "submissionPoint": "afterRound1",
+                "tool": "claude",
+                "filename": "claude.zip",
+                "contentType": "application/zip",
+                "size": 1024,
+            },
+        )
+
+    assert response.status_code == 422
+    assert (
+        response.json()["detail"]
+        == "Claude 내보내기 파일 등록은 파서 준비 후 지원할 예정입니다."
+    )
+
+
+def test_researcher_grok_import_rejects_unrelated_json_zip() -> None:
+    imports = InMemoryChatImports()
+    app, _, submissions, _ = _app(True, chat_imports=imports)
+    archive_buffer = io.BytesIO()
+    with zipfile.ZipFile(archive_buffer, "w") as archive:
+        archive.writestr("grok.json", json.dumps({"items": []}).encode())
+    content = archive_buffer.getvalue()
+
+    with TestClient(app) as client:
+        login = client.post(
+            "/api/v1/auth/researcher/login",
+            json={"username": "researcher", "password": "researcher-password"},
+        )
+        headers = {"Authorization": f"Bearer {login.json()['accessToken']}"}
+        initialized = client.post(
+            "/api/v1/researcher/chat-submission-imports",
+            headers=headers,
+            json={
+                "phone": "01012345678",
+                "submissionPoint": "afterRound1",
+                "tool": "grok",
+                "filename": "grok.zip",
+                "contentType": "application/zip",
+                "size": len(content),
+            },
+        )
+        upload_id = initialized.json()["uploadId"]
+        for number, offset in enumerate(range(0, len(content), imports.chunk_size)):
+            uploaded = client.put(
+                f"/api/v1/researcher/chat-submission-imports/{upload_id}/chunks/{number}",
+                headers={**headers, "Content-Type": "application/octet-stream"},
+                content=content[offset : offset + imports.chunk_size],
+            )
+            assert uploaded.status_code == 204
+        completed = client.post(
+            f"/api/v1/researcher/chat-submission-imports/{upload_id}/complete",
+            headers=headers,
+            json={"uploadIds": [upload_id]},
+        )
+
+    assert completed.status_code == 422
+    assert "올바른 Grok 대화 내보내기" in completed.json()["detail"]
+    assert submissions.submissions == []
+
+
+def test_researcher_image_import_preserves_selected_order() -> None:
+    imports = InMemoryChatImports()
+    app, _, submissions, _ = _app(True, chat_imports=imports)
+    images = [
+        ("second.png", b"\x89PNG\r\n\x1a\nsecond"),
+        ("first.png", b"\x89PNG\r\n\x1a\nfirst"),
+    ]
+
+    with TestClient(app) as client:
+        login = client.post(
+            "/api/v1/auth/researcher/login",
+            json={"username": "researcher", "password": "researcher-password"},
+        )
+        headers = {"Authorization": f"Bearer {login.json()['accessToken']}"}
+        upload_ids = []
+        for filename, content in images:
+            initialized = client.post(
+                "/api/v1/researcher/chat-submission-imports",
+                headers=headers,
+                json={
+                    "phone": "01012345678",
+                    "submissionPoint": "afterRound4",
+                    "tool": "zeta",
+                    "filename": filename,
+                    "contentType": "image/png",
+                    "size": len(content),
+                },
+            )
+            assert initialized.status_code == 201
+            upload_id = initialized.json()["uploadId"]
+            upload_ids.append(upload_id)
+            for number, offset in enumerate(range(0, len(content), imports.chunk_size)):
+                response = client.put(
+                    f"/api/v1/researcher/chat-submission-imports/{upload_id}/chunks/{number}",
+                    headers={**headers, "Content-Type": "application/octet-stream"},
+                    content=content[offset : offset + imports.chunk_size],
+                )
+                assert response.status_code == 204
+        completed = client.post(
+            f"/api/v1/researcher/chat-submission-imports/{upload_ids[0]}/complete",
+            headers=headers,
+            json={"uploadIds": upload_ids},
+        )
+
+    assert completed.status_code == 200
+    assert len(submissions.submissions) == 1
+    submission = submissions.submissions[0]
+    assert submission.source_type == "image"
+    assert submission.tool == "zeta"
+    assert [attachment.filename for attachment in submission.attachments] == [
+        "second.png",
+        "first.png",
+    ]
 
 
 def test_consented_participant_submission_is_parsed_and_saved() -> None:
