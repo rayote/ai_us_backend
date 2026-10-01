@@ -199,8 +199,13 @@ def test_claude_adapter_decodes_unicode_and_excludes_internal_content() -> None:
         "안녕하세요",
         "반갑습니다",
     ]
-    assert all("\\u" not in turn["content"] for turn in normalized["sessions"][0]["turns"])
-    assert normalized["sessions"][0]["turns"][0]["timestamp"] == "2026-09-28T10:00:00+09:00"
+    assert all(
+        "\\u" not in turn["content"] for turn in normalized["sessions"][0]["turns"]
+    )
+    assert (
+        normalized["sessions"][0]["turns"][0]["timestamp"]
+        == "2026-09-28T10:00:00+09:00"
+    )
     assert warnings == [
         "ZIP 내부의 conversations.json 파일을 파싱했습니다.",
         "Claude 첨부 파일이 포함된 메시지 1개의 파일 본문은 대화문에 포함하지 않았습니다.",

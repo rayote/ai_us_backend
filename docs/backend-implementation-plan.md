@@ -76,7 +76,7 @@
 
 ### 연구자 관리와 결과 다운로드
 
-- 신청 현황, 회차별 참여 현황, 미참여자 목록의 조회 API. 참여 현황은 `participants`와 `survey_responses`에서 계산하고, 미참여자는 지정한 `surveyRound`·`surveyVersion`의 응답이 없는 참여자로 계산한다.
+- 신청 현황, 회차별 참여 현황, 미참여자 목록의 조회 API. 회차 완료와 설문 미완료자 목록은 `survey_definitions.spec.part == 2`인 응답을 기준으로 계산해 part 1만 제출한 참여자를 미완료로 유지한다. 특정 version 미참여자 조회는 지정한 `surveyRound`·`surveyVersion`의 응답 유무를 그대로 사용한다.
 - 조건별 설문 결과와 대화문 자료 CSV 생성 및 다운로드. 작은 결과는 동기로 반환하고, 파일 생성 시간이 길어질 때만 Queue 작업으로 전환한다.
 - 대화문 관리 상태는 `incentive_paid`, `excluded`, `duplicate`, `other`를 사용하고, 상태별 필터와 optional note를 제공한다. `other`의 note만 필수다.
 - 선택 원본 ZIP과 대화문 CSV ZIP은 Queue에서 생성한다. 대화문 ZIP은 누락된 parse를 먼저 실행하고 실패 항목을 `parse-failures.csv`에 기록한다.

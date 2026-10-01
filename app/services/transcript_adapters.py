@@ -24,7 +24,9 @@ def normalize_export(
 ) -> tuple[str, str, dict[str, Any], list[str]]:
     name = filename.lower()
     selected_tool = (tool or "").lower()
-    if "chatgpt" in selected_tool or (not selected_tool and name == "conversations.json"):
+    if "chatgpt" in selected_tool or (
+        not selected_tool and name == "conversations.json"
+    ):
         payload, warnings = _chatgpt_payload(content)
         return (
             "chatgpt-json",

@@ -11,15 +11,19 @@ from app.schemas.reporting import (
 )
 from app.services.auth import ParticipantAccountRepository
 from app.services.chats import ChatSubmissionRepository
-from app.services.surveys import SurveyResponseRepository
+from app.services.surveys import SurveyDefinitionRepository, SurveyResponseRepository
 
 
 def _school_level_counts(participants: list[object]) -> SchoolLevelCount:
-    levels = [getattr(participant, "school_level", None) for participant in participants]
+    levels = [
+        getattr(participant, "school_level", None) for participant in participants
+    ]
     elementary = levels.count("초등")
     middle = levels.count("중등")
     high = levels.count("고등")
-    return SchoolLevelCount(elementary=elementary, middle=middle, high=high, total=len(participants))
+    return SchoolLevelCount(
+        elementary=elementary, middle=middle, high=high, total=len(participants)
+    )
 
 
 class ResearcherReportingService:
@@ -27,30 +31,55 @@ class ResearcherReportingService:
         self,
         participants: ParticipantAccountRepository,
         responses: SurveyResponseRepository,
+        definitions: SurveyDefinitionRepository,
         chat_submissions: ChatSubmissionRepository | None = None,
     ) -> None:
         self._participants = participants
         self._responses = responses
+        self._definitions = definitions
         self._chat_submissions = chat_submissions
+
+    async def _part_two_versions(self) -> dict[int, set[str]]:
+        versions: dict[int, set[str]] = {}
+        for definition in await self._definitions.list_definitions():
+            if definition.part == 2:
+                versions.setdefault(definition.survey_round, set()).add(
+                    definition.survey_version
+                )
+        return versions
 
     async def participation_status(self) -> ParticipationStatus:
         participants = await self._participants.list_participants()
         responses = await self._responses.list_all_responses()
-        participants_by_id = {participant.participant_id: participant for participant in participants}
-        rounds: dict[int, set[str]] = {}
+        part_two_versions = await self._part_two_versions()
+        participants_by_id = {
+            participant.participant_id: participant for participant in participants
+        }
+        rounds: dict[int, set[str]] = {
+            survey_round: set() for survey_round in part_two_versions
+        }
         for response in responses:
-            rounds.setdefault(response.survey_round, set()).add(response.participant_id)
+            if response.survey_version in part_two_versions.get(
+                response.survey_round, set()
+            ):
+                rounds[response.survey_round].add(response.participant_id)
 
         chat_submissions = []
         if self._chat_submissions is not None:
             chat_submissions = await self._chat_submissions.list_submissions()
-            chat_submissions.extend(await self._chat_submissions.list_submissions(status="deletion_requested"))
+            chat_submissions.extend(
+                await self._chat_submissions.list_submissions(
+                    status="deletion_requested"
+                )
+            )
         chat_statuses: dict[str, dict[str, str]] = {}
         for submission in chat_submissions:
             statuses = chat_statuses.setdefault(submission.participant_id, {})
             if statuses.get(submission.submission_point) != "active":
                 statuses[submission.submission_point] = submission.status
-        consented = [participant for participant in participants if participant.chat_consent]
+        consented = [
+            participant for participant in participants if participant.chat_consent
+        ]
         submitted_after_round_1 = [
             participant
             for participant in participants
@@ -84,11 +113,17 @@ class ResearcherReportingService:
             ),
         )
 
-    async def nonparticipants(self, survey_round: int, survey_version: str) -> NonparticipantReport:
+    async def nonparticipants(
+        self, survey_round: int, survey_version: str
+    ) -> NonparticipantReport:
         participants = await self._participants.list_participants()
         responses = await self._responses.list_responses(survey_round, survey_version)
         completed_ids = {response.participant_id for response in responses}
-        missing = [participant for participant in participants if participant.participant_id not in completed_ids]
+        missing = [
+            participant
+            for participant in participants
+            if participant.participant_id not in completed_ids
+        ]
         return NonparticipantReport(
             surveyRound=survey_round,
             surveyVersion=survey_version,
@@ -113,29 +148,52 @@ class ResearcherReportingService:
     ) -> IncompleteParticipantReport:
         participants = await self._participants.list_participants()
         if school_level is not None:
-            participants = [participant for participant in participants if participant.school_level == school_level]
+            participants = [
+                participant
+                for participant in participants
+                if participant.school_level == school_level
+            ]
 
         if category == "survey":
             responses = await self._responses.list_all_responses()
-            completed_ids = {
-                response.participant_id for response in responses if response.survey_round == int(criterion)
-            }
-            missing = [participant for participant in participants if participant.participant_id not in completed_ids]
+            survey_round = int(criterion)
+            part_two_versions = await self._part_two_versions()
+            completion_versions = part_two_versions.get(survey_round, set())
+            completed_ids: set[str] = set()
+            for response in responses:
+                if response.survey_round != survey_round:
+                    continue
+                if response.survey_version in completion_versions:
+                    completed_ids.add(response.participant_id)
+            missing = [
+                participant
+                for participant in participants
+                if participant.participant_id not in completed_ids
+            ]
         else:
             if self._chat_submissions is None:
-                missing = [participant for participant in participants if participant.chat_consent]
+                missing = [
+                    participant
+                    for participant in participants
+                    if participant.chat_consent
+                ]
             else:
-                submissions = await self._chat_submissions.list_submissions(submission_point=criterion)
+                submissions = await self._chat_submissions.list_submissions(
+                    submission_point=criterion
+                )
                 submissions.extend(
                     await self._chat_submissions.list_submissions(
                         submission_point=criterion, status="deletion_requested"
                     )
                 )
-                submitted_ids = {submission.participant_id for submission in submissions}
+                submitted_ids = {
+                    submission.participant_id for submission in submissions
+                }
                 missing = [
                     participant
                     for participant in participants
-                    if participant.chat_consent and participant.participant_id not in submitted_ids
+                    if participant.chat_consent
+                    and participant.participant_id not in submitted_ids
                 ]
 
         return IncompleteParticipantReport(

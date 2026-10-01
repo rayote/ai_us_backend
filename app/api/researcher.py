@@ -251,7 +251,10 @@ def _reporting_service(request: Request) -> ResearcherReportingService:
     responses: SurveyResponseRepository | None = getattr(
         request.app.state, "survey_response_repository", None
     )
-    if participants is None or responses is None:
+    definitions: SurveyDefinitionRepository | None = getattr(
+        request.app.state, "survey_definition_repository", None
+    )
+    if participants is None or responses is None or definitions is None:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="참여 현황 서비스를 준비 중입니다.",
@@ -259,7 +262,7 @@ def _reporting_service(request: Request) -> ResearcherReportingService:
     chats: ChatSubmissionRepository | None = getattr(
         request.app.state, "chat_submission_repository", None
     )
-    return ResearcherReportingService(participants, responses, chats)
+    return ResearcherReportingService(participants, responses, definitions, chats)
 
 
 def _abuse_review_service(request: Request) -> AbuseReviewService:

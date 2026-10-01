@@ -349,7 +349,7 @@ Both endpoints require an `admin` or `researcher` bearer token.
 
 `GET /api/v1/researcher/participation-status`
 
-Returns participant totals by elementary, middle, high, and total. Survey completion is grouped by round regardless of survey version, deduplicated by participant, and includes school-level counts. The response also includes school-level chat-consent and unique submitter counts for `afterRound1` and `afterRound4`; detailed follow-up lists are provided only by the incomplete-participant endpoint.
+Returns participant totals by elementary, middle, high, and total. Survey completion requires a response whose registered survey definition has `part: 2`; a part 1 response alone is incomplete. Completion is grouped by round, deduplicated by participant across part 2 versions, and includes school-level counts. Registered rounds with a part 2 definition are returned even when their completed count is zero. The response also includes school-level chat-consent and unique submitter counts for `afterRound1` and `afterRound4`; detailed follow-up lists are provided only by the incomplete-participant endpoint.
 
 `GET /api/v1/researcher/nonparticipants?survey_round=1&survey_version=t1-elem-part1-v2-0916`
 
@@ -357,7 +357,7 @@ Returns the participants without a completed response for the specified survey r
 
 `GET /api/v1/researcher/incomplete-participants?category=survey&criterion=1&school_level=초등`
 
-Returns the follow-up list used by the unified incomplete-participant management screen. For `category=survey`, `criterion` is a survey round and any completed version in that round counts as completion. For `category=chat`, `criterion` is `afterRound1` or `afterRound4`; only chat-consented participants without either an active or deletion-requested submission are returned. The optional `school_level` is `초등`, `중등`, or `고등`.
+Returns the follow-up list used by the unified incomplete-participant management screen. For `category=survey`, `criterion` is a survey round; only responses for a registered `part: 2` definition count as completion, so part 1-only participants remain in this list. For `category=chat`, `criterion` is `afterRound1` or `afterRound4`; only chat-consented participants without either an active or deletion-requested submission are returned. The optional `school_level` is `초등`, `중등`, or `고등`.
 
 ## Import participants from CSV
 
