@@ -1046,7 +1046,12 @@ def test_researcher_can_export_completed_chat_submission() -> None:
 
     assert submit.status_code == 202
     assert export.status_code == 200
-    assert "마지막 대화" in export.text
+    assert "마지막 대화" not in export.text
+    assert "participant-1,01012345678,초등,,afterRound4,text" in export.text
+    assert re.fullmatch(
+        r'attachment; filename="C2_all_status_\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}\.csv"',
+        export.headers["content-disposition"],
+    )
 
 
 def test_researcher_can_review_submission_and_filter_preview() -> None:
@@ -1158,17 +1163,27 @@ def test_researcher_chat_export_filters_selected_submissions_and_uses_kst_filena
             "/api/v1/auth/researcher/login",
             json={"username": "researcher", "password": "researcher-password"},
         )
+        headers = {"Authorization": f"Bearer {login.json()['accessToken']}"}
+        reviewed = client.patch(
+            "/api/v1/researcher/chat-submissions/selected-chat/review",
+            headers=headers,
+            json={"status": "duplicate", "note": "중복 제출 확인"},
+        )
         response = client.get(
             "/api/v1/researcher/exports/chat-submissions",
-            headers={"Authorization": f"Bearer {login.json()['accessToken']}"},
+            headers=headers,
             params={"submission_id": "selected-chat"},
         )
 
+    assert reviewed.status_code == 200
     assert response.status_code == 200
-    assert "선택한 대화" in response.text
+    assert "선택한 대화" not in response.text
     assert "제외할 대화" not in response.text
+    assert "participantId,phone,schoolLevel,grade" in response.text
+    assert "01012345678" in response.text
+    assert "duplicate,중복 제출 확인" in response.text
     assert re.fullmatch(
-        r'attachment; filename="chat-submissions-all_\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}\.csv"',
+        r'attachment; filename="C_all_all_status_\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}\.csv"',
         response.headers["content-disposition"],
     )
 

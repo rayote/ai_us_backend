@@ -237,7 +237,7 @@ Both endpoints require the participant who owns the submission. The participant 
 
 `GET /api/v1/researcher/exports/chat-submissions?submission_point=afterRound1`
 
-This endpoint accepts an `admin` or `researcher` bearer token. It returns a UTF-8 BOM CSV containing active submissions only: participant ID, name, school level, grade, original input, normalized transcript, parser status, parser version, parser warnings, and review status/note/audit fields. The optional `submission_point` is `afterRound1` or `afterRound4`; the optional `school_level` is `초등`, `중등`, or `고등`.
+This endpoint accepts an `admin` or `researcher` bearer token. It returns a UTF-8 BOM status CSV containing active submissions only: participant ID, phone, school level, grade, submission metadata, parser status/version/warnings, and review status/note/audit fields. It excludes participant names and transcript content (`plainText`, `rawInput`). The optional `submission_point` is `afterRound1` or `afterRound4`; the optional `school_level` is `초등`, `중등`, or `고등`. The researcher console download uses these two filters but includes every review status. Filenames follow `C{round}_{audience}_status_{KST timestamp}.csv`, consistent with survey response exports.
 
 `GET /api/v1/researcher/chat-submission-previews` returns up to 100 active chat submissions for the researcher preview table, newest first, filtered by optional `submission_point`, `school_level`, and `review_filter` parameters. `review_filter` defaults to `unreviewed`; it also accepts `all`, `reviewed`, `incentive_paid`, `excluded`, `duplicate`, and `other`. Each row includes its embedded `review` object when reviewed.
 

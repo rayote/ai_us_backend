@@ -9,7 +9,7 @@ from app.schemas.chat import (
 from app.services.chats import chat_submissions_to_csv
 
 
-def test_chat_export_includes_raw_input_and_normalized_transcript() -> None:
+def test_chat_status_export_excludes_transcript_content() -> None:
     csv_text = chat_submissions_to_csv(
         [
             ChatSubmissionRecord(
@@ -33,12 +33,14 @@ def test_chat_export_includes_raw_input_and_normalized_transcript() -> None:
                 ),
             )
         ],
-        {"participant-1": ("홍길동", "초등", 4)},
+        {"participant-1": ("01012345678", "초등", 4)},
     )
 
-    assert csv_text.splitlines()[0].startswith("participantId,name,schoolLevel,grade")
-    assert "홍길동,초등,4" in csv_text
-    assert "user: 안녕하세요" in csv_text
-    assert "사용자: 안녕하세요" in csv_text
+    assert csv_text.splitlines()[0].startswith("participantId,phone,schoolLevel,grade")
+    assert "01012345678,초등,4" in csv_text
+    assert "plainText" not in csv_text.splitlines()[0]
+    assert "rawInput" not in csv_text.splitlines()[0]
+    assert "user: 안녕하세요" not in csv_text
+    assert "사용자: 안녕하세요" not in csv_text
     assert "reviewStatus,reviewNote,reviewedAt,reviewedBy" in csv_text
     assert "other,대화 내용 부족,2026-09-22T12:00:00+00:00,researcher-1" in csv_text

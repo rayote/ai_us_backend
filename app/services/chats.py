@@ -35,6 +35,9 @@ class InvalidChatUploadError(Exception):
     """Raised when uploaded chat files do not meet the submission rules."""
 
 
+ChatParticipantProfile = tuple[str | None, str | None, int | None]
+
+
 class ChatSubmissionRepository(Protocol):
     async def create_submission(self, submission: ChatSubmissionRecord) -> None: ...
 
@@ -488,16 +491,14 @@ async def store_chat_submission(
 
 def chat_submissions_to_csv(
     submissions: list[ChatSubmissionRecord],
-    participant_profiles: (
-        dict[str, tuple[str | None, str | None, int | None]] | None
-    ) = None,
+    participant_profiles: dict[str, ChatParticipantProfile] | None = None,
 ) -> str:
     output = io.StringIO(newline="")
     writer = csv.writer(output)
     writer.writerow(
         [
             "participantId",
-            "name",
+            "phone",
             "schoolLevel",
             "grade",
             "submissionPoint",
@@ -510,8 +511,6 @@ def chat_submissions_to_csv(
             "reviewNote",
             "reviewedAt",
             "reviewedBy",
-            "plainText",
-            "rawInput",
         ]
     )
     for submission in submissions:
@@ -538,8 +537,6 @@ def chat_submissions_to_csv(
                 ),
                 submission.review.updated_at.isoformat() if submission.review else "",
                 submission.review.updated_by if submission.review else "",
-                submission.transcript.plain_text,
-                submission.raw_input,
             ]
         )
     return output.getvalue()

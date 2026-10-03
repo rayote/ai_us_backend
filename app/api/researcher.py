@@ -755,7 +755,7 @@ async def export_chat_submissions(
         )
     profiles = {
         participant.participant_id: (
-            participant.name,
+            participant.phone,
             participant.school_level,
             participant.grade,
         )
@@ -779,15 +779,28 @@ async def export_chat_submissions(
             == school_level
         ]
     csv_text = chat_submissions_to_csv(submissions, profiles)
-    point_name = submission_point or "all"
-    timestamp = _kst_filename_timestamp()
+    filename = _chat_submission_status_export_filename(
+        submission_point, school_level, datetime.now(UTC)
+    )
     return Response(
         content="\ufeff" + csv_text,
         media_type="text/csv; charset=utf-8",
-        headers={
-            "Content-Disposition": f'attachment; filename="chat-submissions-{point_name}_{timestamp}.csv"'
-        },
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
+
+
+def _chat_submission_status_export_filename(
+    submission_point: str | None,
+    school_level: str | None,
+    exported_at: datetime,
+) -> str:
+    point = {"afterRound1": "C1", "afterRound4": "C2"}.get(submission_point, "C_all")
+    audience = {
+        "초등": "elem",
+        "중등": "middle",
+        "고등": "high",
+    }.get(school_level, "all")
+    return f"{point}_{audience}_status_{_kst_filename_timestamp(exported_at)}.csv"
 
 
 @router.get("/chat-submission-previews", response_model=list[ChatSubmissionPreview])
