@@ -48,6 +48,10 @@ from app.services.transcript_runs import (
     MongoTranscriptParseRunRepository,
     TranscriptParseRunRepository,
 )
+from app.services.worker_health import (
+    MongoWorkerHealthRepository,
+    WorkerHealthRepository,
+)
 from fastapi import FastAPI, status
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -69,6 +73,7 @@ def create_app(
     daily_metrics_repository: DailyMetricsRepository | None = None,
     abuse_review_status_repository: AbuseReviewStatusRepository | None = None,
     transcript_parse_run_repository: TranscriptParseRunRepository | None = None,
+    worker_health_repository: WorkerHealthRepository | None = None,
 ) -> FastAPI:
     application_settings = settings or Settings.from_environment()
 
@@ -151,6 +156,12 @@ def create_app(
         elif application_settings.mongodb_uri:
             app.state.job_repository = MongoJobRepository(
                 database.database["submission_jobs"]
+            )
+        if worker_health_repository is not None:
+            app.state.worker_health_repository = worker_health_repository
+        elif application_settings.mongodb_uri:
+            app.state.worker_health_repository = MongoWorkerHealthRepository(
+                database.database["service_heartbeats"]
             )
         if chat_submission_repository is not None:
             app.state.chat_submission_repository = chat_submission_repository

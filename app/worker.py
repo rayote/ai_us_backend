@@ -1,9 +1,14 @@
 from __future__ import annotations
 
 import asyncio
+import fcntl
+import logging
 import os
 import tempfile
+from contextlib import suppress
+from datetime import UTC, datetime
 from pathlib import Path
+from typing import TextIO
 
 from app.core.settings import Settings
 from app.db.mongodb import MongoDatabase
@@ -31,9 +36,43 @@ from app.services.transcript_runs import (
     build_transcript_archive,
     process_transcript_parse,
 )
+from app.services.worker_health import (
+    MongoWorkerHealthRepository,
+    WorkerHealthRepository,
+)
+
+WORKER_HEARTBEAT_INTERVAL_SECONDS = 5
+WORKER_PROCESS_LOCK_PATH = "/tmp/ai-us-worker.lock"
+logger = logging.getLogger(__name__)
+
+
+def acquire_worker_process_lock(
+    path: str = WORKER_PROCESS_LOCK_PATH,
+) -> TextIO:
+    lock_file = open(path, "w", encoding="ascii")
+    try:
+        fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError as error:
+        lock_file.close()
+        raise RuntimeError("Another worker process is already running.") from error
+    lock_file.write(str(os.getpid()))
+    lock_file.flush()
+    return lock_file
+
+
+async def maintain_worker_heartbeat(
+    repository: WorkerHealthRepository,
+) -> None:
+    while True:
+        try:
+            await repository.touch(datetime.now(UTC))
+        except Exception:
+            logger.exception("Worker heartbeat update failed")
+        await asyncio.sleep(WORKER_HEARTBEAT_INTERVAL_SECONDS)
 
 
 async def run_worker() -> None:
+    worker_process_lock = acquire_worker_process_lock()
     settings = Settings.from_environment()
     if settings.mongodb_uri is None:
         raise RuntimeError("MONGODB_URI must be configured before starting the worker")
@@ -54,6 +93,7 @@ async def run_worker() -> None:
     transcript_runs = MongoTranscriptParseRunRepository(
         database.database["transcript_parse_runs"]
     )
+    worker_health = MongoWorkerHealthRepository(database.database["service_heartbeats"])
     screenshot_extractor = (
         GeminiScreenshotTranscriptExtractor(
             settings.gemini_api_key, settings.gemini_screenshot_model
@@ -194,13 +234,18 @@ async def run_worker() -> None:
         },
     )
     await worker.recover()
+    heartbeat_task = asyncio.create_task(maintain_worker_heartbeat(worker_health))
     try:
         while True:
             processed = await worker.process_one()
             if not processed:
                 await asyncio.sleep(0.5)
     finally:
+        heartbeat_task.cancel()
+        with suppress(asyncio.CancelledError):
+            await heartbeat_task
         await database.close()
+        worker_process_lock.close()
 
 
 if __name__ == "__main__":

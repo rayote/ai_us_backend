@@ -2,6 +2,8 @@
 
 Base URL: the public backend URL deployed by CloudType for the current environment.
 
+`GET /health` checks only the public API process and remains suitable for participant connection checks and CloudType deployment readiness. Authenticated researchers use `GET /api/v1/researcher/system-health` for separate API and Queue worker status. The worker records a heartbeat every 5 seconds and is reported as `stale` after 60 seconds without an update; this researcher endpoint always returns HTTP `200` so worker degradation does not trigger the participant full-modal flow.
+
 All request and response bodies use JSON unless an endpoint explicitly returns a file.
 
 The API supports the current CloudType preconfigured MongoDB service through PyMongo 3.x compatibility. This does not change the HTTP request or response contract.

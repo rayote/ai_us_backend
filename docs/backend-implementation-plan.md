@@ -135,6 +135,7 @@
 - `survey_sessions`: 참여자별 설문 세션의 시작시각, 마지막 heartbeat, 누적 활동초, 재개횟수, 현재 페이지를 저장한다. 프런트 heartbeat는 30초 간격이며 답변값은 포함하지 않는다.
 - `daily_metrics`: KST 일자와 campaign/UTM 조합별 유입·신청·로그인·설문·대화문 카운터를 저장한다. 원시 이벤트와 IP는 저장하지 않고, 고유 방문자 중복 제거용 익명 ID는 축약 해시로만 보관한다.
 - `submission_jobs`: 최종 설문 제출 대기열. 제출 추적 ID, 멱등성 키, 상태, 작업 데이터, 재시도 횟수, 오류 사유, 생성/처리 시각을 저장한다. 처리 상태와 생성 시각의 복합 인덱스.
+- `service_heartbeats`: Queue worker가 5초마다 갱신하는 생존 시각. 인증된 연구자용 system-health API는 60초 이상 갱신되지 않으면 worker를 `stale`로 표시한다.
 - `chat_submissions`: 참여자 ID, 제출 시점(1차 후/4차 후), 입력 형식, AI 도구, 원본 링크 또는 본문, 첨부 파일 메타데이터, 정규화된 대화문, parser 상태·버전·경고, 제출시각, 상태(`active`, `deletion_requested`)와 embedded `review`. `review`는 관리 상태, 메모, 수정 시각, 연구자 ID를 가진다. 삭제 요청은 상태와 `deletion_requested_at`만 기록하고 원본 파일은 유지한다.
 - `chat_uploads.files`/`chat_uploads.chunks`: GridFS bucket. ZIP 또는 이미지 원본을 저장하며, 연구자가 삭제 요청된 제출을 실제 삭제할 때 연결된 파일과 chunk를 함께 삭제한다.
 - `chat_import_sessions`: 연구자 대용량 Takeout 업로드의 참여자, 제출 시점, 원본 크기, chunk 구성을 보존한다. 4MiB chunk는 최종 GridFS file ID 아래 직접 저장하며, ZIP 검증과 SHA 중복 확인이 끝난 뒤 `chat_uploads.files`와 `chat_submissions`를 확정한다.
@@ -164,14 +165,14 @@ docs/         # 프론트 연동 계약과 운영 문서
 - 운영 환경: 별도 유료 CloudType 계정에 동일한 3개 서비스 구성을 만들고, 개발 환경과 별도의 MongoDB 데이터와 Secret을 사용한다.
 - 프론트: CloudType이 GitHub의 정적 HTML을 현재 구조 그대로 배포한다.
 - 백엔드: CloudType이 GitHub 저장소에서 container를 배포하며, 하나의 backend 컨테이너에서 Uvicorn FastAPI와 대기열 작업자 daemon을 별도 OS 프로세스로 실행한다.
-- 대기열 작업자: 같은 backend 컨테이너에서 `python -m app.worker` 명령으로 실행한다. 설문·본문 대화문 저장, 대화문 파싱, 원본 ZIP, 대화문 CSV ZIP을 처리한다. FastAPI 프로세스 안에서 임시 task로 실행하지 않으며, 기동 시 `processing` 작업을 복구하고 MongoDB 작업 상태를 원자적으로 바꿔 중복 처리를 막는다.
+- 대기열 작업자: 같은 backend 컨테이너에서 `python -m app.worker` 명령으로 실행한다. 설문·본문 대화문 저장, 대화문 파싱, 원본 ZIP, 대화문 CSV ZIP을 처리한다. FastAPI 프로세스 안에서 임시 task로 실행하지 않으며, 기동 시 `processing` 작업을 복구하고 MongoDB 작업 상태를 원자적으로 바꿔 중복 처리를 막는다. 시작 스크립트는 종료된 worker만 2~30초 backoff로 재실행하며, worker의 OS file lock은 같은 컨테이너에서 수동·자동 프로세스가 중복 실행되는 것을 차단한다.
 - MongoDB: CloudType 사전구성 컨테이너를 사용하고 외부 공개를 피한다. backend 서비스에서만 접속하도록 설정하며, MongoDB용 GitHub 저장소는 만들지 않는다.
 - CloudType MongoDB가 wire version 7(MongoDB 4.0 계열)인 경우 PyMongo 4.x는 연결할 수 없다. backend는 `pymongo>=3.12,<4.0`과 동기 클라이언트를 thread 기반 비동기 호환 계층으로 사용한다. MongoDB가 4.4 이상으로 업그레이드될 때만 PyMongo 4.x 전환을 검토한다.
 - 환경변수: `APP_ENV`, `MONGODB_HOST`, `MONGODB_PORT`, `MONGODB_USERNAME`, `MONGODB_PASSWORD`, `DATABASE_NAME`, `JWT_SECRET`, token 만료 설정, `FRONTEND_ORIGINS`, bootstrap 연구자 계정, `GEMINI_API_KEY`, `GEMINI_SCREENSHOT_MODEL`을 CloudType Configure 패널에서 관리한다. MongoDB 비밀번호와 API/JWT key는 Secret으로 저장한다. 전체 목록은 `.env.example`과 배포 체크리스트를 따른다.
 - backend 서비스는 저장소 루트의 `Dockerfile`을 사용한다. CloudType의 Flask 예시는 Python 3.9와 Gunicorn을 전제로 하므로 그대로 사용하지 않고, Python 3.11에서 FastAPI 의존성을 설치하도록 적용한다.
 - Dockerfile의 backend 시작 명령은 `./deploy/start.sh`를 사용한다. 이 스크립트는 CloudType의 `PORT`로 Uvicorn을 실행하고 같은 컨테이너에서 Queue worker daemon을 함께 시작한다. `PORT`가 없으면 CloudType 예시와 같은 `5000`을 사용한다.
 - CORS: 배포된 참여자/연구자 프론트 도메인만 허용하고 `GET`, `POST`, `PUT`, `PATCH`, `DELETE`를 포함한다. 관리 상태 저장은 PATCH preflight가 통과해야 한다.
-- `/health`를 CloudType 상태 점검 경로로 등록한다.
+- 공개 `/health`를 CloudType 상태 점검과 참가자 연결 확인 경로로 등록하고, worker heartbeat는 인증된 연구자용 system-health API에서 분리해 확인한다. CloudType 공식 문서의 Healthz는 무중단 배포 진행 여부를 확인하는 기능이며 런타임 자동 재시작을 보장하지 않는다.
 - API와 작업자의 상태 점검은 각각 분리하고, 실패 작업 수와 가장 오래된 대기 작업 시간을 운영 지표로 확인한다.
 - 운영 배포 전 MongoDB 백업과 복구 절차를 문서화하고 실제 복구를 1회 확인한다.
 

@@ -84,6 +84,7 @@ from app.services.surveys import (
     survey_responses_to_csv,
 )
 from app.services.transcript_runs import TranscriptParseRunRepository, normalized_to_csv
+from app.services.worker_health import WorkerHealthRepository, worker_health_snapshot
 from fastapi import (
     APIRouter,
     Depends,
@@ -97,6 +98,21 @@ from fastapi import (
 from fastapi.responses import Response
 
 router = APIRouter(prefix="/api/v1/researcher", tags=["researcher"])
+
+
+@router.get("/system-health")
+async def system_health(
+    request: Request,
+    _: str = Depends(require_researcher),
+) -> dict[str, object]:
+    repository: WorkerHealthRepository | None = getattr(
+        request.app.state, "worker_health_repository", None
+    )
+    return {
+        "api": {"status": "ok"},
+        "worker": await worker_health_snapshot(repository),
+        "checkedAt": datetime.now(UTC).isoformat(),
+    }
 
 
 def _application_repository(request: Request) -> ApplicationRepository:

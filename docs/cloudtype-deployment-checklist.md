@@ -53,8 +53,9 @@ Gmail Secrets are not required. Password reset verifies participant and guardian
 2. Confirm both Uvicorn and the Queue worker start in backend logs.
 3. Open `GET /health` and confirm `status` is `ok`.
 	- Development must return `environment: development`; production must return `environment: production`.
-4. Confirm the first admin can log in using the configured bootstrap credentials.
-5. Confirm the MongoDB container is not publicly exposed.
+4. Sign in to the researcher console and confirm both the API and Worker indicators are green.
+5. Confirm the first admin can log in using the configured bootstrap credentials.
+6. Confirm the MongoDB container is not publicly exposed.
 6. Set the exact frontend public URL in `FRONTEND_ORIGINS` and verify browser requests are accepted by CORS. Allowed methods must include `GET`, `POST`, `PUT`, `PATCH`, and `DELETE`.
 7. Verify the management-status PATCH preflight returns `200` and includes the frontend origin and PATCH method.
 
