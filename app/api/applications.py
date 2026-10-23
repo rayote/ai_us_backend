@@ -25,7 +25,9 @@ def _participant_repository(request: Request) -> ParticipantAccountRepository | 
     return getattr(request.app.state, "participant_account_repository", None)
 
 
-def _application_settings_repository(request: Request) -> ApplicationSettingsRepository | None:
+def _application_settings_repository(
+    request: Request,
+) -> ApplicationSettingsRepository | None:
     return getattr(request.app.state, "application_settings_repository", None)
 
 
@@ -34,7 +36,9 @@ def _participant_audience(school_level: str | None) -> str:
 
 
 @router.post("", response_model=ApplicationCreated, status_code=status.HTTP_201_CREATED)
-async def create_application(application: ApplicationCreate, request: Request) -> ApplicationCreated:
+async def create_application(
+    application: ApplicationCreate, request: Request
+) -> ApplicationCreated:
     participant_repository = _participant_repository(request)
     if (
         participant_repository is not None
@@ -43,6 +47,19 @@ async def create_application(application: ApplicationCreate, request: Request) -
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="이미 등록된 참여자 휴대폰 번호입니다. 로그인하거나 비밀번호 찾기를 이용해 주세요.",
+        )
+    if participant_repository is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="가입 검증 서비스를 준비 중입니다.",
+        )
+    if (
+        await participant_repository.find_by_phone(application.guardian_phone)
+        is not None
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="이미 가입된 사용자 번호는 보호자 번호로 입력할 수 없어요. 연락처를 다시 확인하세요.",
         )
     try:
         application_id = await _repository(request).create(application)
@@ -53,29 +70,39 @@ async def create_application(application: ApplicationCreate, request: Request) -
         ) from error
 
     settings_repository = _application_settings_repository(request)
-    if settings_repository is None or not await settings_repository.auto_approval_enabled():
+    if (
+        settings_repository is None
+        or not await settings_repository.auto_approval_enabled()
+    ):
         return ApplicationCreated(applicationId=application_id, status="pending")
 
     if participant_repository is None:
-        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="승인 서비스를 준비 중입니다.")
-    try:
-        approved_count = await ApplicationApprovalService(_repository(request), participant_repository).approve(
-            [application_id]
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="승인 서비스를 준비 중입니다.",
         )
+    try:
+        approved_count = await ApplicationApprovalService(
+            _repository(request), participant_repository
+        ).approve([application_id])
     except ExistingParticipantError as error:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail=f"이미 등록된 참여자 휴대폰 번호입니다: {', '.join(error.phone_numbers)}",
+            detail=error.detail,
         ) from error
     account = await participant_repository.find_by_phone(application.phone)
     if approved_count != 1 or account is None:
         raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="자동 승인 처리를 완료하지 못했습니다."
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="자동 승인 처리를 완료하지 못했습니다.",
         )
 
     app_settings = request.app.state.settings
     if app_settings.jwt_secret is None or len(app_settings.jwt_secret.encode()) < 32:
-        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="인증 서비스를 준비 중입니다.")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="인증 서비스를 준비 중입니다.",
+        )
     return ApplicationCreated(
         applicationId=application_id,
         status="approved",

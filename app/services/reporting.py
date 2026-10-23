@@ -110,6 +110,22 @@ class ResearcherReportingService:
                 consented=_school_level_counts(consented),
                 submittedAfterRound1=_school_level_counts(submitted_after_round_1),
                 submittedAfterRound4=_school_level_counts(submitted_after_round_4),
+                submittedAfterRound2=_school_level_counts(
+                    [
+                        participant
+                        for participant in participants
+                        if "afterRound2"
+                        in chat_statuses.get(participant.participant_id, {})
+                    ]
+                ),
+                submittedAfterRound3=_school_level_counts(
+                    [
+                        participant
+                        for participant in participants
+                        if "afterRound3"
+                        in chat_statuses.get(participant.participant_id, {})
+                    ]
+                ),
             ),
         )
 

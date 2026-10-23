@@ -18,7 +18,9 @@ class UnknownQuestionKeyError(Exception):
 
 
 class SurveySubmissionService:
-    def __init__(self, definitions: SurveyDefinitionRepository, jobs: JobRepository) -> None:
+    def __init__(
+        self, definitions: SurveyDefinitionRepository, jobs: JobRepository
+    ) -> None:
         self._definitions = definitions
         self._jobs = jobs
 
@@ -28,11 +30,18 @@ class SurveySubmissionService:
         submission: SurveySubmissionCreate,
         participant: ParticipantAccount | None = None,
     ) -> Job:
-        definition = await self._definitions.get(submission.survey_round, submission.survey_version)
+        definition = await self._definitions.get(
+            submission.survey_round, submission.survey_version
+        )
         if definition is None:
             raise UnknownSurveyDefinitionError
         known_keys = {question.key for question in definition.questions}
-        answers = _merge_participant_profile_answers(submission.answers, known_keys, participant)
+        answers = _merge_participant_profile_answers(
+            submission.answers,
+            known_keys,
+            participant,
+            reenter=submission.survey_round == 2,
+        )
         if unknown_keys := set(answers) - known_keys:
             raise UnknownQuestionKeyError(", ".join(sorted(unknown_keys)))
         return await self._jobs.enqueue(
@@ -44,7 +53,13 @@ class SurveySubmissionService:
                     "surveyRound": submission.survey_round,
                     "surveyVersion": submission.survey_version,
                     "answers": answers,
-                    "detail": submission.detail,
+                    "detail": {
+                        **(submission.detail or {}),
+                        "demographicEntryPolicy": (
+                            "reenter" if submission.survey_round == 2 else "profile"
+                        ),
+                        "demographicPolicyVersion": "2026-10-23",
+                    },
                 },
             )
         )
@@ -54,18 +69,28 @@ def _merge_participant_profile_answers(
     answers: dict[str, object],
     known_keys: set[str],
     participant: ParticipantAccount | None,
+    *,
+    reenter: bool = False,
 ) -> dict[str, object]:
     merged = dict(answers)
     if participant is None:
         return merged
     grade_answer = _grade_answer(participant.school_level, participant.grade)
-    if grade_answer is not None and "demo.grade" in known_keys:
+    if not reenter and grade_answer is not None and "demo.grade" in known_keys:
         merged["demo.grade"] = grade_answer
     if participant.phone and "demo.contact" in known_keys:
-        contact = merged.get("demo.contact") if isinstance(merged.get("demo.contact"), dict) else {}
+        contact = (
+            merged.get("demo.contact")
+            if isinstance(merged.get("demo.contact"), dict)
+            else {}
+        )
         merged["demo.contact"] = {**contact, "demo.contact_phone": participant.phone}
     if participant.guardian_phone and "demo.guardianContact" in known_keys:
-        guardian = merged.get("demo.guardianContact") if isinstance(merged.get("demo.guardianContact"), dict) else {}
+        guardian = (
+            merged.get("demo.guardianContact")
+            if isinstance(merged.get("demo.guardianContact"), dict)
+            else {}
+        )
         merged["demo.guardianContact"] = {
             **guardian,
             "demo.guardianContact_phone": participant.guardian_phone,
@@ -101,6 +126,10 @@ async def store_survey_response(
             surveyVersion=survey_version,
             answers=dict(payload["answers"]),
             submittedAt=datetime.now(UTC),
-            detail=payload.get("detail") if isinstance(payload.get("detail"), dict) else None,
+            detail=(
+                payload.get("detail")
+                if isinstance(payload.get("detail"), dict)
+                else None
+            ),
         )
     )

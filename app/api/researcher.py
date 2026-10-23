@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import csv
 import hashlib
+import io
 import json
 import os
 import tempfile
@@ -48,7 +50,11 @@ from app.schemas.reporting import (
     NonparticipantReport,
     ParticipationStatus,
 )
-from app.schemas.survey import SurveyDefinitionSummary, SurveyResponsePreview
+from app.schemas.survey import (
+    SurveyDefinitionSummary,
+    SurveyResponsePreview,
+    SurveyResponseRecord,
+)
 from app.services.abuse_review import AbuseReviewService
 from app.services.abuse_review_status import (
     AbuseReviewStatusRepository,
@@ -482,7 +488,7 @@ async def approve_applications(
     except ExistingParticipantError as error:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail=f"이미 등록된 참여자 휴대폰 번호입니다: {', '.join(error.phone_numbers)}",
+            detail=error.detail,
         ) from error
     return ApplicationApprovalCompleted(approvedCount=approved_count)
 
@@ -602,7 +608,7 @@ async def incomplete_participants(
                 detail="설문 회차가 올바르지 않습니다.",
             )
         criterion = str(survey_round)
-    elif criterion not in {"afterRound1", "afterRound4"}:
+    elif criterion not in {"afterRound1", "afterRound2", "afterRound3", "afterRound4"}:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="대화문 제출 시점이 올바르지 않습니다.",
@@ -667,6 +673,102 @@ async def export_survey_responses(
         content="\ufeff" + survey_responses_to_csv(definition, responses, profiles),
         media_type="text/csv; charset=utf-8",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@router.get("/survey-progress")
+async def researcher_survey_progress(
+    survey_round: int,
+    survey_version: str,
+    request: Request,
+    format: Literal["json", "csv"] = "json",
+    school_level: Literal["초등", "중등", "고등"] | None = None,
+    _: str = Depends(require_researcher),
+):
+    definition = await _survey_definition_repository(request).get(
+        survey_round, survey_version
+    )
+    if definition is None:
+        raise HTTPException(status_code=404, detail="설문 정의를 찾을 수 없습니다.")
+    repository = getattr(request.app.state, "survey_progress_repository", None)
+    participants = getattr(request.app.state, "participant_account_repository", None)
+    if repository is None or participants is None:
+        raise HTTPException(
+            status_code=503, detail="부분 응답 조회 서비스를 준비 중입니다."
+        )
+    profiles = {
+        participant.participant_id: (
+            participant.phone,
+            participant.school_level,
+            participant.grade,
+        )
+        for participant in await participants.list_participants()
+    }
+    final_ids = {
+        response.participant_id
+        for response in await _survey_response_repository(request).list_responses(
+            survey_round, survey_version
+        )
+    }
+    records = [
+        record
+        for record in await repository.list_incomplete(survey_round, survey_version)
+        if record["participantId"] not in final_ids
+        and not record.get("completed")
+        and (
+            school_level is None
+            or profiles.get(record["participantId"], ("-", None, None))[1]
+            == school_level
+        )
+    ]
+    if format == "json":
+        return records
+    responses = [
+        SurveyResponseRecord(
+            participantId=record["participantId"],
+            surveyRound=survey_round,
+            surveyVersion=survey_version,
+            answers=record["answers"],
+            submittedAt=record["updatedAt"],
+            detail=record.get("detail", {}),
+        )
+        for record in records
+    ]
+    rows = list(
+        csv.reader(
+            io.StringIO(survey_responses_to_csv(definition, responses, profiles))
+        )
+    )
+    rows[0][5] = "부분 응답 저장 일시(KST)"
+    rows[0].extend(
+        [
+            "recordStatus",
+            "progressRevision",
+            "completedPage",
+            "nextPage",
+            "demographicEntryPolicy",
+            "demographicPolicyVersion",
+        ]
+    )
+    for row, record in zip(rows[1:], records, strict=True):
+        row.extend(
+            [
+                "partial",
+                record["revision"],
+                record["completedPage"],
+                record["nextPage"],
+                record.get("detail", {}).get("demographicEntryPolicy", ""),
+                record.get("detail", {}).get("demographicPolicyVersion", ""),
+            ]
+        )
+    output = io.StringIO(newline="")
+    csv.writer(output).writerows(rows)
+    return Response(
+        content="\ufeff" + output.getvalue(),
+        media_type="text/csv; charset=utf-8",
+        headers={
+            "Content-Disposition": f'attachment; filename="partial-survey-round{survey_round}_{datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")}.csv"'
+        },
     )
 
 
@@ -739,7 +841,9 @@ async def survey_response_previews(
 
 @router.get("/exports/chat-submissions")
 async def export_chat_submissions(
-    submission_point: Literal["afterRound1", "afterRound4"] | None = None,
+    submission_point: (
+        Literal["afterRound1", "afterRound2", "afterRound3", "afterRound4"] | None
+    ) = None,
     school_level: Literal["초등", "중등", "고등"] | None = None,
     submission_ids: list[str] | None = Query(default=None, alias="submission_id"),
     request: Request = None,
@@ -794,7 +898,12 @@ def _chat_submission_status_export_filename(
     school_level: str | None,
     exported_at: datetime,
 ) -> str:
-    point = {"afterRound1": "C1", "afterRound4": "C2"}.get(submission_point, "C_all")
+    point = {
+        "afterRound1": "C1",
+        "afterRound2": "T2",
+        "afterRound3": "T3",
+        "afterRound4": "C2",
+    }.get(submission_point, "C_all")
     audience = {
         "초등": "elem",
         "중등": "middle",
@@ -806,7 +915,9 @@ def _chat_submission_status_export_filename(
 @router.get("/chat-submission-previews", response_model=list[ChatSubmissionPreview])
 async def chat_submission_previews(
     request: Request,
-    submission_point: Literal["afterRound1", "afterRound4"] | None = None,
+    submission_point: (
+        Literal["afterRound1", "afterRound2", "afterRound3", "afterRound4"] | None
+    ) = None,
     school_level: Literal["초등", "중등", "고등"] | None = None,
     review_filter: Literal[
         "all",

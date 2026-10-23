@@ -4,7 +4,11 @@ from datetime import UTC, datetime
 from app.core.security import hash_password
 from app.core.settings import Settings
 from app.main import create_app
-from app.schemas.application import ApplicationConsents, ApplicationCreate, ApplicationRecord
+from app.schemas.application import (
+    ApplicationConsents,
+    ApplicationCreate,
+    ApplicationRecord,
+)
 from app.services.application_settings import ApplicationSettingsRepository
 from app.services.applications import ApplicationRepository
 from app.services.auth import (
@@ -27,7 +31,11 @@ class InMemoryApplications(ApplicationRepository):
                 guardianPhone="01099999999",
                 email="participant@example.com",
                 consents=ApplicationConsents(
-                    documentRead=True, survey=True, chat=False, participant=True, guardian=True
+                    documentRead=True,
+                    survey=True,
+                    chat=False,
+                    participant=True,
+                    guardian=True,
                 ),
                 status="pending",
                 submittedAt=datetime.now(UTC),
@@ -37,7 +45,9 @@ class InMemoryApplications(ApplicationRepository):
     async def create(self, application: ApplicationCreate) -> str:
         raise NotImplementedError
 
-    async def list_applications(self, school_level: str | None = None) -> list[ApplicationRecord]:
+    async def list_applications(
+        self, school_level: str | None = None
+    ) -> list[ApplicationRecord]:
         return self.records
 
     async def get_pending(self, application_ids: list[str]) -> list[ApplicationRecord]:
@@ -61,7 +71,9 @@ class InMemoryApplications(ApplicationRepository):
         for index, record in enumerate(self.records):
             if record.application_id == application_id:
                 self.records[index] = record.model_copy(
-                    update={"consents": record.consents.model_copy(update={"chat": enabled})}
+                    update={
+                        "consents": record.consents.model_copy(update={"chat": enabled})
+                    }
                 )
                 return True
         return False
@@ -87,7 +99,14 @@ class InMemoryParticipants(ParticipantAccountRepository):
         return self.accounts.get(phone)
 
     async def find_by_id(self, participant_id: str) -> ParticipantAccount | None:
-        return next((account for account in self.accounts.values() if account.participant_id == participant_id), None)
+        return next(
+            (
+                account
+                for account in self.accounts.values()
+                if account.participant_id == participant_id
+            ),
+            None,
+        )
 
     async def update_password(self, participant_id: str, password_hash: str) -> bool:
         return False
@@ -111,7 +130,9 @@ class InMemoryParticipants(ParticipantAccountRepository):
                 return True
         return False
 
-    async def reset_password_by_phone_email(self, phone: str, email: str, password_hash: str) -> bool:
+    async def reset_password_by_phone_email(
+        self, phone: str, email: str, password_hash: str
+    ) -> bool:
         return False
 
     async def create(
@@ -140,17 +161,30 @@ class InMemoryParticipants(ParticipantAccountRepository):
         return True
 
     async def create_imported(
-        self, phone: str, password_hash: str, name: str, school_level: str, grade: int, email: str | None = None
+        self,
+        phone: str,
+        password_hash: str,
+        name: str,
+        school_level: str,
+        grade: int,
+        email: str | None = None,
     ) -> bool:
-        return await self.create(phone, password_hash, school_level=school_level, email=email)
+        return await self.create(
+            phone, password_hash, school_level=school_level, email=email
+        )
 
 
 class InMemoryResearchers(ResearcherAccountRepository):
     def __init__(self) -> None:
         self.accounts = {
-            "admin": ResearcherAccount("admin-1", "admin", hash_password("admin-password"), "admin"),
+            "admin": ResearcherAccount(
+                "admin-1", "admin", hash_password("admin-password"), "admin"
+            ),
             "researcher": ResearcherAccount(
-                "researcher-1", "researcher", hash_password("researcher-password"), "researcher"
+                "researcher-1",
+                "researcher",
+                hash_password("researcher-password"),
+                "researcher",
             ),
         }
 
@@ -164,7 +198,9 @@ class InMemoryResearchers(ResearcherAccountRepository):
         if username in self.accounts:
             return None
         researcher_id = f"researcher-{len(self.accounts)}"
-        self.accounts[username] = ResearcherAccount(researcher_id, username, password_hash, role)
+        self.accounts[username] = ResearcherAccount(
+            researcher_id, username, password_hash, role
+        )
         return researcher_id
 
 
@@ -173,7 +209,14 @@ def _client() -> tuple[TestClient, InMemoryParticipants]:
     return (
         TestClient(
             create_app(
-                Settings("test", None, "ai_us_test", (), "test-secret-at-least-thirty-two-bytes", 60),
+                Settings(
+                    "test",
+                    None,
+                    "ai_us_test",
+                    (),
+                    "test-secret-at-least-thirty-two-bytes",
+                    60,
+                ),
                 application_repository=InMemoryApplications(),
                 application_settings_repository=InMemoryApplicationSettings(),
                 participant_account_repository=participants,
@@ -232,7 +275,13 @@ def test_researcher_chat_consent_update_syncs_application_and_participant() -> N
         )
         assert approval_response.status_code == 200
         participants.accounts["01012345678"] = ParticipantAccount(
-            "01012345678", "01012345678", "hash", False, False, "초등", guardian_phone="01099999999"
+            "01012345678",
+            "01012345678",
+            "hash",
+            False,
+            False,
+            "초등",
+            guardian_phone="01099999999",
         )
         response = client.put(
             "/api/v1/researcher/applications/65f000000000000000000001/chat-consent",
@@ -241,7 +290,10 @@ def test_researcher_chat_consent_update_syncs_application_and_participant() -> N
         )
 
     assert response.status_code == 200
-    assert response.json() == {"applicationId": "65f000000000000000000001", "chatConsent": True}
+    assert response.json() == {
+        "applicationId": "65f000000000000000000001",
+        "chatConsent": True,
+    }
     assert participants.accounts["01012345678"].chat_consent is True
     assert client.app.state.application_repository.records[0].consents.chat is True
 
@@ -289,13 +341,21 @@ def test_researcher_can_view_but_only_admin_can_change_auto_approval() -> None:
     with client:
         researcher_headers = {"Authorization": f"Bearer {_researcher_token(client)}"}
         admin_headers = {"Authorization": f"Bearer {_admin_token(client)}"}
-        initial_response = client.get("/api/v1/researcher/application-settings", headers=researcher_headers)
-        update_response = client.put(
-            "/api/v1/admin/application-settings", headers=admin_headers, json={"autoApproval": True}
+        initial_response = client.get(
+            "/api/v1/researcher/application-settings", headers=researcher_headers
         )
-        refreshed_response = client.get("/api/v1/researcher/application-settings", headers=researcher_headers)
+        update_response = client.put(
+            "/api/v1/admin/application-settings",
+            headers=admin_headers,
+            json={"autoApproval": True},
+        )
+        refreshed_response = client.get(
+            "/api/v1/researcher/application-settings", headers=researcher_headers
+        )
         blocked_response = client.put(
-            "/api/v1/admin/application-settings", headers=researcher_headers, json={"autoApproval": False}
+            "/api/v1/admin/application-settings",
+            headers=researcher_headers,
+            json={"autoApproval": False},
         )
 
     assert initial_response.json() == {"autoApproval": False}
@@ -306,7 +366,9 @@ def test_researcher_can_view_but_only_admin_can_change_auto_approval() -> None:
 
 def test_researcher_cannot_approve_application_for_existing_participant() -> None:
     client, participants = _client()
-    asyncio.run(participants.create("01012345678", hash_password("1234"), school_level="초등"))
+    asyncio.run(
+        participants.create("01012345678", hash_password("1234"), school_level="초등")
+    )
     with client:
         response = client.post(
             "/api/v1/researcher/applications/approve",
@@ -316,6 +378,26 @@ def test_researcher_cannot_approve_application_for_existing_participant() -> Non
 
     assert response.status_code == 409
     assert "이미 등록된 참여자" in response.json()["detail"]
+
+
+def test_approval_rechecks_guardian_against_newly_registered_participant() -> None:
+    client, participants = _client()
+    asyncio.run(
+        participants.create("01099999999", hash_password("1234"), school_level="초등")
+    )
+    with client:
+        response = client.post(
+            "/api/v1/researcher/applications/approve",
+            headers={"Authorization": f"Bearer {_researcher_token(client)}"},
+            json={"applicationIds": ["65f000000000000000000001"]},
+        )
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == (
+        "이미 가입된 사용자 번호는 보호자 번호로 입력할 수 없어요. 연락처를 다시 확인하세요."
+    )
+    assert "01012345678" not in participants.accounts
+    assert client.app.state.application_repository.records[0].status == "pending"
 
 
 def test_researcher_can_import_participants_from_csv() -> None:

@@ -1,8 +1,12 @@
 from __future__ import annotations
 
 from app.api.auth import _participant_id
-from app.api.survey import _job_repository
-from app.schemas.chat import ChatSubmissionAccepted, ChatSubmissionCreate, ChatSubmissionSummary
+from app.api.survey import _job_repository, _survey_status
+from app.schemas.chat import (
+    ChatSubmissionAccepted,
+    ChatSubmissionCreate,
+    ChatSubmissionSummary,
+)
 from app.services.auth import ParticipantAccountRepository
 from app.services.chats import (
     ChatConsentRequiredError,
@@ -16,9 +20,33 @@ from app.services.chats import (
     InvalidChatUploadError,
     submission_summary,
 )
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile, status
+from fastapi import (
+    APIRouter,
+    Depends,
+    File,
+    Form,
+    HTTPException,
+    Request,
+    UploadFile,
+    status,
+)
 
 router = APIRouter(prefix="/api/v1/chat-submissions", tags=["chat submissions"])
+
+
+async def _require_completed_survey(request: Request, participant_id: str) -> None:
+    participants = getattr(request.app.state, "participant_account_repository", None)
+    participant = (
+        await participants.find_by_id(participant_id)
+        if participants is not None
+        else None
+    )
+    if participant is None or not participant.chat_consent:
+        raise HTTPException(status_code=403, detail="대화문 제출 동의가 필요합니다.")
+    if not (await _survey_status(request, participant_id))["completedRounds"]:
+        raise HTTPException(
+            status_code=403, detail="설문을 한 회차 이상 완료한 후 제출할 수 있습니다."
+        )
 
 
 def _submission_service(request: Request) -> ChatSubmissionService:
@@ -27,7 +55,8 @@ def _submission_service(request: Request) -> ChatSubmissionService:
     )
     if participants is None:
         raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="대화문 제출 서비스를 준비 중입니다."
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="대화문 제출 서비스를 준비 중입니다.",
         )
     return ChatSubmissionService(participants, _job_repository(request))
 
@@ -36,43 +65,64 @@ def _upload_service(request: Request) -> ChatUploadService:
     participants: ParticipantAccountRepository | None = getattr(
         request.app.state, "participant_account_repository", None
     )
-    submissions: ChatSubmissionRepository | None = getattr(request.app.state, "chat_submission_repository", None)
-    uploads: ChatUploadRepository | None = getattr(request.app.state, "chat_upload_repository", None)
+    submissions: ChatSubmissionRepository | None = getattr(
+        request.app.state, "chat_submission_repository", None
+    )
+    uploads: ChatUploadRepository | None = getattr(
+        request.app.state, "chat_upload_repository", None
+    )
     if participants is None or submissions is None or uploads is None:
         raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="파일 제출 서비스를 준비 중입니다."
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="파일 제출 서비스를 준비 중입니다.",
         )
     return ChatUploadService(participants, submissions, uploads)
 
 
 def _management_service(request: Request) -> ChatSubmissionManagementService:
-    submissions: ChatSubmissionRepository | None = getattr(request.app.state, "chat_submission_repository", None)
-    uploads: ChatUploadRepository | None = getattr(request.app.state, "chat_upload_repository", None)
+    submissions: ChatSubmissionRepository | None = getattr(
+        request.app.state, "chat_submission_repository", None
+    )
+    uploads: ChatUploadRepository | None = getattr(
+        request.app.state, "chat_upload_repository", None
+    )
     if submissions is None or uploads is None:
         raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="대화문 관리 서비스를 준비 중입니다."
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="대화문 관리 서비스를 준비 중입니다.",
         )
     return ChatSubmissionManagementService(submissions, uploads)
 
 
-@router.post("", response_model=ChatSubmissionAccepted, status_code=status.HTTP_202_ACCEPTED)
+@router.post(
+    "", response_model=ChatSubmissionAccepted, status_code=status.HTTP_202_ACCEPTED
+)
 async def submit_chat(
     submission: ChatSubmissionCreate,
     request: Request,
     participant_id: str = Depends(_participant_id),
 ) -> ChatSubmissionAccepted:
+    await _require_completed_survey(request, participant_id)
     try:
         job = await _submission_service(request).submit(participant_id, submission)
     except ChatConsentRequiredError as error:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="대화문 제출 동의가 필요합니다.") from error
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="대화문 제출 동의가 필요합니다.",
+        ) from error
     except InvalidChatLinkError as error:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="유효한 대화 공유 링크가 아닙니다."
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="유효한 대화 공유 링크가 아닙니다.",
         ) from error
     return ChatSubmissionAccepted(submissionId=job.id, status=job.status)
 
 
-@router.post("/uploads", response_model=ChatSubmissionAccepted, status_code=status.HTTP_202_ACCEPTED)
+@router.post(
+    "/uploads",
+    response_model=ChatSubmissionAccepted,
+    status_code=status.HTTP_202_ACCEPTED,
+)
 async def submit_chat_upload(
     request: Request,
     files: list[UploadFile] = File(...),
@@ -82,6 +132,7 @@ async def submit_chat_upload(
     submission_id: str = Form(..., alias="submissionId", min_length=1, max_length=128),
     participant_id: str = Depends(_participant_id),
 ) -> ChatSubmissionAccepted:
+    await _require_completed_survey(request, participant_id)
     try:
         upload_files = [
             ChatUploadFile(
@@ -91,15 +142,30 @@ async def submit_chat_upload(
             )
             for file in files
         ]
-        if submission_point not in {"afterRound1", "afterRound4"}:
+        if submission_point not in {
+            "afterRound1",
+            "afterRound2",
+            "afterRound3",
+            "afterRound4",
+        }:
             raise InvalidChatUploadError("제출 시점이 올바르지 않습니다.")
         await _upload_service(request).submit(
-            participant_id, submission_point, source_type, tool, submission_id, upload_files
+            participant_id,
+            submission_point,
+            source_type,
+            tool,
+            submission_id,
+            upload_files,
         )
     except ChatConsentRequiredError as error:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="대화문 제출 동의가 필요합니다.") from error
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="대화문 제출 동의가 필요합니다.",
+        ) from error
     except InvalidChatUploadError as error:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(error)) from error
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(error)
+        ) from error
     return ChatSubmissionAccepted(submissionId=submission_id, status="completed")
 
 
@@ -108,10 +174,13 @@ async def list_my_chat_submissions(
     request: Request,
     participant_id: str = Depends(_participant_id),
 ) -> list[ChatSubmissionSummary]:
-    submissions: ChatSubmissionRepository | None = getattr(request.app.state, "chat_submission_repository", None)
+    submissions: ChatSubmissionRepository | None = getattr(
+        request.app.state, "chat_submission_repository", None
+    )
     if submissions is None:
         raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="대화문 관리 서비스를 준비 중입니다."
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="대화문 관리 서비스를 준비 중입니다.",
         )
     return [
         ChatSubmissionSummary.model_validate(submission_summary(submission))
@@ -125,8 +194,13 @@ async def request_chat_submission_deletion(
     request: Request,
     participant_id: str = Depends(_participant_id),
 ) -> ChatSubmissionSummary:
-    if not await _management_service(request).request_deletion(submission_id, participant_id):
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="삭제 요청할 제출 내역을 찾을 수 없습니다.")
+    if not await _management_service(request).request_deletion(
+        submission_id, participant_id
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="삭제 요청할 제출 내역을 찾을 수 없습니다.",
+        )
     submissions: ChatSubmissionRepository = request.app.state.chat_submission_repository
     submission = next(
         (
@@ -137,7 +211,10 @@ async def request_chat_submission_deletion(
         None,
     )
     if submission is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="삭제 요청할 제출 내역을 찾을 수 없습니다.")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="삭제 요청할 제출 내역을 찾을 수 없습니다.",
+        )
     return ChatSubmissionSummary.model_validate(submission_summary(submission))
 
 
@@ -147,8 +224,13 @@ async def restore_chat_submission(
     request: Request,
     participant_id: str = Depends(_participant_id),
 ) -> ChatSubmissionSummary:
-    if not await _management_service(request).restore_deletion(submission_id, participant_id):
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="되돌릴 삭제 요청 내역을 찾을 수 없습니다.")
+    if not await _management_service(request).restore_deletion(
+        submission_id, participant_id
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="되돌릴 삭제 요청 내역을 찾을 수 없습니다.",
+        )
     submissions: ChatSubmissionRepository = request.app.state.chat_submission_repository
     submission = next(
         (
@@ -159,5 +241,8 @@ async def restore_chat_submission(
         None,
     )
     if submission is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="되돌릴 삭제 요청 내역을 찾을 수 없습니다.")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="되돌릴 삭제 요청 내역을 찾을 수 없습니다.",
+        )
     return ChatSubmissionSummary.model_validate(submission_summary(submission))

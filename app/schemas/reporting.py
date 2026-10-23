@@ -22,6 +22,18 @@ class ChatParticipationStatus(BaseModel):
     consented: SchoolLevelCount
     submitted_after_round_1: SchoolLevelCount = Field(alias="submittedAfterRound1")
     submitted_after_round_4: SchoolLevelCount = Field(alias="submittedAfterRound4")
+    submitted_after_round_2: SchoolLevelCount = Field(
+        default_factory=lambda: SchoolLevelCount(
+            elementary=0, middle=0, high=0, total=0
+        ),
+        alias="submittedAfterRound2",
+    )
+    submitted_after_round_3: SchoolLevelCount = Field(
+        default_factory=lambda: SchoolLevelCount(
+            elementary=0, middle=0, high=0, total=0
+        ),
+        alias="submittedAfterRound3",
+    )
 
 
 class ParticipationStatus(BaseModel):

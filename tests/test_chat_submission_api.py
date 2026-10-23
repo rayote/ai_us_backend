@@ -471,6 +471,15 @@ def _app(
     transcript_runs: TranscriptParseRunRepository | None = None,
     chat_imports: ChatImportRepository | None = None,
 ) -> tuple[object, InMemoryJobs, InMemoryChatSubmissions, InMemoryChatUploads]:
+    from types import SimpleNamespace
+
+    class CompletedSurveys:
+        async def get(self, survey_round, survey_version):
+            return SimpleNamespace(spec={"part": 2})
+
+        async def list_versions_for_participant(self, participant_id, survey_round):
+            return ["completed-part2"] if survey_round == 1 else []
+
     jobs = InMemoryJobs()
     submissions = InMemoryChatSubmissions()
     uploads = InMemoryChatUploads()
@@ -485,6 +494,8 @@ def _app(
         chat_upload_repository=uploads,
         chat_import_repository=chat_imports,
         transcript_parse_run_repository=transcript_runs,
+        survey_definition_repository=CompletedSurveys(),
+        survey_response_repository=CompletedSurveys(),
     )
     return app, jobs, submissions, uploads
 

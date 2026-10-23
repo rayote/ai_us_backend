@@ -41,6 +41,7 @@ class Settings:
     participant_jwt_expiration_minutes: int = 240
     gemini_api_key: str | None = None
     gemini_screenshot_model: str = "gemini-3.8-flash"
+    t1_submissions_open: bool = True
 
     @classmethod
     def from_environment(cls) -> "Settings":
@@ -53,7 +54,12 @@ class Settings:
             jwt_expiration_minutes=int(getenv("JWT_EXPIRATION_MINUTES", "60")),
             researcher_bootstrap_username=getenv("RESEARCHER_BOOTSTRAP_USERNAME"),
             researcher_bootstrap_password=getenv("RESEARCHER_BOOTSTRAP_PASSWORD"),
-            participant_jwt_expiration_minutes=int(getenv("PARTICIPANT_JWT_EXPIRATION_MINUTES", "240")),
+            participant_jwt_expiration_minutes=int(
+                getenv("PARTICIPANT_JWT_EXPIRATION_MINUTES", "240")
+            ),
             gemini_api_key=getenv("GEMINI_API_KEY"),
-            gemini_screenshot_model=getenv("GEMINI_SCREENSHOT_MODEL", "gemini-3.8-flash"),
+            gemini_screenshot_model=getenv(
+                "GEMINI_SCREENSHOT_MODEL", "gemini-3.8-flash"
+            ),
+            t1_submissions_open=getenv("T1_SUBMISSIONS_OPEN", "true").lower() == "true",
         )

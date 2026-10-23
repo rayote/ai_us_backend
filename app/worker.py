@@ -82,7 +82,9 @@ async def run_worker() -> None:
     definitions = MongoSurveyDefinitionRepository(
         database.database["survey_definitions"]
     )
-    responses = MongoSurveyResponseRepository(database.database["survey_responses"])
+    responses = MongoSurveyResponseRepository(
+        database.database["survey_responses"], database.database["survey_progress"]
+    )
     chat_submissions = MongoChatSubmissionRepository(
         database.database["chat_submissions"]
     )

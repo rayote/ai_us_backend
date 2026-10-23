@@ -24,9 +24,14 @@ from fastapi.testclient import TestClient
 class InMemoryResearchers(ResearcherAccountRepository):
     def __init__(self) -> None:
         self.accounts = {
-            "admin": ResearcherAccount("admin-1", "admin", hash_password("admin-password"), "admin"),
+            "admin": ResearcherAccount(
+                "admin-1", "admin", hash_password("admin-password"), "admin"
+            ),
             "researcher": ResearcherAccount(
-                "researcher-1", "researcher", hash_password("researcher-password"), "researcher"
+                "researcher-1",
+                "researcher",
+                hash_password("researcher-password"),
+                "researcher",
             ),
         }
 
@@ -68,7 +73,9 @@ class InMemorySurveyDefinitions(SurveyDefinitionRepository):
         self.definitions[(replaced.survey_round, replaced.survey_version)] = replaced
         return replaced
 
-    async def get(self, survey_round: int, survey_version: str) -> SurveyDefinition | None:
+    async def get(
+        self, survey_round: int, survey_version: str
+    ) -> SurveyDefinition | None:
         return self.definitions.get((survey_round, survey_version))
 
     async def list_definitions(self) -> list[SurveyDefinitionSummary]:
@@ -78,7 +85,11 @@ class InMemorySurveyDefinitions(SurveyDefinitionRepository):
                 surveyVersion=definition.survey_version,
                 audience=definition.audience,
                 part=definition.spec.get("part") if definition.spec else None,
-                title=definition.spec.get("_meta", {}).get("title") if definition.spec else None,
+                title=(
+                    definition.spec.get("_meta", {}).get("title")
+                    if definition.spec
+                    else None
+                ),
                 questionCount=len(definition.questions),
                 createdAt=definition.created_at,
             )
@@ -90,7 +101,9 @@ class InMemorySurveyResponses(SurveyResponseRepository):
     async def create_response(self, response: SurveyResponseRecord) -> None:
         return None
 
-    async def list_responses(self, survey_round: int, survey_version: str) -> list[SurveyResponseRecord]:
+    async def list_responses(
+        self, survey_round: int, survey_version: str
+    ) -> list[SurveyResponseRecord]:
         return [
             SurveyResponseRecord(
                 participantId="participant-1",
@@ -101,8 +114,14 @@ class InMemorySurveyResponses(SurveyResponseRepository):
             )
         ]
 
-    async def list_versions_for_participant(self, participant_id: str, survey_round: int) -> list[str]:
-        return ["t1-elem-part1-v2-0916"] if participant_id == "participant-1" and survey_round == 1 else []
+    async def list_versions_for_participant(
+        self, participant_id: str, survey_round: int
+    ) -> list[str]:
+        return (
+            ["t1-elem-part1-v2-0916"]
+            if participant_id == "participant-1" and survey_round == 1
+            else []
+        )
 
 
 class InMemoryParticipants(ParticipantAccountRepository):
@@ -116,15 +135,25 @@ class InMemoryParticipants(ParticipantAccountRepository):
         return False
 
     async def create(
-        self, phone: str, password_hash: str, chat_consent: bool = False, school_level: str | None = None
+        self,
+        phone: str,
+        password_hash: str,
+        chat_consent: bool = False,
+        school_level: str | None = None,
     ) -> bool:
         return False
 
-    async def create_imported(self, phone: str, password_hash: str, name: str, school_level: str, grade: int) -> bool:
+    async def create_imported(
+        self, phone: str, password_hash: str, name: str, school_level: str, grade: int
+    ) -> bool:
         return False
 
     async def list_participants(self) -> list[ParticipantAccount]:
-        return [ParticipantAccount("participant-1", "01012345678", "hash", False, school_level="초등")]
+        return [
+            ParticipantAccount(
+                "participant-1", "01012345678", "hash", False, school_level="초등"
+            )
+        ]
 
 
 def _client() -> TestClient:
@@ -147,12 +176,82 @@ def _client() -> TestClient:
 
 
 def _token(client: TestClient, username: str, password: str) -> str:
-    response = client.post("/api/v1/auth/researcher/login", json={"username": username, "password": password})
+    response = client.post(
+        "/api/v1/auth/researcher/login",
+        json={"username": username, "password": password},
+    )
     return response.json()["accessToken"]
 
 
 def _participant_token() -> str:
-    return create_access_token("participant-1", "participant", "test-secret-at-least-thirty-two-bytes", 60)
+    return create_access_token(
+        "participant-1", "participant", "test-secret-at-least-thirty-two-bytes", 60
+    )
+
+
+def test_partial_progress_export_is_researcher_only_and_excludes_final_responses() -> (
+    None
+):
+    import asyncio
+    import csv
+    import io
+
+    class Progress:
+        async def list_incomplete(self, survey_round, survey_version):
+            return [
+                {
+                    "participantId": participant_id,
+                    "surveyRound": survey_round,
+                    "surveyVersion": survey_version,
+                    "revision": 3,
+                    "completedPage": 2,
+                    "nextPage": 3,
+                    "totalPages": 8,
+                    "answers": {"q1": "partial"},
+                    "updatedAt": datetime.now(UTC).isoformat(),
+                    "completed": False,
+                    "detail": {
+                        "demographicEntryPolicy": "reenter",
+                        "demographicPolicyVersion": "2026-10-23",
+                    },
+                }
+                for participant_id in ["participant-1", "partial-2"]
+            ]
+
+    with _client() as client:
+        client.app.state.survey_progress_repository = Progress()
+        asyncio.run(
+            client.app.state.survey_definition_repository.create(
+                SurveyDefinitionCreate(
+                    surveyRound=2,
+                    surveyVersion="t2-part1",
+                    questions=[SurveyQuestion(key="q1", csvColumn="q1", order=1)],
+                )
+            )
+        )
+        path = (
+            "/api/v1/researcher/survey-progress?survey_round=2&survey_version=t2-part1"
+        )
+        assert client.get(path).status_code == 401
+        assert (
+            client.get(
+                path, headers={"Authorization": "Bearer " + _participant_token()}
+            ).status_code
+            == 403
+        )
+        headers = {
+            "Authorization": "Bearer "
+            + _token(client, "researcher", "researcher-password")
+        }
+        records = client.get(path, headers=headers).json()
+        assert [record["participantId"] for record in records] == ["partial-2"]
+        exported = client.get(path + "&format=csv", headers=headers)
+        assert exported.status_code == 200
+        rows = list(csv.DictReader(io.StringIO(exported.content.decode("utf-8-sig"))))
+        assert len(rows) == 1
+        assert rows[0]["recordStatus"] == "partial"
+        assert rows[0]["completedPage"] == "2"
+        assert rows[0]["demographicEntryPolicy"] == "reenter"
 
 
 def _definition_payload() -> dict[str, object]:
@@ -173,7 +272,9 @@ def test_survey_export_filename_uses_round_audience_part_and_kst() -> None:
         createdAt=datetime.now(UTC),
     )
 
-    filename = _survey_export_filename(definition, datetime(2026, 9, 18, 15, 30, tzinfo=UTC))
+    filename = _survey_export_filename(
+        definition, datetime(2026, 9, 18, 15, 30, tzinfo=UTC)
+    )
 
     assert filename == "T1_elem_part1_2026-09-19_00-30-00.csv"
 
@@ -213,8 +314,13 @@ def test_admin_registers_definition_and_researcher_downloads_csv() -> None:
     assert create_response.status_code == 201
     assert export_response.status_code == 200
     assert export_response.headers["content-type"].startswith("text/csv")
-    assert export_response.headers["content-disposition"].startswith('attachment; filename="T2_all_part_')
-    assert export_response.headers["access-control-expose-headers"] == "Content-Disposition"
+    assert export_response.headers["content-disposition"].startswith(
+        'attachment; filename="T2_all_part_'
+    )
+    assert (
+        export_response.headers["access-control-expose-headers"]
+        == "Content-Disposition"
+    )
     assert (
         "아이디(휴대폰),학교급,학년,surveyRound,surveyVersion,응답 일시(KST),설문 시작 일시(KST),전체 경과시간(초),활동시간(초),재개 횟수,마지막 방문 페이지,방문한 페이지 수,전체 페이지 수,페이지 이동 횟수,첫 번째 문항"
         in export_response.text
@@ -238,7 +344,11 @@ def test_admin_can_replace_existing_survey_definition() -> None:
     with _client() as client:
         admin_token = _token(client, "admin", "admin-password")
         headers = {"Authorization": f"Bearer {admin_token}"}
-        client.post("/api/v1/admin/survey-definitions", headers=headers, json=_definition_payload())
+        client.post(
+            "/api/v1/admin/survey-definitions",
+            headers=headers,
+            json=_definition_payload(),
+        )
 
         updated_payload = dict(_definition_payload())
         updated_payload["questions"] = [
@@ -252,7 +362,10 @@ def test_admin_can_replace_existing_survey_definition() -> None:
         )
 
     assert response.status_code == 200
-    assert [question["key"] for question in response.json()["questions"]] == ["q1", "q2"]
+    assert [question["key"] for question in response.json()["questions"]] == [
+        "q1",
+        "q2",
+    ]
 
 
 def test_admin_replace_rejects_mismatched_path_and_body() -> None:
@@ -296,8 +409,16 @@ def test_admin_registers_nested_scale_survey_definition() -> None:
                                 "text": "연구 참여자 연락처",
                                 "type": "composite",
                                 "fields": [
-                                    {"key": "demo.contact_phone", "label": "휴대폰 번호", "type": "tel"},
-                                    {"key": "demo.contact_email", "label": "이메일", "type": "text"},
+                                    {
+                                        "key": "demo.contact_phone",
+                                        "label": "휴대폰 번호",
+                                        "type": "tel",
+                                    },
+                                    {
+                                        "key": "demo.contact_email",
+                                        "label": "이메일",
+                                        "type": "text",
+                                    },
                                 ],
                             },
                         ],
@@ -314,9 +435,21 @@ def test_admin_registers_nested_scale_survey_definition() -> None:
             "csvColumn": "AI 활용동기 | 1 | 나는 가족, 친구, 다른 문제에서 벗어나려고 AI를 사용한다.",
             "order": 1,
         },
-        {"key": "demo.contact", "csvColumn": "AI 활용동기 | 2 | 연구 참여자 연락처", "order": 2},
-        {"key": "demo.contact_phone", "csvColumn": "AI 활용동기 | 2 | 연구 참여자 연락처 | 휴대폰 번호", "order": 3},
-        {"key": "demo.contact_email", "csvColumn": "AI 활용동기 | 2 | 연구 참여자 연락처 | 이메일", "order": 4},
+        {
+            "key": "demo.contact",
+            "csvColumn": "AI 활용동기 | 2 | 연구 참여자 연락처",
+            "order": 2,
+        },
+        {
+            "key": "demo.contact_phone",
+            "csvColumn": "AI 활용동기 | 2 | 연구 참여자 연락처 | 휴대폰 번호",
+            "order": 3,
+        },
+        {
+            "key": "demo.contact_email",
+            "csvColumn": "AI 활용동기 | 2 | 연구 참여자 연락처 | 이메일",
+            "order": 4,
+        },
     ]
     assert response.json()["spec"]["scales"][0]["scaleId"] == "motive"
 
@@ -346,7 +479,9 @@ def test_researcher_can_list_survey_definitions() -> None:
                 "surveyVersion": "t1-elem-part1-v1-draft",
                 "audience": "elementary",
                 "part": 1,
-                "_meta": {"title": "청소년 생성형 AI 사용 경험 연구 · 1회차 파트1 (초등)"},
+                "_meta": {
+                    "title": "청소년 생성형 AI 사용 경험 연구 · 1회차 파트1 (초등)"
+                },
                 "questions": [{"key": "q1", "csvColumn": "첫 번째 문항", "order": 1}],
             },
         )

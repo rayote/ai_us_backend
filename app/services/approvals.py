@@ -6,7 +6,11 @@ from app.services.auth import ParticipantAccountRepository
 
 
 def _school_level(grade: str) -> str:
-    return "초등" if grade.startswith("초등") else "중등" if grade.startswith("중학") else "고등"
+    return (
+        "초등"
+        if grade.startswith("초등")
+        else "중등" if grade.startswith("중학") else "고등"
+    )
 
 
 def _grade_number(grade: str) -> int | None:
@@ -17,8 +21,15 @@ def _grade_number(grade: str) -> int | None:
 
 
 class ExistingParticipantError(Exception):
-    def __init__(self, phone_numbers: list[str]) -> None:
+    def __init__(
+        self, phone_numbers: list[str], *, guardian_conflict: bool = False
+    ) -> None:
         self.phone_numbers = phone_numbers
+        self.detail = (
+            "이미 가입된 사용자 번호는 보호자 번호로 입력할 수 없어요. 연락처를 다시 확인하세요."
+            if guardian_conflict
+            else f"이미 등록된 참여자 휴대폰 번호입니다: {', '.join(phone_numbers)}"
+        )
 
 
 class ApplicationApprovalService:
@@ -31,15 +42,33 @@ class ApplicationApprovalService:
         self._participant_repository = participant_repository
 
     async def approve(self, application_ids: list[str]) -> int:
-        pending_applications = await self._application_repository.get_pending(application_ids)
+        pending_applications = await self._application_repository.get_pending(
+            application_ids
+        )
         existing_phone_numbers = [
             application.phone
             for application in pending_applications
-            if await self._participant_repository.find_by_phone(application.phone) is not None
+            if await self._participant_repository.find_by_phone(application.phone)
+            is not None
         ]
         if existing_phone_numbers:
             raise ExistingParticipantError(existing_phone_numbers)
         for application in pending_applications:
+            if (
+                await self._participant_repository.find_by_phone(
+                    application.guardian_phone
+                )
+                is not None
+            ):
+                raise ExistingParticipantError([], guardian_conflict=True)
+        for application in pending_applications:
+            if (
+                await self._participant_repository.find_by_phone(
+                    application.guardian_phone
+                )
+                is not None
+            ):
+                raise ExistingParticipantError([], guardian_conflict=True)
             try:
                 created = await self._participant_repository.create(
                     application.phone,

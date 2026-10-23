@@ -1,11 +1,16 @@
 from datetime import UTC, datetime
 
 import jwt
+import pytest
 from app.core.settings import Settings
 from app.main import create_app
 from app.schemas.application import ApplicationCreate, ApplicationRecord
 from app.services.application_settings import ApplicationSettingsRepository
-from app.services.applications import ApplicationRepository, DuplicateApplicationError, object_id
+from app.services.applications import (
+    ApplicationRepository,
+    DuplicateApplicationError,
+    object_id,
+)
 from app.services.auth import ParticipantAccount, ParticipantAccountRepository
 from fastapi.testclient import TestClient
 
@@ -33,14 +38,17 @@ class InMemoryApplicationRepository(ApplicationRepository):
         )
         return application_id
 
-    async def list_applications(self, school_level: str | None = None) -> list[ApplicationRecord]:
+    async def list_applications(
+        self, school_level: str | None = None
+    ) -> list[ApplicationRecord]:
         return list(self.records.values())
 
     async def get_pending(self, application_ids: list[str]) -> list[ApplicationRecord]:
         return [
             self.records[application_id]
             for application_id in application_ids
-            if application_id in self.records and self.records[application_id].status == "pending"
+            if application_id in self.records
+            and self.records[application_id].status == "pending"
         ]
 
     async def approve(self, application_ids: list[str]) -> int:
@@ -84,7 +92,9 @@ class InMemoryParticipantRepository(ParticipantAccountRepository):
     async def update_password(self, participant_id: str, password_hash: str) -> bool:
         return False
 
-    async def reset_password_by_phone_email(self, phone: str, email: str, password_hash: str) -> bool:
+    async def reset_password_by_phone_email(
+        self, phone: str, email: str, password_hash: str
+    ) -> bool:
         return False
 
     async def create(
@@ -115,7 +125,13 @@ class InMemoryParticipantRepository(ParticipantAccountRepository):
         return True
 
     async def create_imported(
-        self, phone: str, password_hash: str, name: str, school_level: str, grade: int, email: str | None = None
+        self,
+        phone: str,
+        password_hash: str,
+        name: str,
+        school_level: str,
+        grade: int,
+        email: str | None = None,
     ) -> bool:
         return False
 
@@ -123,14 +139,20 @@ class InMemoryParticipantRepository(ParticipantAccountRepository):
         return []
 
 
-def _client(existing_participant_phone: str | None = None, auto_approval: bool = False) -> TestClient:
-    settings = Settings("test", None, "ai_us_test", (), "test-secret-at-least-thirty-two-bytes")
+def _client(
+    existing_participant_phone: str | None = None, auto_approval: bool = False
+) -> TestClient:
+    settings = Settings(
+        "test", None, "ai_us_test", (), "test-secret-at-least-thirty-two-bytes"
+    )
     return TestClient(
         create_app(
             settings,
             application_repository=InMemoryApplicationRepository(),
             application_settings_repository=InMemoryApplicationSettings(auto_approval),
-            participant_account_repository=InMemoryParticipantRepository(existing_participant_phone),
+            participant_account_repository=InMemoryParticipantRepository(
+                existing_participant_phone
+            ),
         )
     )
 
@@ -164,7 +186,9 @@ def test_create_application_returns_pending_status() -> None:
 def test_create_application_auto_approves_and_returns_password_change_login() -> None:
     with _client(auto_approval=True) as client:
         response = client.post("/api/v1/applications", json=_application_payload())
-        account = client.app.state.participant_account_repository.accounts["01012345678"]
+        account = client.app.state.participant_account_repository.accounts[
+            "01012345678"
+        ]
 
     assert response.status_code == 201
     assert response.json()["status"] == "approved"
@@ -190,7 +214,10 @@ def test_create_application_rejects_duplicate_phone_number() -> None:
         response = client.post("/api/v1/applications", json=_application_payload())
 
     assert response.status_code == 409
-    assert response.json()["detail"] == "이미 신청된 휴대폰 번호입니다. 연구자 승인 후 로그인해 주세요."
+    assert (
+        response.json()["detail"]
+        == "이미 신청된 휴대폰 번호입니다. 연구자 승인 후 로그인해 주세요."
+    )
 
 
 def test_create_application_rejects_same_participant_and_guardian_phone() -> None:
@@ -212,6 +239,42 @@ def test_create_application_rejects_registered_participant_phone_number() -> Non
         response.json()["detail"]
         == "이미 등록된 참여자 휴대폰 번호입니다. 로그인하거나 비밀번호 찾기를 이용해 주세요."
     )
+
+
+@pytest.mark.parametrize("auto_approval", [False, True])
+def test_create_application_rejects_registered_participant_as_guardian(
+    auto_approval: bool,
+) -> None:
+    with _client("01098765432", auto_approval=auto_approval) as client:
+        response = client.post("/api/v1/applications", json=_application_payload())
+        assert client.app.state.application_repository.records == {}
+        assert len(client.app.state.participant_account_repository.accounts) == 1
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == (
+        "이미 가입된 사용자 번호는 보호자 번호로 입력할 수 없어요. 연락처를 다시 확인하세요."
+    )
+    assert "accessToken" not in response.json()
+
+
+def test_create_application_allows_siblings_sharing_guardian() -> None:
+    with _client(auto_approval=True) as client:
+        first = client.post("/api/v1/applications", json=_application_payload())
+        payload = _application_payload()
+        payload["phone"] = "010-1234-5679"
+        second = client.post("/api/v1/applications", json=payload)
+
+    assert first.status_code == second.status_code == 201
+    assert (
+        first.json()["guardianPhone"] == second.json()["guardianPhone"] == "01098765432"
+    )
+
+
+def test_create_application_allows_matching_phone_suffix() -> None:
+    with _client("01011115432") as client:
+        response = client.post("/api/v1/applications", json=_application_payload())
+
+    assert response.status_code == 201
 
 
 def test_create_application_requires_all_required_consents() -> None:

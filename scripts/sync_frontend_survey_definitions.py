@@ -15,7 +15,11 @@ if str(PROJECT_ROOT) not in sys.path:
 def main() -> int:
     from app.core.settings import Settings
     from app.schemas.survey import SurveyDefinitionCreate
-    from register_frontend_surveys import DEFAULT_FRONTEND_INDEX, build_payloads, extract_survey_sets
+    from register_frontend_surveys import (
+        DEFAULT_FRONTEND_INDEX,
+        build_payloads,
+        extract_survey_sets,
+    )
 
     parser = argparse.ArgumentParser(
         description="Replace existing MongoDB survey definitions from frontend SURVEY_SETS."
@@ -25,6 +29,8 @@ def main() -> int:
     parser.add_argument("--frontend-index", type=Path, default=DEFAULT_FRONTEND_INDEX)
     parser.add_argument("--survey-round", type=int, default=1)
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--expect-database")
+    parser.add_argument("--insert-only", action="store_true")
     parser.add_argument(
         "--upsert-missing",
         action="store_true",
@@ -32,8 +38,12 @@ def main() -> int:
     )
     args = parser.parse_args()
 
-    payloads = build_payloads(extract_survey_sets(args.frontend_index), args.survey_round)
-    definitions = [SurveyDefinitionCreate.model_validate(payload) for payload in payloads]
+    payloads = build_payloads(
+        extract_survey_sets(args.frontend_index, args.survey_round), args.survey_round
+    )
+    definitions = [
+        SurveyDefinitionCreate.model_validate(payload) for payload in payloads
+    ]
 
     if args.dry_run:
         for definition in definitions:
@@ -43,30 +53,75 @@ def main() -> int:
         return 0
 
     settings = Settings.from_environment()
+    target_database = args.database_name or settings.database_name
+    if args.survey_round == 2 and (
+        settings.environment != "development"
+        or args.expect_database != target_database
+        or target_database != "ai_us_development"
+    ):
+        parser.error(
+            "T2 등록은 development 환경과 --expect-database ai_us_development 확인이 필요합니다."
+        )
     mongodb_uri = args.mongodb_uri or settings.mongodb_uri
     if mongodb_uri is None:
-        parser.error("MONGODB_URI 또는 MONGODB_HOST/MONGODB_USERNAME/MONGODB_PASSWORD를 .env에 설정하세요.")
-    client = MongoClient(mongodb_uri)
-    collection = client[args.database_name or settings.database_name]["survey_definitions"]
+        parser.error(
+            "MONGODB_URI 또는 MONGODB_HOST/MONGODB_USERNAME/MONGODB_PASSWORD를 .env에 설정하세요."
+        )
+    client = MongoClient(mongodb_uri, serverSelectionTimeoutMS=10000)
+    collection = client[target_database]["survey_definitions"]
     success = True
     try:
         for definition in definitions:
             document = {
                 "audience": definition.audience,
-                "questions": [question.model_dump(by_alias=True) for question in definition.questions],
+                "questions": [
+                    question.model_dump(by_alias=True)
+                    for question in definition.questions
+                ],
                 "spec": definition.raw_spec,
             }
-            query = {"survey_round": definition.survey_round, "survey_version": definition.survey_version}
+            query = {
+                "survey_round": definition.survey_round,
+                "survey_version": definition.survey_version,
+            }
+            if args.insert_only:
+                existing = collection.find_one(query)
+                if existing is not None:
+                    if any(
+                        existing.get(key) != value for key, value in document.items()
+                    ):
+                        raise RuntimeError(
+                            f"Existing definition differs; refusing replacement: {definition.survey_version}"
+                        )
+                    print(
+                        f"{definition.survey_version}: unchanged ({len(definition.questions)} answer fields)"
+                    )
+                else:
+                    collection.insert_one(
+                        {**query, **document, "created_at": datetime.now(UTC)}
+                    )
+                    print(
+                        f"{definition.survey_version}: inserted ({len(definition.questions)} answer fields)"
+                    )
+                continue
             existing = collection.find_one(query, {"created_at": 1})
             if existing is None or "created_at" not in existing:
                 document["created_at"] = datetime.now(UTC)
-            result = collection.update_one(query, {"$set": document}, upsert=args.upsert_missing)
-            status = "replaced" if result.matched_count == 1 else ("inserted" if result.upserted_id else "missing")
+            result = collection.update_one(
+                query, {"$set": document}, upsert=args.upsert_missing
+            )
+            status = (
+                "replaced"
+                if result.matched_count == 1
+                else ("inserted" if result.upserted_id else "missing")
+            )
             print(
                 f"{definition.audience} {definition.survey_version}: {status} "
                 f"({len(definition.questions)} answer fields)"
             )
-            success = success and (result.matched_count == 1 or result.upserted_id is not None)
+            success = success and (
+                result.matched_count == 1 or result.upserted_id is not None
+            )
     finally:
         client.close()
     return 0 if success else 1

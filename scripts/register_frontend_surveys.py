@@ -16,7 +16,9 @@ DEFAULT_FRONTEND_INDEX = Path(__file__).resolve().parents[2] / "ai_us" / "index.
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Register frontend SURVEY_SETS with the deployed backend.")
+    parser = argparse.ArgumentParser(
+        description="Register frontend SURVEY_SETS with the deployed backend."
+    )
     parser.add_argument("--backend-url", default=DEFAULT_BACKEND_URL)
     parser.add_argument("--frontend-index", type=Path, default=DEFAULT_FRONTEND_INDEX)
     parser.add_argument("--survey-round", type=int, default=1)
@@ -28,13 +30,21 @@ def main() -> int:
     )
     args = parser.parse_args()
 
-    survey_sets = extract_survey_sets(args.frontend_index)
+    survey_sets = extract_survey_sets(args.frontend_index, args.survey_round)
     payloads = build_payloads(survey_sets, args.survey_round)
 
     print("Prepared survey definitions:")
     for payload in payloads:
-        questions = [question for scale in payload.get("scales", []) for question in scale.get("questions", [])]
-        title = payload.get("_meta", {}).get("title") if isinstance(payload.get("_meta"), dict) else None
+        questions = [
+            question
+            for scale in payload.get("scales", [])
+            for question in scale.get("questions", [])
+        ]
+        title = (
+            payload.get("_meta", {}).get("title")
+            if isinstance(payload.get("_meta"), dict)
+            else None
+        )
         print(
             f"- round={payload['surveyRound']} audience={payload['audience']} "
             f"version={payload['surveyVersion']} scales={len(payload.get('scales', []))} "
@@ -63,30 +73,51 @@ def main() -> int:
     for payload in payloads:
         if args.replace:
             path = f"/api/v1/admin/survey-definitions/{payload['surveyRound']}/{payload['surveyVersion']}"
-            status, body = post_json(args.backend_url, path, payload, token, method="PUT")
+            status, body = post_json(
+                args.backend_url, path, payload, token, method="PUT"
+            )
             detail = body.get("detail", "replaced") if isinstance(body, dict) else body
-            print(f"{payload['audience']} {payload['surveyVersion']}: HTTP {status} {detail}")
+            print(
+                f"{payload['audience']} {payload['surveyVersion']}: HTTP {status} {detail}"
+            )
             success = success and status == 200
         else:
-            status, body = post_json(args.backend_url, "/api/v1/admin/survey-definitions", payload, token)
+            status, body = post_json(
+                args.backend_url, "/api/v1/admin/survey-definitions", payload, token
+            )
             detail = body.get("detail", "created") if isinstance(body, dict) else body
-            print(f"{payload['audience']} {payload['surveyVersion']}: HTTP {status} {detail}")
+            print(
+                f"{payload['audience']} {payload['surveyVersion']}: HTTP {status} {detail}"
+            )
             success = success and status in {201, 409}
     return 0 if success else 1
 
 
-def extract_survey_sets(frontend_index: Path) -> dict[str, list[dict[str, Any]]]:
+def extract_survey_sets(
+    frontend_index: Path, survey_round: int = 1
+) -> dict[str, list[dict[str, Any]]]:
     html = frontend_index.read_text(encoding="utf-8")
-    scripts = "\n".join(re.findall(r"<script[^>]*>([\s\S]*?)</script>", html, flags=re.IGNORECASE))
-    match = re.search(r"var\s+SURVEY_SETS\s*=([\s\S]*?);\n\s*var\s+SURVEY_PARTS\s*=", scripts)
+    scripts = "\n".join(
+        re.findall(r"<script[^>]*>([\s\S]*?)</script>", html, flags=re.IGNORECASE)
+    )
+    pattern = (
+        r"var\s+SURVEY_SETS_T2\s*=([\s\S]*?);\n\s*var\s+SURVEY_ROUND\s*="
+        if survey_round == 2
+        else r"var\s+SURVEY_SETS\s*=([\s\S]*?);\n\s*var\s+SURVEY_PARTS\s*="
+    )
+    match = re.search(pattern, scripts)
     if match is None:
         raise RuntimeError("SURVEY_SETS block was not found in frontend index.html")
     node_code = f"console.log(JSON.stringify(({match.group(1)})));"
-    completed = subprocess.run(["node"], input=node_code, text=True, capture_output=True, check=True)
+    completed = subprocess.run(
+        ["node"], input=node_code, text=True, capture_output=True, check=True
+    )
     return json.loads(completed.stdout)
 
 
-def build_payloads(survey_sets: dict[str, list[dict[str, Any]]], default_survey_round: int) -> list[dict[str, Any]]:
+def build_payloads(
+    survey_sets: dict[str, list[dict[str, Any]]], default_survey_round: int
+) -> list[dict[str, Any]]:
     followup_question = {
         "key": "followup.researchConsent",
         "no": "14",
@@ -100,15 +131,22 @@ def build_payloads(survey_sets: dict[str, list[dict[str, Any]]], default_survey_
     for audience, parts in survey_sets.items():
         for part in parts:
             payload = dict(part)
-            if payload.get("part") == 2:
+            payload["surveyRound"] = payload.get("surveyRound") or default_survey_round
+            if payload["surveyRound"] == 1 and payload.get("part") == 2:
                 payload["scales"] = [dict(scale) for scale in payload.get("scales", [])]
                 last_scale = payload["scales"][-1]
                 last_scale["questions"] = list(last_scale.get("questions", []))
-                if not any(question.get("key") == followup_question["key"] for question in last_scale["questions"]):
+                if not any(
+                    question.get("key") == followup_question["key"]
+                    for question in last_scale["questions"]
+                ):
                     last_scale["questions"].append(followup_question)
-            payload["surveyRound"] = payload.get("surveyRound") or default_survey_round
-            payload["audience"] = audience
-            audience_label = {"elementary": "초등", "secondary": "중고등"}.get(audience, audience)
+            payload["audience"] = "all" if audience in {"common", "all"} else audience
+            audience_label = {
+                "elementary": "초등",
+                "secondary": "중고등",
+                "all": "공통",
+            }.get(payload["audience"], audience)
             payload["_meta"] = dict(payload.get("_meta") or {})
             payload["_meta"]["title"] = (
                 f"청소년 생성형 AI 사용 경험 연구 · {payload['surveyRound']}회차 "

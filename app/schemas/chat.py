@@ -6,7 +6,9 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 ChatSourceType = Literal["link", "text", "file", "image"]
-ChatSubmissionPoint = Literal["afterRound1", "afterRound4"]
+ChatSubmissionPoint = Literal[
+    "afterRound1", "afterRound2", "afterRound3", "afterRound4"
+]
 ParseStatus = Literal["parsed", "placeholder", "warning"]
 ChatSubmissionStatus = Literal["active", "deletion_requested"]
 ChatReviewStatus = Literal["incentive_paid", "excluded", "duplicate", "other"]

@@ -15,6 +15,38 @@ The API supports the current CloudType preconfigured MongoDB service through PyM
 
 Final survey submission, temporary browser storage, MongoDB documents, and CSV exports use both values. This preserves the questionnaire version when a later round changes its questions.
 
+## T2 Development Integration
+
+These endpoints and policies are implemented locally. The two development MongoDB definitions and real-Mongo progress concurrency checks have been verified. Development CloudType deployment remains a separate gate; no production migration is implied.
+
+- T2 versions: `t2-part1-v9-1022` and `t2-part2-v9-1022`, `surveyRound=2`, stored `audience=all` (`common` is normalized to `all`). Their source has 240/92 question objects and 256/96 flattened answer fields. The T1-only `followup.researchConsent` addition is not applied to T2.
+- T2 demographics are independently entered in each part. The server replaces only the participant and guardian phone subfields with the authenticated account values. Grade, optional email/SNS and other original answers are preserved; neither account profiles nor T1 answers are updated. Progress and final metadata use `demographicEntryPolicy=reenter` and `demographicPolicyVersion=2026-10-23`.
+- `GET /api/v1/participant/survey-status` returns `completedVersionsByRound` (string round keys), `completedRounds` and `t1SubmissionsOpen`. Completion requires a stored part-2 response; queued jobs and partial snapshots never count. T2 part 1 has no T1 prerequisite; T2 part 2 requires a stored T2 part-1 response.
+- `T1_SUBMISSIONS_OPEN` defaults to `true` for backward compatibility. Setting it to `false` rejects new T1 final/progress submissions with HTTP 403 and `참여 기간이 끝났어요`; history/export and already accepted worker jobs remain available. The development/production closure setting and actual closure time require an explicit operational decision.
+
+### Partial Progress
+
+`GET /api/v1/survey-progress?surveyRound=2&surveyVersion=...` and `PUT /api/v1/survey-progress` require participant authentication and always address the token owner's record. The existing `/api/v1/participant/survey-progress?survey_round=...` completion-history endpoint is unchanged.
+
+PUT fields are `surveyRound`, `surveyVersion`, `revision`, `completedPage`, `completedPageTitle`, `nextPage`, `totalPages`, `answers`, `clientSavedAt`, and optional `detail`. The initial revision is 0. Each accepted full-answer snapshot increments the server revision and returns the record with `updatedAt` and `completed`; omitted answer keys are removed, not merged back. Server revision and completed-state checks are atomic in MongoDB. An outdated revision returns HTTP 409 with `다른 창이나 기기에서 진행 상태가 변경되었습니다.`; saving a finalized version also returns 409. Unknown question keys return 422, missing own progress returns 404, and unavailable repositories return 503. Partial snapshots and bounded page history are stored separately in `survey_progress`, never in final-response statistics.
+
+`GET /api/v1/researcher/survey-progress?survey_round=2&survey_version=...&format=json|csv` requires researcher/admin authentication and optionally accepts `school_level`. It excludes finalized participant/version records, including final responses whose progress completion marker is not yet repaired. CSV uses the registered question order and adds `recordStatus=partial`, `progressRevision`, `completedPage`, `nextPage`, and demographic policy metadata. Its timestamp is explicitly labeled as a partial-save timestamp, not a submission timestamp. The researcher UI has a separate partial-response CSV action using the existing download lock and accessible progress dialog.
+
+### Signup and Chat Eligibility
+
+- A guardian phone equal to a registered participant login phone is rejected before application creation with HTTP 409: `이미 가입된 사용자 번호는 보호자 번호로 입력할 수 없어요. 연락처를 다시 확인하세요.` Approval repeats the registered-phone check. Self/guardian equality remains invalid; sibling guardian sharing and matching suffixes remain allowed. Pending-phone, reverse-direction and CSV-import policy expansion is not included. These repository checks are not a cross-collection transaction or proof of phone ownership.
+- Participant link/text/file chat submission requires both `chatConsent` and at least one actually completed survey round. `submissionPoint` supports `afterRound1` through `afterRound4`; historical T1/T4 values and researcher download behavior are preserved. Participation reporting adds `submittedAfterRound2` and `submittedAfterRound3` without removing existing fields.
+
+### Development Definition Registration
+
+After verifying and backing up the development definitions, run `python scripts/sync_frontend_survey_definitions.py --survey-round 2 --insert-only --expect-database ai_us_development`. T2 writes require `APP_ENV=development` and the exact database name. Existing identical versions are skipped; different existing definitions are not replaced. A dry run requires no DB connection: `python scripts/sync_frontend_survey_definitions.py --survey-round 2 --dry-run`.
+
+On 2026-10-23, development connectivity was restored after the stopped services were restarted. The private backup is `/data/ai_us_joint_research/backups/ai_us/development_pre_T2_20261023T053722Z/` (`survey_definitions.json.gz` plus checksum/T1 hashes in `manifest.json`). Explicit naive-UTC BSON decoding verifies the backup against the original 9 definitions. Both T2 versions were inserted once, read back exactly against the frontend payloads, and verified against their 256/96 answer fields and 270/110 total CSV columns. All 9 T1 definition hashes are unchanged; rerunning registration reports both T2 versions unchanged.
+
+Real-Mongo tests used unique temporary development collections and verified one-winner/one-conflict concurrent revision saves, complete snapshot replacement, participant isolation, page history, idempotent final-response retries and refusal to reopen finalized progress. Those temporary collections were removed; actual participant response/progress records were not changed. Browser checks with mocked APIs verified page-3 save/page-4 reload recovery, explicit restoration of a newer remote snapshot and rejection of a stale revision. These are not deployed CloudType end-to-end tests.
+
+Both public development services return HTTP 200, but the running frontend lacks `SURVEY_SETS_T2` and the backend OpenAPI lacks the three new status/progress/researcher-progress paths. They are still serving the previous deployment. Commit/push and manual development backend/frontend redeployment have not been performed; deploy the approved local changes before researcher acceptance testing. Production was not accessed or modified, and T1 closure settings were not changed.
+
 ## Register survey definition
 
 `POST /api/v1/admin/survey-definitions`

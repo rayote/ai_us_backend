@@ -20,7 +20,7 @@ class SurveyDefinitionCreate(BaseModel):
 
     survey_round: int = Field(alias="surveyRound", ge=1)
     survey_version: str = Field(alias="surveyVersion", min_length=1, max_length=100)
-    audience: Literal["elementary", "secondary"] | None = None
+    audience: Literal["elementary", "secondary", "all"] | None = None
     questions: list[SurveyQuestion] = Field(default_factory=list, max_length=1000)
     raw_spec: dict[str, Any] | None = Field(default=None, alias="rawSpec", exclude=True)
 
@@ -29,8 +29,12 @@ class SurveyDefinitionCreate(BaseModel):
     def flatten_scale_questions(cls, data: object) -> object:
         if not isinstance(data, dict):
             return data
+        if data.get("audience") == "common":
+            data = {**data, "audience": "all"}
         if data.get("questions"):
-            if any(key in data for key in ("scales", "part", "_meta", "_reviewNotes")) and not data.get("rawSpec"):
+            if any(
+                key in data for key in ("scales", "part", "_meta", "_reviewNotes")
+            ) and not data.get("rawSpec"):
                 data = dict(data)
                 data["rawSpec"] = deepcopy(data)
             return data
@@ -57,7 +61,7 @@ class SurveyDefinitionCreate(BaseModel):
 class SurveyDefinition(BaseModel):
     survey_round: int = Field(alias="surveyRound")
     survey_version: str = Field(alias="surveyVersion")
-    audience: Literal["elementary", "secondary"] | None = None
+    audience: Literal["elementary", "secondary", "all"] | None = None
     questions: list[SurveyQuestion]
     spec: dict[str, Any] | None = None
     created_at: datetime = Field(alias="createdAt")
@@ -66,7 +70,7 @@ class SurveyDefinition(BaseModel):
 class SurveyDefinitionSummary(BaseModel):
     survey_round: int = Field(alias="surveyRound")
     survey_version: str = Field(alias="surveyVersion")
-    audience: Literal["elementary", "secondary"] | None = None
+    audience: Literal["elementary", "secondary", "all"] | None = None
     part: int | None = None
     title: str | None = None
     question_count: int = Field(alias="questionCount")
@@ -82,7 +86,13 @@ def _flatten_questions_from_scales(scales: list[object]) -> list[dict[str, objec
         if not normalized_key or normalized_key in registered_keys:
             return
         registered_keys.add(normalized_key)
-        questions.append({"key": normalized_key, "csvColumn": csv_column, "order": len(questions) + 1})
+        questions.append(
+            {
+                "key": normalized_key,
+                "csvColumn": csv_column,
+                "order": len(questions) + 1,
+            }
+        )
 
     for scale in scales:
         if not isinstance(scale, dict):
@@ -98,11 +108,15 @@ def _flatten_questions_from_scales(scales: list[object]) -> list[dict[str, objec
             if not key:
                 continue
             csv_column = _csv_column_from_question(scale_name, question)
-            if question.get("type") == "grid" and isinstance(question.get("rows"), list):
+            if question.get("type") == "grid" and isinstance(
+                question.get("rows"), list
+            ):
                 for row in question["rows"]:
                     if isinstance(row, dict):
                         row_key = str(row.get("key") or "").strip()
-                        row_label = str(row.get("text") or row.get("label") or row_key).strip()
+                        row_label = str(
+                            row.get("text") or row.get("label") or row_key
+                        ).strip()
                         add_question(row_key, f"{csv_column} | {row_label}")
             else:
                 add_question(key, csv_column)
@@ -132,7 +146,9 @@ def _extra_answer_fields(question: dict[str, object]) -> list[dict[str, object]]
 
 
 def _csv_column_from_question(scale_name: str, question: dict[str, object]) -> str:
-    explicit_column = str(question.get("csvColumn") or question.get("csv_column") or "").strip()
+    explicit_column = str(
+        question.get("csvColumn") or question.get("csv_column") or ""
+    ).strip()
     if explicit_column:
         return explicit_column
     number = str(question.get("no") or "").strip()
@@ -189,3 +205,41 @@ class SurveySubmissionAccepted(BaseModel):
 class ParticipantSurveyProgress(BaseModel):
     survey_round: int = Field(alias="surveyRound")
     completed_versions: list[str] = Field(alias="completedVersions")
+
+
+class SurveyProgressSave(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    survey_round: int = Field(alias="surveyRound", ge=1, le=4)
+    survey_version: str = Field(alias="surveyVersion", min_length=1, max_length=100)
+    revision: int = Field(ge=0)
+    completed_page: int = Field(alias="completedPage", ge=0, le=1000)
+    completed_page_title: str = Field(
+        default="", alias="completedPageTitle", max_length=200
+    )
+    next_page: int = Field(alias="nextPage", ge=1, le=1000)
+    total_pages: int = Field(alias="totalPages", ge=1, le=1000)
+    answers: dict[str, object] = Field(max_length=1000)
+    client_saved_at: datetime = Field(alias="clientSavedAt")
+    detail: dict[str, object] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def validate_pages(self) -> "SurveyProgressSave":
+        if self.completed_page > self.total_pages or self.next_page > self.total_pages:
+            raise ValueError("페이지 번호가 전체 페이지 수를 넘을 수 없습니다.")
+        return self
+
+
+class SurveyProgressRecord(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    survey_round: int = Field(alias="surveyRound")
+    survey_version: str = Field(alias="surveyVersion")
+    revision: int
+    completed_page: int = Field(alias="completedPage")
+    next_page: int = Field(alias="nextPage")
+    total_pages: int = Field(alias="totalPages")
+    answers: dict[str, object]
+    updated_at: datetime = Field(alias="updatedAt")
+    completed: bool = False
+    detail: dict[str, object] = Field(default_factory=dict)

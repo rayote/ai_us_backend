@@ -37,6 +37,10 @@ from app.services.chats import (
 )
 from app.services.jobs import JobRepository, MongoJobRepository
 from app.services.submissions import store_survey_response
+from app.services.survey_progress import (
+    MongoSurveyProgressRepository,
+    SurveyProgressRepository,
+)
 from app.services.surveys import (
     MongoSurveyDefinitionRepository,
     MongoSurveyResponseRepository,
@@ -74,6 +78,7 @@ def create_app(
     abuse_review_status_repository: AbuseReviewStatusRepository | None = None,
     transcript_parse_run_repository: TranscriptParseRunRepository | None = None,
     worker_health_repository: WorkerHealthRepository | None = None,
+    survey_progress_repository: SurveyProgressRepository | None = None,
 ) -> FastAPI:
     application_settings = settings or Settings.from_environment()
 
@@ -133,7 +138,14 @@ def create_app(
             app.state.survey_response_repository = survey_response_repository
         elif application_settings.mongodb_uri:
             app.state.survey_response_repository = MongoSurveyResponseRepository(
-                database.database["survey_responses"]
+                database.database["survey_responses"],
+                database.database["survey_progress"],
+            )
+        if survey_progress_repository is not None:
+            app.state.survey_progress_repository = survey_progress_repository
+        elif application_settings.mongodb_uri:
+            app.state.survey_progress_repository = MongoSurveyProgressRepository(
+                database.database["survey_progress"]
             )
         if daily_metrics_repository is not None:
             app.state.daily_metrics_repository = daily_metrics_repository

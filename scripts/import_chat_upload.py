@@ -233,7 +233,9 @@ def parse_args() -> argparse.Namespace:
         "--file", required=True, type=Path, help="Server-local Gemini Takeout ZIP path"
     )
     parser.add_argument(
-        "--submission-point", required=True, choices=("afterRound1", "afterRound4")
+        "--submission-point",
+        required=True,
+        choices=("afterRound1", "afterRound2", "afterRound3", "afterRound4"),
     )
     parser.add_argument(
         "--submission-id", default=f"researcher-proxy-{uuid.uuid4().hex}"

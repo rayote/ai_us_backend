@@ -195,6 +195,15 @@ class MongoDatabase:
             name="survey_sessions_session_unique",
             unique=True,
         )
+        await self.database["survey_progress"].create_index(
+            [
+                ("participant_id", ASCENDING),
+                ("survey_round", ASCENDING),
+                ("survey_version", ASCENDING),
+            ],
+            name="survey_progress_participant_round_version_unique",
+            unique=True,
+        )
         await self.database["daily_metrics"].create_index(
             [
                 ("date", ASCENDING),

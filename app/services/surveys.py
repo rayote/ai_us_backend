@@ -6,7 +6,12 @@ from datetime import UTC, datetime, timedelta
 from typing import Any, Protocol
 from zoneinfo import ZoneInfo
 
-from app.schemas.survey import SurveyDefinition, SurveyDefinitionCreate, SurveyDefinitionSummary, SurveyResponseRecord
+from app.schemas.survey import (
+    SurveyDefinition,
+    SurveyDefinitionCreate,
+    SurveyDefinitionSummary,
+    SurveyResponseRecord,
+)
 from pymongo.errors import DuplicateKeyError
 
 
@@ -19,7 +24,9 @@ class SurveyDefinitionRepository(Protocol):
 
     async def replace(self, definition: SurveyDefinitionCreate) -> SurveyDefinition: ...
 
-    async def get(self, survey_round: int, survey_version: str) -> SurveyDefinition | None: ...
+    async def get(
+        self, survey_round: int, survey_version: str
+    ) -> SurveyDefinition | None: ...
 
     async def list_definitions(self) -> list[SurveyDefinitionSummary]: ...
 
@@ -27,9 +34,13 @@ class SurveyDefinitionRepository(Protocol):
 class SurveyResponseRepository(Protocol):
     async def create_response(self, response: SurveyResponseRecord) -> None: ...
 
-    async def list_responses(self, survey_round: int, survey_version: str) -> list[SurveyResponseRecord]: ...
+    async def list_responses(
+        self, survey_round: int, survey_version: str
+    ) -> list[SurveyResponseRecord]: ...
 
-    async def list_versions_for_participant(self, participant_id: str, survey_round: int) -> list[str]: ...
+    async def list_versions_for_participant(
+        self, participant_id: str, survey_round: int
+    ) -> list[str]: ...
 
     async def list_all_responses(self) -> list[SurveyResponseRecord]: ...
 
@@ -51,7 +62,9 @@ def _definition_from_document(document: dict[str, Any]) -> SurveyDefinition:
     )
 
 
-def _definition_summary_from_document(document: dict[str, Any]) -> SurveyDefinitionSummary:
+def _definition_summary_from_document(
+    document: dict[str, Any],
+) -> SurveyDefinitionSummary:
     spec = document.get("spec") or {}
     meta = spec.get("_meta") if isinstance(spec, dict) else None
     return SurveyDefinitionSummary(
@@ -84,7 +97,9 @@ class MongoSurveyDefinitionRepository:
         document = {
             "survey_round": definition.survey_round,
             "survey_version": definition.survey_version,
-            "questions": [question.model_dump(by_alias=True) for question in definition.questions],
+            "questions": [
+                question.model_dump(by_alias=True) for question in definition.questions
+            ],
             "created_at": datetime.now(UTC),
         }
         if definition.audience is not None:
@@ -101,7 +116,9 @@ class MongoSurveyDefinitionRepository:
         document = {
             "survey_round": definition.survey_round,
             "survey_version": definition.survey_version,
-            "questions": [question.model_dump(by_alias=True) for question in definition.questions],
+            "questions": [
+                question.model_dump(by_alias=True) for question in definition.questions
+            ],
             "created_at": datetime.now(UTC),
         }
         if definition.audience is not None:
@@ -109,46 +126,94 @@ class MongoSurveyDefinitionRepository:
         if definition.raw_spec is not None:
             document["spec"] = definition.raw_spec
         await self._collection.replace_one(
-            {"survey_round": definition.survey_round, "survey_version": definition.survey_version},
+            {
+                "survey_round": definition.survey_round,
+                "survey_version": definition.survey_version,
+            },
             document,
             upsert=True,
         )
         return _definition_from_document(document)
 
-    async def get(self, survey_round: int, survey_version: str) -> SurveyDefinition | None:
-        document = await self._collection.find_one({"survey_round": survey_round, "survey_version": survey_version})
+    async def get(
+        self, survey_round: int, survey_version: str
+    ) -> SurveyDefinition | None:
+        document = await self._collection.find_one(
+            {"survey_round": survey_round, "survey_version": survey_version}
+        )
         return _definition_from_document(document) if document else None
 
     async def list_definitions(self) -> list[SurveyDefinitionSummary]:
         cursor = self._collection.find({}).sort("survey_round", 1)
-        definitions = [_definition_summary_from_document(document) async for document in cursor]
-        return sorted(definitions, key=lambda definition: (definition.survey_round, definition.survey_version))
+        definitions = [
+            _definition_summary_from_document(document) async for document in cursor
+        ]
+        return sorted(
+            definitions,
+            key=lambda definition: (definition.survey_round, definition.survey_version),
+        )
 
 
 class MongoSurveyResponseRepository:
-    def __init__(self, collection: Any) -> None:
+    def __init__(self, collection: Any, progress_collection: Any = None) -> None:
         self._collection = collection
+        self._progress_collection = progress_collection
 
     async def create_response(self, response: SurveyResponseRecord) -> None:
-        await self._collection.insert_one(
-            {
-                "participant_id": response.participant_id,
-                "survey_round": response.survey_round,
-                "survey_version": response.survey_version,
-                "answers": response.answers,
-                "submitted_at": response.submitted_at,
-                "detail": response.detail,
-            }
-        )
+        identity = {
+            "participant_id": response.participant_id,
+            "survey_round": response.survey_round,
+            "survey_version": response.survey_version,
+        }
+        submitted_at = response.submitted_at
+        try:
+            await self._collection.insert_one(
+                {
+                    **identity,
+                    "answers": response.answers,
+                    "submitted_at": submitted_at,
+                    "detail": response.detail,
+                }
+            )
+        except DuplicateKeyError:
+            existing = await self._collection.find_one(identity)
+            if existing is None or existing["answers"] != response.answers:
+                raise
+            submitted_at = existing["submitted_at"]
+        if self._progress_collection is not None:
+            await self._progress_collection.update_one(
+                {
+                    "_id": f"{response.participant_id}:{response.survey_round}:{response.survey_version}",
+                    **identity,
+                },
+                {
+                    "$set": {"completed": True, "completed_at": submitted_at},
+                    "$setOnInsert": {
+                        "revision": 0,
+                        "answers": response.answers,
+                        "completed_page": 0,
+                        "next_page": 1,
+                        "total_pages": 1,
+                        "updated_at": submitted_at,
+                    },
+                },
+                upsert=True,
+            )
 
-    async def list_responses(self, survey_round: int, survey_version: str) -> list[SurveyResponseRecord]:
-        cursor = self._collection.find({"survey_round": survey_round, "survey_version": survey_version}).sort(
-            "submitted_at", 1
-        )
+    async def list_responses(
+        self, survey_round: int, survey_version: str
+    ) -> list[SurveyResponseRecord]:
+        cursor = self._collection.find(
+            {"survey_round": survey_round, "survey_version": survey_version}
+        ).sort("submitted_at", 1)
         return [_response_from_document(document) async for document in cursor]
 
-    async def list_versions_for_participant(self, participant_id: str, survey_round: int) -> list[str]:
-        cursor = self._collection.find({"participant_id": participant_id, "survey_round": survey_round})
+    async def list_versions_for_participant(
+        self, participant_id: str, survey_round: int
+    ) -> list[str]:
+        cursor = self._collection.find(
+            {"participant_id": participant_id, "survey_round": survey_round}
+        )
         return [document["survey_version"] async for document in cursor]
 
     async def list_all_responses(self) -> list[SurveyResponseRecord]:
@@ -201,15 +266,27 @@ class MongoSurveySessionRepository:
             }
 
         active_now = active_participants_since(60)
-        active_seconds = [int(document.get("active_seconds", 0)) for document in sessions]
-        participant_ids = {str(document["participant_id"]) for document in sessions if document.get("participant_id")}
-        started_at_values = [document.get("started_at") for document in sessions if document.get("started_at")]
+        active_seconds = [
+            int(document.get("active_seconds", 0)) for document in sessions
+        ]
+        participant_ids = {
+            str(document["participant_id"])
+            for document in sessions
+            if document.get("participant_id")
+        }
+        started_at_values = [
+            document.get("started_at")
+            for document in sessions
+            if document.get("started_at")
+        ]
         first_started_at = min(started_at_values) if started_at_values else None
         today = now.astimezone(ZoneInfo("Asia/Seoul")).date()
         activity_trend = []
         for offset in range(29, -1, -1):
             target_date = today - timedelta(days=offset)
-            day_start = datetime.combine(target_date, datetime.min.time(), ZoneInfo("Asia/Seoul")).astimezone(UTC)
+            day_start = datetime.combine(
+                target_date, datetime.min.time(), ZoneInfo("Asia/Seoul")
+            ).astimezone(UTC)
             day_end = min(day_start + timedelta(days=1), now)
 
             def unique_between(start: datetime, end: datetime) -> int:
@@ -237,11 +314,17 @@ class MongoSurveySessionRepository:
             "sessionCount": len(sessions),
             "totalSessions": len(sessions),
             "totalParticipants": len(participant_ids),
-            "averageActiveSeconds": round(sum(active_seconds) / len(active_seconds)) if active_seconds else 0,
+            "averageActiveSeconds": (
+                round(sum(active_seconds) / len(active_seconds))
+                if active_seconds
+                else 0
+            ),
             "activityTrend": activity_trend,
             "hasCampaignData": False,
             "campaigns": [],
-            "firstStartedAt": first_started_at.isoformat() if first_started_at else None,
+            "firstStartedAt": (
+                first_started_at.isoformat() if first_started_at else None
+            ),
             "generatedAt": now.isoformat(),
         }
 
@@ -274,7 +357,9 @@ def survey_responses_to_csv(
         ]
     )
     for response in responses:
-        profile = (participant_profiles or {}).get(response.participant_id, ("-", None, None))
+        profile = (participant_profiles or {}).get(
+            response.participant_id, ("-", None, None)
+        )
         writer.writerow(
             [
                 _excel_text(profile[0]),
@@ -284,14 +369,21 @@ def survey_responses_to_csv(
                 response.survey_version,
                 _format_kst(response.submitted_at),
                 _format_detail_datetime(response.detail, "startedAt", "started_at"),
-                _detail_value(response.detail, "wallClockSeconds", "wall_clock_seconds"),
+                _detail_value(
+                    response.detail, "wallClockSeconds", "wall_clock_seconds"
+                ),
                 _detail_value(response.detail, "activeSeconds", "active_seconds"),
                 _detail_value(response.detail, "resumeCount", "resume_count"),
                 _detail_value(response.detail, "pageCount", "page_count"),
-                _detail_value(response.detail, "visitedPageCount", "visited_page_count"),
+                _detail_value(
+                    response.detail, "visitedPageCount", "visited_page_count"
+                ),
                 _detail_value(response.detail, "totalPageCount", "total_page_count"),
                 _detail_value(response.detail, "navigationCount", "navigation_count"),
-                *[_csv_value(_answer_value(response.answers, question.key)) for question in questions],
+                *[
+                    _csv_value(_answer_value(response.answers, question.key))
+                    for question in questions
+                ],
             ]
         )
     return output.getvalue()
