@@ -15,7 +15,11 @@ from app.services.applications import (
     DuplicateApplicationError,
     object_id,
 )
-from app.services.auth import ParticipantAccount, ParticipantAccountRepository
+from app.services.auth import (
+    MongoResearcherAccountRepository,
+    ParticipantAccount,
+    ParticipantAccountRepository,
+)
 from fastapi.testclient import TestClient
 
 
@@ -163,12 +167,27 @@ class RoundDefinitions:
 
 def test_survey_round_settings_defaults_permissions_upsert_and_validation():
     secret = "test-secret-at-least-thirty-two-bytes"
+    admin_id = "507f1f77bcf86cd799439011"
+
+    class ResearcherCollection:
+        def __init__(self):
+            self.queries = []
+
+        async def find_one(self, query, projection):
+            assert projection == {"username": 1}
+            self.queries.append(query)
+            if str(query["_id"]) == admin_id:
+                return {"username": "ai_us_admin"}
+            return None
+
+    researchers = ResearcherCollection()
     collection = RoundSettingsCollection()
     repository = MongoApplicationSettingsRepository(collection)
     app = create_app(
         Settings("test", None, "ai_us_test", (), secret, t1_submissions_open=False),
         application_settings_repository=repository,
         survey_definition_repository=RoundDefinitions(),
+        researcher_account_repository=MongoResearcherAccountRepository(researchers),
     )
 
     def headers(role):
@@ -176,7 +195,7 @@ def test_survey_round_settings_defaults_permissions_upsert_and_validation():
             "Authorization": "Bearer "
             + jwt.encode(
                 {
-                    "sub": role + "-1",
+                    "sub": admin_id if role == "admin" else role + "-1",
                     "role": role,
                     "exp": datetime.now(UTC) + timedelta(minutes=10),
                 },
@@ -239,9 +258,31 @@ def test_survey_round_settings_defaults_permissions_upsert_and_validation():
         )
         assert result.status_code == 200
         assert result.json()["isOpen"] is False
-        assert result.json()["updatedBy"] == "admin-1"
+        assert result.json()["updatedBy"] == "ai_us_admin"
         assert result.json()["updatedAt"]
         assert collection.document["auto_approval"] is True
+        assert collection.document["survey_rounds"]["2"]["updated_by"] == admin_id
+        collection.document["survey_rounds"]["1"] = {
+            "is_open": False,
+            "updated_by": admin_id,
+        }
+        researchers.queries.clear()
+        records = client.get(path, headers=headers("researcher")).json()
+        assert records[0]["updatedBy"] == records[1]["updatedBy"] == "ai_us_admin"
+        assert len(researchers.queries) == 1
+        assert collection.document["survey_rounds"]["1"]["updated_by"] == admin_id
+        unknown_id = "507f1f77bcf86cd799439012"
+        collection.document["survey_rounds"]["3"] = {
+            "is_open": False,
+            "updated_by": unknown_id,
+        }
+        collection.document["survey_rounds"]["4"] = {
+            "is_open": False,
+            "updated_by": "legacy_admin",
+        }
+        records = client.get(path, headers=headers("researcher")).json()
+        assert records[2]["updatedBy"] == unknown_id
+        assert records[3]["updatedBy"] == "legacy_admin"
         assert (
             client.put(
                 "/api/v1/admin/survey-round-settings/1",

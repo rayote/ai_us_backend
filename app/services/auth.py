@@ -28,13 +28,19 @@ class ParticipantAccountRepository(Protocol):
 
     async def find_by_id(self, participant_id: str) -> ParticipantAccount | None: ...
 
-    async def update_password(self, participant_id: str, password_hash: str) -> bool: ...
+    async def update_password(
+        self, participant_id: str, password_hash: str
+    ) -> bool: ...
 
     async def set_chat_consent(self, participant_id: str, enabled: bool) -> bool: ...
 
-    async def reset_password_by_phone_guardian(self, phone: str, guardian_phone: str, password_hash: str) -> bool: ...
+    async def reset_password_by_phone_guardian(
+        self, phone: str, guardian_phone: str, password_hash: str
+    ) -> bool: ...
 
-    async def reset_password_by_phone_email(self, phone: str, email: str, password_hash: str) -> bool: ...
+    async def reset_password_by_phone_email(
+        self, phone: str, email: str, password_hash: str
+    ) -> bool: ...
 
     async def create(
         self,
@@ -68,15 +74,21 @@ class MongoParticipantAccountRepository:
         self._collection = collection
 
     async def find_by_phone(self, phone: str) -> ParticipantAccount | None:
-        document = await self._collection.find_one({"phone_normalized": phone, "role": "participant"})
+        document = await self._collection.find_one(
+            {"phone_normalized": phone, "role": "participant"}
+        )
         return self._account_from_document(document)
 
     async def find_by_id(self, participant_id: str) -> ParticipantAccount | None:
-        document = await self._collection.find_one({"_id": ObjectId(participant_id), "role": "participant"})
+        document = await self._collection.find_one(
+            {"_id": ObjectId(participant_id), "role": "participant"}
+        )
         return self._account_from_document(document)
 
     @staticmethod
-    def _account_from_document(document: dict[str, Any] | None) -> ParticipantAccount | None:
+    def _account_from_document(
+        document: dict[str, Any] | None,
+    ) -> ParticipantAccount | None:
         if document is None:
             return None
         return ParticipantAccount(
@@ -107,14 +119,22 @@ class MongoParticipantAccountRepository:
         )
         return result.matched_count == 1
 
-    async def reset_password_by_phone_guardian(self, phone: str, guardian_phone: str, password_hash: str) -> bool:
+    async def reset_password_by_phone_guardian(
+        self, phone: str, guardian_phone: str, password_hash: str
+    ) -> bool:
         result = await self._collection.update_one(
-            {"phone_normalized": phone, "guardian_phone": guardian_phone, "role": "participant"},
+            {
+                "phone_normalized": phone,
+                "guardian_phone": guardian_phone,
+                "role": "participant",
+            },
             {"$set": {"password_hash": password_hash, "must_change_password": True}},
         )
         return result.modified_count == 1
 
-    async def reset_password_by_phone_email(self, phone: str, email: str, password_hash: str) -> bool:
+    async def reset_password_by_phone_email(
+        self, phone: str, email: str, password_hash: str
+    ) -> bool:
         result = await self._collection.update_one(
             {"phone_normalized": phone, "email": email, "role": "participant"},
             {"$set": {"password_hash": password_hash, "must_change_password": True}},
@@ -203,27 +223,50 @@ class ResearcherAccount:
 class ResearcherAccountRepository(Protocol):
     async def find_by_username(self, username: str) -> ResearcherAccount | None: ...
 
+    async def find_username_by_id(self, researcher_id: str) -> str | None: ...
+
     async def ensure_bootstrap(self, username: str, password_hash: str) -> None: ...
 
-    async def create(self, username: str, password_hash: str, role: str) -> str | None: ...
+    async def create(
+        self, username: str, password_hash: str, role: str
+    ) -> str | None: ...
 
 
 class MongoResearcherAccountRepository:
     def __init__(self, collection: Any) -> None:
         self._collection = collection
 
+    async def find_username_by_id(self, researcher_id: str) -> str | None:
+        from bson import ObjectId
+
+        if not ObjectId.is_valid(researcher_id):
+            return None
+        document = await self._collection.find_one(
+            {"_id": ObjectId(researcher_id)}, {"username": 1}
+        )
+        return document.get("username") if document else None
+
     async def find_by_username(self, username: str) -> ResearcherAccount | None:
         document = await self._collection.find_one({"username": username})
         if document is None:
             return None
         return ResearcherAccount(
-            str(document["_id"]), document["username"], document["password_hash"], document["role"]
+            str(document["_id"]),
+            document["username"],
+            document["password_hash"],
+            document["role"],
         )
 
     async def ensure_bootstrap(self, username: str, password_hash: str) -> None:
         await self._collection.update_one(
             {"username": username},
-            {"$setOnInsert": {"username": username, "password_hash": password_hash, "role": "admin"}},
+            {
+                "$setOnInsert": {
+                    "username": username,
+                    "password_hash": password_hash,
+                    "role": "admin",
+                }
+            },
             upsert=True,
         )
 
@@ -245,7 +288,9 @@ class ParticipantAuthenticationService:
     def __init__(self, repository: ParticipantAccountRepository) -> None:
         self._repository = repository
 
-    async def authenticate(self, phone: str, password: str, audience: str) -> ParticipantAccount:
+    async def authenticate(
+        self, phone: str, password: str, audience: str
+    ) -> ParticipantAccount:
         account = await self._repository.find_by_phone(phone)
         if account is None or not verify_password(password, account.password_hash):
             raise InvalidCredentialsError
@@ -257,13 +302,19 @@ class ParticipantAuthenticationService:
     def account_audience(account: ParticipantAccount) -> str:
         return "elementary" if account.school_level == "초등" else "secondary"
 
-    async def change_password(self, participant_id: str, current_password: str, new_password: str) -> None:
+    async def change_password(
+        self, participant_id: str, current_password: str, new_password: str
+    ) -> None:
         account = await self._repository.find_by_id(participant_id)
-        if account is None or not verify_password(current_password, account.password_hash):
+        if account is None or not verify_password(
+            current_password, account.password_hash
+        ):
             raise InvalidCredentialsError
         from app.core.security import hash_password
 
-        if not await self._repository.update_password(participant_id, hash_password(new_password)):
+        if not await self._repository.update_password(
+            participant_id, hash_password(new_password)
+        ):
             raise InvalidCredentialsError
 
     async def refresh_session(self, participant_id: str) -> ParticipantAccount:
@@ -272,7 +323,9 @@ class ParticipantAuthenticationService:
             raise InvalidCredentialsError
         return account
 
-    async def reset_password(self, phone: str, guardian_phone: str | None = None, email: str | None = None) -> None:
+    async def reset_password(
+        self, phone: str, guardian_phone: str | None = None, email: str | None = None
+    ) -> None:
         from app.core.security import hash_password
 
         if guardian_phone is not None:
@@ -280,7 +333,9 @@ class ParticipantAuthenticationService:
                 phone, guardian_phone, hash_password("1234")
             )
         elif email is not None:
-            matched = await self._repository.reset_password_by_phone_email(phone, email, hash_password("1234"))
+            matched = await self._repository.reset_password_by_phone_email(
+                phone, email, hash_password("1234")
+            )
         else:
             matched = False
         if not matched:
@@ -305,4 +360,6 @@ class ResearcherAdministrationService:
     async def create_researcher(self, username: str, password: str) -> str | None:
         from app.core.security import hash_password
 
-        return await self._repository.create(username, hash_password(password), "researcher")
+        return await self._repository.create(
+            username, hash_password(password), "researcher"
+        )

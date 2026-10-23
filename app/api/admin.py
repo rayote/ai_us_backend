@@ -173,6 +173,9 @@ async def update_survey_round_settings(
         changes["period_ended"] = record["period_ended"]
     await repository.update_survey_round(survey_round, changes, admin_id)
     records = await load_survey_rounds(
-        repository, request.app.state.settings.t1_submissions_open, definitions
+        repository,
+        request.app.state.settings.t1_submissions_open,
+        definitions,
+        researchers=getattr(request.app.state, "researcher_account_repository", None),
     )
     return SurveyRoundSetting.from_record(survey_round, records[str(survey_round)])

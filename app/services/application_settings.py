@@ -116,15 +116,29 @@ async def load_survey_rounds(
     repository: ApplicationSettingsRepository | None,
     t1_open: bool,
     definitions: Any = None,
+    researchers: Any = None,
 ) -> dict[str, dict[str, Any]]:
     if repository is None:
         return default_survey_rounds(t1_open)
     records = await repository.survey_rounds(t1_open)
-    if definitions is None:
-        return records
-    return resolve_survey_rounds(
-        records, survey_configurations(await definitions.list_definitions())
-    )
+    if definitions is not None:
+        records = resolve_survey_rounds(
+            records, survey_configurations(await definitions.list_definitions())
+        )
+    if researchers is not None:
+        usernames: dict[str, str | None] = {}
+        for survey_round, record in records.items():
+            updated_by = record.get("updated_by")
+            if updated_by:
+                if updated_by not in usernames:
+                    usernames[updated_by] = await researchers.find_username_by_id(
+                        updated_by
+                    )
+                records[survey_round] = {
+                    **record,
+                    "updated_by": usernames[updated_by] or updated_by,
+                }
+    return records
 
 
 class MongoApplicationSettingsRepository:

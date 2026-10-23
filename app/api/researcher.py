@@ -564,6 +564,7 @@ async def get_survey_round_settings(
         _application_settings_repository(request),
         request.app.state.settings.t1_submissions_open,
         _survey_definition_repository(request),
+        researchers=getattr(request.app.state, "researcher_account_repository", None),
     )
     return [
         SurveyRoundSetting.from_record(int(survey_round), record)
