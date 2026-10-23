@@ -242,7 +242,7 @@ class MongoResearcherAccountRepository:
         if not ObjectId.is_valid(researcher_id):
             return None
         document = await self._collection.find_one(
-            {"_id": ObjectId(researcher_id)}, {"username": 1}
+            {"_id": ObjectId(researcher_id)}, projection={"username": 1}
         )
         return document.get("username") if document else None
 

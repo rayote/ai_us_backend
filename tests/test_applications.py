@@ -3,6 +3,7 @@ from datetime import UTC, datetime, timedelta
 import jwt
 import pytest
 from app.core.settings import Settings
+from app.db.mongodb import AsyncCollection
 from app.main import create_app
 from app.schemas.application import ApplicationCreate, ApplicationRecord
 from app.services.application_settings import (
@@ -173,7 +174,7 @@ def test_survey_round_settings_defaults_permissions_upsert_and_validation():
         def __init__(self):
             self.queries = []
 
-        async def find_one(self, query, projection):
+        def find_one(self, query, projection):
             assert projection == {"username": 1}
             self.queries.append(query)
             if str(query["_id"]) == admin_id:
@@ -187,7 +188,9 @@ def test_survey_round_settings_defaults_permissions_upsert_and_validation():
         Settings("test", None, "ai_us_test", (), secret, t1_submissions_open=False),
         application_settings_repository=repository,
         survey_definition_repository=RoundDefinitions(),
-        researcher_account_repository=MongoResearcherAccountRepository(researchers),
+        researcher_account_repository=MongoResearcherAccountRepository(
+            AsyncCollection(researchers)
+        ),
     )
 
     def headers(role):
