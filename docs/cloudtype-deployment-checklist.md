@@ -1,5 +1,17 @@
 # CloudType Deployment Checklist
 
+## Deployment Model (Confirmed 2026-10-23)
+
+The user confirmed that this project's CloudType services are deployed manually: CloudType fetches the connected Git repository, builds a Docker image and deploys the resulting container when the operator explicitly starts deployment. A GitHub push publishes source changes only; it does not redeploy either development or production. Restarting an existing service does not by itself incorporate new repository commits. Do not request a separate automatic-deployment toggle confirmation before an authorized push under this confirmed setup.
+
+1. Review and push the approved frontend and backend commits to their existing `main` branches. Keep unrelated local work and real environment files out of the commits.
+2. In CloudType, select the **development backend** service and manually deploy the latest backend `main`. Confirm the intended repository/commit and development Secrets before starting the build. Check that both FastAPI and the Queue worker start successfully.
+3. Select the **development frontend** service and manually deploy the latest frontend `main`. Confirm its repository/commit rather than only restarting the previous container.
+4. Verify development `/health` reports `environment: development`, the backend exposes the new T2 status/progress routes, and the frontend serves the T2 questionnaire. Check participant submission through worker completion, progress recovery and researcher CSV/download behavior.
+5. Leave production containers and configuration unchanged. Development deployment is not production promotion; production requires researcher acceptance, explicit promotion approval and the production backup procedure below.
+
+The assistant may commit and push when requested; the user operates the CloudType manual build/deployment. Record the pushed commit IDs in the handoff so the user can identify the exact source to deploy.
+
 ## Development Environment
 
 Create three CloudType services in the free-tier account.
