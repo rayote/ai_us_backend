@@ -4,7 +4,14 @@ import re
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    StrictBool,
+    field_validator,
+    model_validator,
+)
 
 
 class ApplicationConsents(BaseModel):
@@ -39,7 +46,9 @@ class ApplicationCreate(BaseModel):
     @model_validator(mode="after")
     def require_distinct_participant_and_guardian_phones(self) -> "ApplicationCreate":
         if self.phone == self.guardian_phone:
-            raise ValueError("본인 휴대폰 번호와 보호자 휴대폰 번호는 서로 달라야 합니다.")
+            raise ValueError(
+                "본인 휴대폰 번호와 보호자 휴대폰 번호는 서로 달라야 합니다."
+            )
         return self
 
     @field_validator("email")
@@ -59,7 +68,9 @@ class ApplicationCreated(BaseModel):
     access_token: str | None = Field(default=None, alias="accessToken")
     token_type: Literal["bearer"] | None = Field(default=None, alias="tokenType")
     role: Literal["participant"] | None = None
-    needs_password_change: bool | None = Field(default=None, alias="needsPasswordChange")
+    needs_password_change: bool | None = Field(
+        default=None, alias="needsPasswordChange"
+    )
     audience: Literal["elementary", "secondary"] | None = None
     chat_consent: bool | None = Field(default=None, alias="chatConsent")
     participant_phone: str | None = Field(default=None, alias="participantPhone")
@@ -76,6 +87,59 @@ class ApplicationSettings(BaseModel):
 
 class ApplicationSettingsUpdate(ApplicationSettings):
     pass
+
+
+class SurveyConfiguration(BaseModel):
+    id: str
+    label: str
+    versions: list[dict[str, str | int]]
+
+
+class SurveyRoundSetting(BaseModel):
+    survey_round: Literal[1, 2, 3, 4] = Field(alias="surveyRound")
+    is_open: StrictBool = Field(alias="isOpen")
+    configuration_id: str | None = Field(alias="configurationId")
+    submission_allowed: bool = Field(alias="submissionAllowed")
+    period_ended: bool = Field(alias="periodEnded")
+    state: Literal["preparing", "open", "closed"]
+    configurations: list[SurveyConfiguration]
+    updated_at: datetime | None = Field(default=None, alias="updatedAt")
+    updated_by: str | None = Field(default=None, alias="updatedBy")
+
+    @classmethod
+    def from_record(cls, survey_round: int, record: dict) -> "SurveyRoundSetting":
+        return cls(
+            surveyRound=survey_round,
+            isOpen=record["is_open"],
+            configurationId=record["configuration_id"],
+            submissionAllowed=record["submission_allowed"],
+            periodEnded=record["period_ended"],
+            state=record["state"],
+            configurations=record["configurations"],
+            updatedAt=record.get("updated_at"),
+            updatedBy=record.get("updated_by"),
+        )
+
+
+class SurveyRoundSettingUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    is_open: StrictBool | None = Field(default=None, alias="isOpen")
+    configuration_id: str | None = Field(
+        default=None, alias="configurationId", min_length=1
+    )
+    period_ended: StrictBool | None = Field(default=None, alias="periodEnded")
+
+    @model_validator(mode="after")
+    def require_one_change(self) -> "SurveyRoundSettingUpdate":
+        if len(self.model_fields_set) != 1:
+            raise ValueError("설정은 한 항목씩 변경해 주세요.")
+        if any(
+            getattr(self, key) is None
+            for key in self.model_fields_set
+            if key != "configuration_id"
+        ):
+            raise ValueError("토글 값은 true 또는 false여야 합니다.")
+        return self
 
 
 class ChatConsentUpdate(BaseModel):
@@ -98,14 +162,19 @@ class ApplicationRecord(BaseModel):
 
 
 class ApplicationApproval(BaseModel):
-    application_ids: list[str] = Field(alias="applicationIds", min_length=1, max_length=100)
+    application_ids: list[str] = Field(
+        alias="applicationIds", min_length=1, max_length=100
+    )
 
     @field_validator("application_ids")
     @classmethod
     def validate_application_ids(cls, value: list[str]) -> list[str]:
         if len(set(value)) != len(value):
             raise ValueError("신청 ID는 중복될 수 없습니다.")
-        if any(not re.fullmatch(r"[0-9a-fA-F]{24}", application_id) for application_id in value):
+        if any(
+            not re.fullmatch(r"[0-9a-fA-F]{24}", application_id)
+            for application_id in value
+        ):
             raise ValueError("올바른 신청 ID가 아닙니다.")
         return value
 

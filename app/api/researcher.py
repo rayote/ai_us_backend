@@ -24,6 +24,7 @@ from app.schemas.application import (
     ApplicationRecord,
     ApplicationSettings,
     ChatConsentUpdate,
+    SurveyRoundSetting,
 )
 from app.schemas.chat import (
     ChatAttachment,
@@ -550,6 +551,24 @@ async def get_application_settings(
             request
         ).auto_approval_enabled()
     )
+
+
+@router.get("/survey-round-settings", response_model=list[SurveyRoundSetting])
+async def get_survey_round_settings(
+    request: Request,
+    _: str = Depends(require_researcher),
+) -> list[SurveyRoundSetting]:
+    from app.services.application_settings import load_survey_rounds
+
+    records = await load_survey_rounds(
+        _application_settings_repository(request),
+        request.app.state.settings.t1_submissions_open,
+        _survey_definition_repository(request),
+    )
+    return [
+        SurveyRoundSetting.from_record(int(survey_round), record)
+        for survey_round, record in records.items()
+    ]
 
 
 @router.post("/participants/imports", response_model=ParticipantImportResult)

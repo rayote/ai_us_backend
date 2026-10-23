@@ -62,7 +62,13 @@
 
 ### 설문 정의와 제출
 
-- 실제 설문 spec은 `index.html`의 `SURVEY_SETS`가 원본이다. `surveyRound`, `surveyVersion`, `audience`, `part`, `_meta.title`, 문항 key와 선택지 value는 연구진 확정값만 사용한다.
+- 연구자 사이드바의 `미완료자 관리` 아래 `설문 접수 관리`는 `회차 상태 → 설문 구성 → 제출 허용 → 설문기간 종료 → 변경 정보` 순서다. `GET /api/v1/researcher/survey-round-settings`는 관리자/연구자 공용이며, 관리자만 `PUT /api/v1/admin/survey-round-settings/{round}`에 `configurationId`(문자열 또는 null), `isOpen`(제출 허용), `periodEnded` 중 한 항목씩 보낸다. 선택 가능한 완성 스키마가 없는 T3/T4는 구성과 토글을 모두 비활성화한다. 조회 실패는 미등록으로 간주하지 않는다.
+- 자동 승인과 접수 변경은 동일한 테마 확인창을 사용하며 버튼은 `예`, `아니오` 순서다. 취소 시 요청하지 않고, 성공 응답 전까지 이전 상태를 유지한다. 저장 중 중복 요청·닫기를 막고 실패하면 같은 창에 오류를 표시한다. 일반 연구자는 조회 전용이며 조회 실패 시 변경을 막는다.
+- 관리·참여자 화면은 `surveyRoundStates`의 `preparing/open/closed`를 동일한 `준비 중/접수 중/접수 종료` 뱃지로 표시한다. 준비 중 구성을 선택하면 제출 허용이 켜져 있어도 준비 중이다. 선택된 구성에서 `periodEnded=true`면 접수 종료이며, 나머지는 제출 허용이 켜져야 접수 중이다. 제출 허용만 끄면 준비 중이지 기간 종료가 아니다. 종료 처리·해제는 모두 제출 허용을 끄며, 자동 재개하지 않는다. 개인의 제출 완료/완료 횟수는 별도 보존한다.
+- 참여자 `survey-status`의 `surveyConfigurations`에 맞춰 `GET /api/v1/participant/survey-configurations/{round}`에서 실제 DB 문항 spec을 읽고 파트/대상별로 적용한다. 로딩 실패 시 시작을 막는다. 1~4회차 버튼과 안내 문구에 상태를 반영하며, 기간 종료일 때만 `참여 기간이 끝났어요`를 쓴다. 구 backend 응답은 기존 호환 동작을 유지하므로 backend를 먼저 배포한다. 미리보기는 내장 문항만 사용하고 API를 호출하지 않는다.
+- 초기 DB 선택값이 없을 때 기존의 완성된 T1 v2-0916/T2 v9-1022 구성만 호환 선택하며 다른 신규/초안 버전은 자동 선택하지 않는다. T1 종료 환경값 false와 기존 DB 접수 설정을 보존한다. T3/T4는 준비 중이다. 이후 관리자 설정에는 재배포가 필요 없다. 종료해도 기존 응답·완료 기록·조회/다운로드와 종료 전 접수된 작업은 유지되며, 이미 제출된 파트는 수정할 수 없다. 사용자별 임시 재개방·유예 종료는 아직 구현하지 않았다.
+
+- 문항 저작·등록 원본은 `index.html`의 내장 설문이며, 실제 참여 시에는 관리자가 선택한 DB 버전의 spec을 사용한다. `surveyRound`, `surveyVersion`, `audience`, `part`, `_meta.title`, 문항 key와 선택지 value는 연구진 확정값만 사용한다.
 - 현재 수집용 정의는 `t1-elem-part1-v2-0916`, `t1-elem-part2-v2-0916`, `t1-secondary-part1-v2-0916`, `t1-secondary-part2-v2-0916`이다. 기존 `v1-draft` 정의와 응답은 삭제하거나 덮어쓰지 않고 버전별로 병행 보존한다.
 - v2 파트 2 마지막에는 `followup.researchConsent`(예=1, 아니오=2)를 추가한다. 기존 파트 2 응답에는 이 key가 없을 수 있으므로, 연구진 승인 후 backend의 `scripts/backfill_followup_consent.py`로 `2`를 보수적으로 backfill한다.
 - 조건부로 숨겨지는 문항은 answers에서 생략될 수 있다. Backend는 등록되지 않은 top-level key만 거부하며 required/type/조건부 존재 여부는 frontend 설문 엔진이 검증한다.

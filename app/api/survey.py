@@ -3,12 +3,14 @@ from __future__ import annotations
 from app.api.auth import _participant_id
 from app.schemas.survey import (
     ParticipantSurveyProgress,
+    SurveyDefinition,
     SurveyProgressRecord,
     SurveyProgressSave,
     SurveySessionHeartbeat,
     SurveySubmissionAccepted,
     SurveySubmissionCreate,
 )
+from app.services.application_settings import load_survey_rounds
 from app.services.auth import ParticipantAccountRepository
 from app.services.jobs import JobRepository
 from app.services.submissions import (
@@ -19,7 +21,7 @@ from app.services.submissions import (
 )
 from app.services.survey_progress import ProgressConflictError
 from app.services.surveys import SurveyDefinitionRepository
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Path, Request, status
 
 router = APIRouter(prefix="/api/v1", tags=["survey submissions"])
 
@@ -63,8 +65,28 @@ def _session_repository(request: Request):
 async def _require_survey_access(
     request: Request, participant_id: str, survey_round: int, survey_version: str
 ):
-    if survey_round == 1 and not request.app.state.settings.t1_submissions_open:
-        raise HTTPException(status_code=403, detail="참여 기간이 끝났어요")
+    rounds = await load_survey_rounds(
+        getattr(request.app.state, "application_settings_repository", None),
+        request.app.state.settings.t1_submissions_open,
+        getattr(request.app.state, "survey_definition_repository", None),
+    )
+    record = rounds.get(str(survey_round), {})
+    if not record.get("is_open", False):
+        raise HTTPException(
+            status_code=403,
+            detail=(
+                "설문 준비 중이에요"
+                if record.get("state") == "preparing"
+                else "참여 기간이 끝났어요"
+            ),
+        )
+    if "selected_configuration" in record and survey_version not in {
+        item["surveyVersion"] for item in record["selected_configuration"]["versions"]
+    }:
+        raise HTTPException(
+            status_code=403,
+            detail="현재 선택된 설문 구성이 아닙니다. 목록을 새로고침해 주세요.",
+        )
     definitions = getattr(request.app.state, "survey_definition_repository", None)
     responses = getattr(request.app.state, "survey_response_repository", None)
     if definitions is None:
@@ -114,10 +136,31 @@ async def _survey_status(request: Request, participant_id: str) -> dict[str, obj
             if definition is not None and (definition.spec or {}).get("part") == 2:
                 completed_rounds.append(survey_round)
                 break
+    rounds = await load_survey_rounds(
+        getattr(request.app.state, "application_settings_repository", None),
+        request.app.state.settings.t1_submissions_open,
+        definitions,
+    )
     return {
         "completedVersionsByRound": versions_by_round,
         "completedRounds": completed_rounds,
-        "t1SubmissionsOpen": request.app.state.settings.t1_submissions_open,
+        "t1SubmissionsOpen": rounds["1"]["is_open"],
+        "surveyRoundsOpen": {key: record["is_open"] for key, record in rounds.items()},
+        "surveyRoundStates": {
+            key: record.get(
+                "state",
+                (
+                    "open"
+                    if record["is_open"]
+                    else "closed" if key == "1" else "preparing"
+                ),
+            )
+            for key, record in rounds.items()
+        },
+        "surveyConfigurations": {
+            key: (record.get("selected_configuration") or {}).get("versions", [])
+            for key, record in rounds.items()
+        },
     }
 
 
@@ -126,6 +169,38 @@ async def participant_survey_status(
     request: Request, participant_id: str = Depends(_participant_id)
 ):
     return await _survey_status(request, participant_id)
+
+
+@router.get(
+    "/participant/survey-configurations/{survey_round}",
+    response_model=list[SurveyDefinition],
+)
+async def participant_survey_configuration(
+    request: Request,
+    survey_round: int = Path(ge=1, le=4),
+    _: str = Depends(_participant_id),
+) -> list[SurveyDefinition]:
+    definitions = getattr(request.app.state, "survey_definition_repository", None)
+    if definitions is None:
+        raise HTTPException(status_code=503, detail="설문 정의 서비스를 준비 중입니다.")
+    rounds = await load_survey_rounds(
+        getattr(request.app.state, "application_settings_repository", None),
+        request.app.state.settings.t1_submissions_open,
+        definitions,
+    )
+    selected = rounds[str(survey_round)].get("selected_configuration")
+    if selected is None:
+        return []
+    result = []
+    for version in selected["versions"]:
+        definition = await definitions.get(survey_round, version["surveyVersion"])
+        if definition is None:
+            raise HTTPException(
+                status_code=409,
+                detail="설문 구성이 변경되었습니다. 다시 확인해 주세요.",
+            )
+        result.append(definition)
+    return result
 
 
 @router.post("/participant/survey-sessions/heartbeat", status_code=status.HTTP_200_OK)

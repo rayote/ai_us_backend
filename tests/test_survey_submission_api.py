@@ -1,6 +1,7 @@
 import asyncio
 from datetime import UTC, datetime
 
+import pytest
 from app.core.security import create_access_token, hash_password
 from app.core.settings import Settings
 from app.main import create_app
@@ -581,6 +582,324 @@ def test_final_response_retry_repairs_progress_without_replacing_answers() -> No
             )
         )
     assert responses.document["answers"] == {"q1": "original"}
+
+
+@pytest.mark.parametrize("t1_fallback", [False, True])
+def test_round_admission_blocks_writes_preserves_reads_and_finishes_queued_jobs(
+    t1_fallback,
+):
+    from app.schemas.survey import SurveyProgressRecord
+    from app.services.application_settings import default_survey_rounds
+
+    class RoundSettings:
+        def __init__(self):
+            self.records = {
+                "1": {
+                    "configuration_id": "parts",
+                    "is_open": t1_fallback,
+                    "period_ended": False,
+                },
+                "2": {
+                    "configuration_id": "parts",
+                    "is_open": True,
+                    "period_ended": False,
+                },
+            }
+
+        async def survey_rounds(self, t1_open):
+            return {**default_survey_rounds(t1_open), **self.records}
+
+        async def set_survey_round_open(self, survey_round, enabled, updated_by):
+            self.records[str(survey_round)] = {
+                "is_open": enabled,
+                "updated_by": updated_by,
+                "updated_at": datetime.now(UTC),
+            }
+
+        async def update_survey_round(self, survey_round, changes, updated_by):
+            self.records.setdefault(str(survey_round), {"is_open": False}).update(
+                {
+                    **changes,
+                    "updated_by": updated_by,
+                    "updated_at": datetime.now(UTC),
+                }
+            )
+
+    class Definitions(InMemoryDefinitions):
+        async def list_definitions(self):
+            from app.schemas.survey import SurveyDefinitionSummary
+
+            return [
+                SurveyDefinitionSummary(
+                    surveyRound=round_number,
+                    surveyVersion=f"part{part}",
+                    audience="all",
+                    part=part,
+                    questionCount=1,
+                    createdAt=datetime.now(UTC),
+                )
+                for round_number in range(1, 5)
+                for part in [1, 2]
+            ]
+
+        async def get(self, survey_round, survey_version):
+            if survey_round in range(1, 5) and survey_version in {"part1", "part2"}:
+                return self.definition.model_copy(
+                    update={
+                        "survey_round": survey_round,
+                        "survey_version": survey_version,
+                        "spec": {"part": int(survey_version[-1])},
+                    }
+                )
+            return None
+
+    class Progress:
+        record = None
+
+        async def get(self, participant_id, survey_round, survey_version):
+            return self.record
+
+        async def save(self, participant_id, progress):
+            self.record = SurveyProgressRecord(
+                **progress.model_dump(exclude={"revision"}),
+                revision=progress.revision + 1,
+                updated_at=datetime.now(UTC),
+            )
+            return self.record
+
+    settings_repository, definitions = RoundSettings(), Definitions()
+    responses, jobs, progress = InMemoryResponses(), InMemoryJobs(), Progress()
+    secret = "test-secret-at-least-thirty-two-bytes"
+    app = create_app(
+        Settings(
+            "test", None, "ai_us_test", (), secret, t1_submissions_open=t1_fallback
+        ),
+        application_settings_repository=settings_repository,
+        participant_account_repository=InMemoryParticipantAccounts(),
+        survey_definition_repository=definitions,
+        survey_response_repository=responses,
+        survey_progress_repository=progress,
+        job_repository=jobs,
+    )
+    headers = {
+        "Authorization": "Bearer "
+        + create_access_token("participant-1", "participant", secret, 60)
+    }
+    admin = {
+        "Authorization": "Bearer " + create_access_token("admin-1", "admin", secret, 60)
+    }
+    submission = {
+        "surveyRound": 2,
+        "surveyVersion": "part1",
+        "answers": {"q1": "original"},
+        "submissionId": "accepted-before-close",
+    }
+    draft = {
+        "surveyRound": 2,
+        "surveyVersion": "part1",
+        "answers": {"q1": "draft"},
+        "revision": 0,
+        "completedPage": 1,
+        "nextPage": 2,
+        "totalPages": 2,
+        "clientSavedAt": "2026-10-23T00:00:00Z",
+    }
+    with TestClient(app) as client:
+        status_path = "/api/v1/participant/survey-status"
+        initial = client.get(status_path, headers=headers).json()
+        assert initial["surveyRoundsOpen"] == {
+            "1": t1_fallback,
+            "2": True,
+            "3": False,
+            "4": False,
+        }
+        selected = client.get(
+            "/api/v1/participant/survey-configurations/2", headers=headers
+        )
+        assert selected.status_code == 200
+        assert [item["surveyVersion"] for item in selected.json()] == ["part1", "part2"]
+        assert (
+            client.get(
+                "/api/v1/participant/survey-configurations/3", headers=headers
+            ).json()
+            == []
+        )
+        assert (
+            client.get("/api/v1/participant/survey-configurations/2").status_code == 401
+        )
+        assert initial["surveyRoundStates"]["2"] == "open"
+        assert (
+            client.post(
+                "/api/v1/survey-responses",
+                headers=headers,
+                json={**submission, "surveyVersion": "unselected"},
+            ).status_code
+            == 403
+        )
+        assert (
+            client.put(
+                "/api/v1/survey-progress", headers=headers, json=draft
+            ).status_code
+            == 200
+        )
+        accepted = client.post(
+            "/api/v1/survey-responses", headers=headers, json=submission
+        )
+        assert accepted.status_code == 202
+        assert (
+            client.put(
+                "/api/v1/admin/survey-round-settings/2",
+                headers=admin,
+                json={"isOpen": False},
+            ).status_code
+            == 200
+        )
+        assert (
+            client.get(status_path, headers=headers).json()["surveyRoundsOpen"]["2"]
+            is False
+        )
+        before = progress.record.model_dump()
+        assert (
+            client.put(
+                "/api/v1/survey-progress",
+                headers=headers,
+                json={**draft, "revision": 1, "answers": {"q1": "blocked"}},
+            ).status_code
+            == 403
+        )
+        assert progress.record.model_dump() == before
+        assert (
+            client.post(
+                "/api/v1/survey-responses",
+                headers=headers,
+                json={**submission, "submissionId": "blocked-after-close"},
+            ).status_code
+            == 403
+        )
+        assert len(jobs.jobs) == 1
+        saved = client.get(
+            "/api/v1/survey-progress?surveyRound=2&surveyVersion=part1", headers=headers
+        )
+        assert saved.status_code == 200 and saved.json()["answers"] == {"q1": "draft"}
+        worker = QueueWorker(
+            jobs,
+            {
+                "survey_response": lambda payload: store_survey_response(
+                    payload, definitions, responses
+                )
+            },
+        )
+        assert asyncio.run(worker.process_one()) is True
+        assert (
+            client.get(
+                "/api/v1/submission-jobs/" + accepted.json()["submissionId"],
+                headers=headers,
+            ).json()["status"]
+            == "completed"
+        )
+        assert responses.responses[0].answers == {"q1": "original"}
+        assert client.get(status_path, headers=headers).json()[
+            "completedVersionsByRound"
+        ]["2"] == ["part1"]
+        assert (
+            client.get(
+                "/api/v1/participant/survey-progress?survey_round=2", headers=headers
+            ).status_code
+            == 200
+        )
+        assert (
+            client.put(
+                "/api/v1/admin/survey-round-settings/2",
+                headers=admin,
+                json={"isOpen": True},
+            ).status_code
+            == 200
+        )
+        assert (
+            client.put(
+                "/api/v1/survey-progress",
+                headers=headers,
+                json={**draft, "revision": 1},
+            ).status_code
+            == 409
+        )
+        assert (
+            client.put(
+                "/api/v1/survey-progress",
+                headers=headers,
+                json={**draft, "surveyVersion": "part2"},
+            ).status_code
+            == 200
+        )
+        assert (
+            client.post(
+                "/api/v1/survey-responses",
+                headers=headers,
+                json={
+                    **submission,
+                    "surveyVersion": "part2",
+                    "submissionId": "reopened-part2",
+                },
+            ).status_code
+            == 202
+        )
+        for enabled in [True, False]:
+            assert (
+                client.put(
+                    "/api/v1/admin/survey-round-settings/1",
+                    headers=admin,
+                    json={"isOpen": enabled},
+                ).status_code
+                == 200
+            )
+            status = client.get(status_path, headers=headers).json()
+            assert status["t1SubmissionsOpen"] is enabled
+            assert status["surveyRoundsOpen"]["1"] is enabled
+            assert client.post(
+                "/api/v1/survey-responses",
+                headers=headers,
+                json={**submission, "surveyRound": 1, "submissionId": "t1-override"},
+            ).status_code == (202 if enabled else 403)
+        for survey_round in [3, 4]:
+            assert (
+                client.post(
+                    "/api/v1/survey-responses",
+                    headers=headers,
+                    json={**submission, "surveyRound": survey_round},
+                ).status_code
+                == 403
+            )
+        assert (
+            client.put(
+                "/api/v1/admin/survey-round-settings/3",
+                headers=admin,
+                json={"configurationId": "parts"},
+            ).status_code
+            == 200
+        )
+        assert (
+            client.put(
+                "/api/v1/admin/survey-round-settings/3",
+                headers=admin,
+                json={"isOpen": True},
+            ).status_code
+            == 200
+        )
+        status = client.get(status_path, headers=headers).json()
+        assert status["surveyRoundsOpen"] == {
+            "1": False,
+            "2": True,
+            "3": True,
+            "4": False,
+        }
+        assert (
+            client.post(
+                "/api/v1/survey-responses",
+                headers=headers,
+                json={**submission, "surveyRound": 3, "submissionId": "t3-open"},
+            ).status_code
+            == 202
+        )
 
 
 def test_t2_first_part_order_completion_and_chat_gate_without_t1() -> None:

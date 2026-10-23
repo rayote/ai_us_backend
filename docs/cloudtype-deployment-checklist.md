@@ -12,6 +12,12 @@ The user confirmed that this project's CloudType services are deployed manually:
 
 The assistant may commit and push when requested; the user operates the CloudType manual build/deployment. Record the pushed commit IDs in the handoff so the user can identify the exact source to deploy.
 
+### Round Admission Rollout
+
+Deploy the approved backend before the frontend. Keep the development `T1_SUBMISSIONS_OPEN=false` setting during the first deployment so the existing T1 closure is preserved before a DB override exists. No startup migration or live DB write is required: missing rounds use T1's environment fallback, T2 open and T3/T4 closed. Production remains unchanged without separate approval.
+
+After deployment, `설문 접수 관리` under `미완료자 관리` displays the common round state plus configuration selection, submission permission and explicit period-end controls; only admins can change them. T3/T4 without complete definitions must have all controls disabled. Verify the four records and read-only researcher controls before an authorized change. Preparing overrides permission; ending or unending the period clears permission and never automatically resumes submissions. Existing complete T1 v2-0916/T2 v9-1022 selections are retained without choosing arbitrary draft releases. Confirm the participant frontend reads selected DB specs and matches all four round badges. Future confirmed changes apply without redeployment; participant status refreshes when the list is reopened. Preserve responses, completion history, downloads and accepted jobs. Local browser verification must mock all external API calls and must not change live settings.
+
 ## Development Environment
 
 Create three CloudType services in the free-tier account.

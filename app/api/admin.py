@@ -1,22 +1,39 @@
 from __future__ import annotations
 
 from app.api.auth import require_admin
-from app.schemas.application import ApplicationSettings, ApplicationSettingsUpdate
+from app.schemas.application import (
+    ApplicationSettings,
+    ApplicationSettingsUpdate,
+    SurveyRoundSetting,
+    SurveyRoundSettingUpdate,
+)
 from app.schemas.auth import ResearcherCreate, ResearcherCreated
 from app.schemas.survey import SurveyDefinition, SurveyDefinitionCreate
-from app.services.application_settings import ApplicationSettingsRepository
-from app.services.auth import ResearcherAccountRepository, ResearcherAdministrationService
-from app.services.surveys import DuplicateSurveyDefinitionError, SurveyDefinitionRepository
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from app.services.application_settings import (
+    ApplicationSettingsRepository,
+    load_survey_rounds,
+)
+from app.services.auth import (
+    ResearcherAccountRepository,
+    ResearcherAdministrationService,
+)
+from app.services.surveys import (
+    DuplicateSurveyDefinitionError,
+    SurveyDefinitionRepository,
+)
+from fastapi import APIRouter, Depends, HTTPException, Path, Request, status
 
 router = APIRouter(prefix="/api/v1/admin", tags=["admin"])
 
 
 def _service(request: Request) -> ResearcherAdministrationService:
-    repository: ResearcherAccountRepository | None = getattr(request.app.state, "researcher_account_repository", None)
+    repository: ResearcherAccountRepository | None = getattr(
+        request.app.state, "researcher_account_repository", None
+    )
     if repository is None:
         raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="계정 관리 서비스를 준비 중입니다."
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="계정 관리 서비스를 준비 중입니다.",
         )
     return ResearcherAdministrationService(repository)
 
@@ -25,7 +42,8 @@ def _survey_definition_repository(request: Request) -> SurveyDefinitionRepositor
     repository = getattr(request.app.state, "survey_definition_repository", None)
     if repository is None:
         raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="설문 정의 서비스를 준비 중입니다."
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="설문 정의 서비스를 준비 중입니다.",
         )
     return repository
 
@@ -34,24 +52,40 @@ def _application_settings_repository(request: Request) -> ApplicationSettingsRep
     repository = getattr(request.app.state, "application_settings_repository", None)
     if repository is None:
         raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="신청 설정 서비스를 준비 중입니다."
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="신청 설정 서비스를 준비 중입니다.",
         )
     return repository
 
 
-@router.post("/researchers", response_model=ResearcherCreated, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/researchers",
+    response_model=ResearcherCreated,
+    status_code=status.HTTP_201_CREATED,
+)
 async def create_researcher(
     researcher: ResearcherCreate,
     request: Request,
     _: str = Depends(require_admin),
 ) -> ResearcherCreated:
-    researcher_id = await _service(request).create_researcher(researcher.username, researcher.password)
+    researcher_id = await _service(request).create_researcher(
+        researcher.username, researcher.password
+    )
     if researcher_id is None:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="이미 사용 중인 연구자 아이디입니다.")
-    return ResearcherCreated(researcherId=researcher_id, username=researcher.username, role="researcher")
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="이미 사용 중인 연구자 아이디입니다.",
+        )
+    return ResearcherCreated(
+        researcherId=researcher_id, username=researcher.username, role="researcher"
+    )
 
 
-@router.post("/survey-definitions", response_model=SurveyDefinition, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/survey-definitions",
+    response_model=SurveyDefinition,
+    status_code=status.HTTP_201_CREATED,
+)
 async def create_survey_definition(
     definition: SurveyDefinitionCreate,
     request: Request,
@@ -61,11 +95,15 @@ async def create_survey_definition(
         return await _survey_definition_repository(request).create(definition)
     except DuplicateSurveyDefinitionError as error:
         raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT, detail="이미 등록된 설문 회차와 버전입니다."
+            status_code=status.HTTP_409_CONFLICT,
+            detail="이미 등록된 설문 회차와 버전입니다.",
         ) from error
 
 
-@router.put("/survey-definitions/{survey_round}/{survey_version}", response_model=SurveyDefinition)
+@router.put(
+    "/survey-definitions/{survey_round}/{survey_version}",
+    response_model=SurveyDefinition,
+)
 async def replace_survey_definition(
     survey_round: int,
     survey_version: str,
@@ -73,7 +111,10 @@ async def replace_survey_definition(
     request: Request,
     _: str = Depends(require_admin),
 ) -> SurveyDefinition:
-    if definition.survey_round != survey_round or definition.survey_version != survey_version:
+    if (
+        definition.survey_round != survey_round
+        or definition.survey_version != survey_version
+    ):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="경로의 surveyRound/surveyVersion과 요청 본문이 일치해야 합니다.",
@@ -91,3 +132,47 @@ async def update_application_settings(
         settings_update.auto_approval, admin_id
     )
     return ApplicationSettings(autoApproval=enabled)
+
+
+@router.put("/survey-round-settings/{survey_round}", response_model=SurveyRoundSetting)
+async def update_survey_round_settings(
+    settings_update: SurveyRoundSettingUpdate,
+    request: Request,
+    survey_round: int = Path(ge=1, le=4),
+    admin_id: str = Depends(require_admin),
+) -> SurveyRoundSetting:
+    repository = _application_settings_repository(request)
+    definitions = _survey_definition_repository(request)
+    records = await load_survey_rounds(
+        repository, request.app.state.settings.t1_submissions_open, definitions
+    )
+    record = records[str(survey_round)]
+    if not record["configurations"]:
+        raise HTTPException(status_code=409, detail="선택 가능한 설문 구성이 없습니다.")
+    changes = settings_update.model_dump(exclude_unset=True)
+    if "configuration_id" in changes:
+        selected = changes["configuration_id"]
+        if selected is not None and selected not in {
+            item["id"] for item in record["configurations"]
+        }:
+            raise HTTPException(
+                status_code=422, detail="선택 가능한 설문 구성이 아닙니다."
+            )
+    else:
+        if record["selected_configuration"] is None:
+            raise HTTPException(
+                status_code=409, detail="설문 구성을 먼저 선택해 주세요."
+            )
+        if changes.get("is_open") is True and record["period_ended"]:
+            raise HTTPException(
+                status_code=409, detail="설문기간 종료를 먼저 해제해 주세요."
+            )
+    if "period_ended" in changes:
+        changes["is_open"] = False
+    if "period_ended" not in changes:
+        changes["period_ended"] = record["period_ended"]
+    await repository.update_survey_round(survey_round, changes, admin_id)
+    records = await load_survey_rounds(
+        repository, request.app.state.settings.t1_submissions_open, definitions
+    )
+    return SurveyRoundSetting.from_record(survey_round, records[str(survey_round)])

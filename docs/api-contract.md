@@ -21,8 +21,8 @@ These endpoints and policies are implemented locally. The two development MongoD
 
 - T2 versions: `t2-part1-v9-1022` and `t2-part2-v9-1022`, `surveyRound=2`, stored `audience=all` (`common` is normalized to `all`). Their source has 240/92 question objects and 256/96 flattened answer fields. The T1-only `followup.researchConsent` addition is not applied to T2.
 - T2 demographics are independently entered in each part. The server replaces only the participant and guardian phone subfields with the authenticated account values. Grade, optional email/SNS and other original answers are preserved; neither account profiles nor T1 answers are updated. Progress and final metadata use `demographicEntryPolicy=reenter` and `demographicPolicyVersion=2026-10-23`.
-- `GET /api/v1/participant/survey-status` returns `completedVersionsByRound` (string round keys), `completedRounds` and `t1SubmissionsOpen`. Completion requires a stored part-2 response; queued jobs and partial snapshots never count. T2 part 1 has no T1 prerequisite; T2 part 2 requires a stored T2 part-1 response.
-- `T1_SUBMISSIONS_OPEN` defaults to `true` for backward compatibility. Setting it to `false` rejects new T1 final/progress submissions with HTTP 403 and `참여 기간이 끝났어요`; history/export and already accepted worker jobs remain available. The development/production closure setting and actual closure time require an explicit operational decision.
+- `GET /api/v1/participant/survey-status` returns `completedVersionsByRound` (string round keys), `completedRounds`, `surveyRoundsOpen` (boolean values with string keys `"1"` through `"4"`) and the backward-compatible `t1SubmissionsOpen` field. Completion requires a stored part-2 response; queued jobs and partial snapshots never count. T2 part 1 has no T1 prerequisite; T2 part 2 requires a stored T2 part-1 response.
+- Admission is controlled by the DB-backed round settings below. `surveyRoundStates` reports `preparing`, `open` or `closed`; `surveyConfigurations` lists the selected version/audience/part identities by round. A closed round rejects new final/progress submissions with HTTP 403 and `참여 기간이 끝났어요`; a preparing round uses `설문 준비 중이에요`. History/export and already accepted worker jobs remain available. Before a DB selection override, only the complete current T1 v2-0916 and T2 v9-1022 configurations are selected for compatibility. T1 retains `T1_SUBMISSIONS_OPEN` (default `true`); existing closed T1 is treated as period-ended. T2 retains its permission; T3/T4 start preparing. No arbitrary new/draft release is auto-selected.
 
 ### Partial Progress
 
@@ -352,6 +352,43 @@ Both endpoints accept either an `admin` or `researcher` bearer token.
 ```
 
 The setting is stored in MongoDB and defaults to `false` when it has not yet been set. When enabled, a new application that satisfies all required consent fields is immediately approved, receives a participant account with initial password `1234`, and the application response contains a participant bearer token with `needsPasswordChange: true`. The frontend must immediately show the first-password-change screen before permitting survey access. Existing pending applications remain pending.
+
+### Survey round admission settings
+
+`GET /api/v1/researcher/survey-round-settings` accepts `admin` or `researcher` and returns four records ordered by round. A configured T2 record has this shape:
+
+```json
+{
+  "surveyRound": 2,
+  "configurationId": "t2-parts-v9-1022",
+  "submissionAllowed": true,
+  "periodEnded": false,
+  "isOpen": true,
+  "state": "open",
+  "configurations": [{
+    "id": "t2-parts-v9-1022",
+    "label": "2회차 · v9-1022 · 공통 파트 1·2",
+    "versions": [
+      {"surveyVersion": "t2-part1-v9-1022", "audience": "all", "part": 1},
+      {"surveyVersion": "t2-part2-v9-1022", "audience": "all", "part": 2}
+    ]
+  }],
+  "updatedAt": null,
+  "updatedBy": null
+}
+```
+
+Reads do not create or migrate a document. `updatedAt`/`updatedBy` are null until that round has been explicitly changed. Configuration candidates require both parts for either `all`, or both `elementary` and `secondary`, with nonempty questions and an unambiguous shared release family. The current version naming convention groups audience and part tokens, e.g. `t1-elem-part1-v2-0916` and its companion parts become `t1-parts-v2-0916`. Unmatched/incomplete releases are not offered; do not assume arbitrary version names can be paired automatically.
+
+`PUT /api/v1/admin/survey-round-settings/{survey_round}` requires `admin`, a round from 1 through 4, and exactly one field: `{"configurationId": "<candidate id>"}`, `{"configurationId": null}` (preparing), `{"isOpen": true|false}` (submission permission), or `{"periodEnded": true|false}`. Toggle fields require literal JSON booleans; null, multiple changes and extra fields are rejected. A round without complete configurations rejects changes (409). Unknown configuration IDs are rejected (422); permission/end changes require a selected configuration (409). Enabling permission while ended is rejected (409). Both setting and clearing `periodEnded` atomically set permission false, so clearing period end never automatically resumes submissions.
+
+State priority is: no valid selected configuration -> `preparing`; selected + ended -> `closed`; selected + not ended + permission -> `open`; otherwise -> `preparing`. `isOpen` is the effective permission, while `submissionAllowed` reports the stored toggle (normalized off when ended). Selecting preparing may retain a permission toggle, but cannot allow writes. Selecting a real configuration while permission remains on requires the frontend's explicit resume confirmation. Both consoles display the same `준비 중` / `접수 중` / `접수 종료` badges; personal completion is separate.
+
+`GET /api/v1/participant/survey-configurations/{survey_round}` requires a participant token and returns full `SurveyDefinition` records for the selected bundle, or `[]` when unprepared. The participant frontend loads their raw `spec` before enabling entry, chooses the appropriate audience, and caches by selected version identities. Preview keeps embedded definitions and never calls this endpoint. Final/progress writes must match a selected version; stale versions receive 403. Existing stored responses and drafts keep their original version identities.
+
+The existing `application_settings` document `_id: "participant_application"` uses dotted `$set` fields `survey_rounds.N.configuration_id`, `.is_open`, `.period_ended`, `.updated_at` and `.updated_by`, with `upsert=true`. Other rounds and `auto_approval` are preserved, including when separate rounds are changed concurrently. Automatic approval changes likewise preserve round settings. No redeployment is required for subsequent setting changes. Concurrent writes to the same round use last-write-wins semantics. User-specific overrides and grace periods are not implemented by these endpoints.
+
+### Application list
 
 `GET /api/v1/researcher/applications?school_level=elementary`
 
