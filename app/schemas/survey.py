@@ -44,6 +44,19 @@ class SurveyDefinitionCreate(BaseModel):
         data = dict(data)
         data["rawSpec"] = deepcopy(data)
         data["questions"] = _flatten_questions_from_scales(scales)
+        appended_keys = {
+            question.get("key")
+            for scale in scales
+            if isinstance(scale, dict)
+            for question in scale.get("questions", [])
+            if isinstance(question, dict) and question.get("csvAppend") is True
+        }
+        if appended_keys:
+            data["questions"].sort(
+                key=lambda question: question["key"] in appended_keys
+            )
+            for order, question in enumerate(data["questions"], 1):
+                question["order"] = order
         return data
 
     @model_validator(mode="after")

@@ -1,9 +1,94 @@
 import csv
 import io
+from copy import deepcopy
 from datetime import UTC, datetime
+from pathlib import Path
 
-from app.schemas.survey import SurveyDefinition, SurveyDefinitionCreate, SurveyQuestion, SurveyResponseRecord
-from app.services.surveys import MongoSurveyDefinitionRepository, survey_responses_to_csv
+from app.schemas.survey import (
+    SurveyDefinition,
+    SurveyDefinitionCreate,
+    SurveyQuestion,
+    SurveyResponseRecord,
+)
+from app.services.surveys import (
+    MongoSurveyDefinitionRepository,
+    survey_responses_to_csv,
+)
+
+
+def test_t2_reward_addition_preserves_followup_and_appends_csv_column() -> None:
+    from scripts.register_frontend_surveys import extract_survey_sets
+
+    frontend = Path(__file__).resolve().parents[2] / "ai_us" / "index.html"
+    parts = extract_survey_sets(frontend, 2)["common"]
+    spec = next(part for part in parts if part["part"] == 2)
+    reward = next(scale for scale in spec["scales"] if scale["scaleId"] == "reward")
+    followup = next(scale for scale in spec["scales"] if scale["scaleId"] == "followup")
+    assert spec["scales"].index(reward) + 1 == spec["scales"].index(followup)
+    question = reward["questions"][0]
+    assert question["key"] == "reward.gifticon"
+    assert question["required"] is True and question["type"] == "single"
+    assert [option["value"] for option in question["options"]] == [1, 2, 3, 4, 5]
+    assert len({option["label"] for option in question["options"]}) == 5
+    assert [item["key"] for item in followup["questions"]] == ["followup.q1"]
+    assert followup["questions"][0]["other"]["when"] == 3
+    assert followup["questions"][0]["other"]["field"]["key"] == "followup.q1_reason"
+    baseline_spec = deepcopy(spec)
+    baseline_spec["scales"] = [
+        scale for scale in baseline_spec["scales"] if scale["scaleId"] != "reward"
+    ]
+    baseline = SurveyDefinitionCreate.model_validate(baseline_spec)
+    updated = SurveyDefinitionCreate.model_validate(spec)
+    assert updated.survey_version == baseline.survey_version == "t2-part2-v9-1022"
+    assert updated.questions[:-1] == baseline.questions
+    assert updated.questions[-1].key == "reward.gifticon"
+    assert len({item.key for item in updated.questions}) == len(updated.questions)
+    now = datetime.now(UTC)
+
+    def definition(source):
+        return SurveyDefinition(
+            surveyRound=source.survey_round,
+            surveyVersion=source.survey_version,
+            audience=source.audience,
+            questions=source.questions,
+            spec=source.raw_spec,
+            createdAt=now,
+        )
+
+    old_answers = {item.key: "기존 응답 " + item.key for item in baseline.questions}
+    old_answers["followup.q1"] = 3
+    old_answers["followup.q1_reason"] = "일정이 맞지 않아요."
+    responses = [
+        SurveyResponseRecord(
+            participantId="old-participant",
+            surveyRound=2,
+            surveyVersion=updated.survey_version,
+            answers=deepcopy(old_answers),
+            submittedAt=now,
+        )
+    ]
+    for choice in range(1, 6):
+        responses.append(
+            responses[0].model_copy(
+                update={
+                    "participant_id": "new-participant-" + str(choice),
+                    "answers": {**old_answers, "reward.gifticon": choice},
+                }
+            )
+        )
+    old_rows = list(
+        csv.reader(
+            io.StringIO(survey_responses_to_csv(definition(baseline), responses[:1]))
+        )
+    )
+    new_rows = list(
+        csv.reader(io.StringIO(survey_responses_to_csv(definition(updated), responses)))
+    )
+    assert new_rows[0][:-1] == old_rows[0]
+    assert new_rows[1][:-1] == old_rows[1] and new_rows[1][-1] == ""
+    assert [row[-1] for row in new_rows[2:]] == ["1", "2", "3", "4", "5"]
+    assert all(len(row) == len(new_rows[0]) for row in new_rows)
+    assert responses[0].answers == old_answers
 
 
 class InMemoryDefinitionCollection:
@@ -36,7 +121,9 @@ class InMemoryCursor:
         return document
 
 
-def test_csv_export_uses_question_definition_order_and_preserves_missing_answers() -> None:
+def test_csv_export_uses_question_definition_order_and_preserves_missing_answers() -> (
+    None
+):
     definition = SurveyDefinition(
         surveyRound=2,
         surveyVersion="2026-round-2-v2",
@@ -128,7 +215,9 @@ def test_csv_export_includes_session_detail_columns_near_submission_time() -> No
         },
     )
 
-    rows = list(csv.reader(io.StringIO(survey_responses_to_csv(definition, [response]))))
+    rows = list(
+        csv.reader(io.StringIO(survey_responses_to_csv(definition, [response])))
+    )
     start = rows[0].index("응답 일시(KST)")
 
     assert rows[0][start : start + 9] == [
@@ -196,7 +285,9 @@ def test_mongo_definition_storage_uses_csv_column_alias() -> None:
 
     stored = asyncio.run(repository.create(definition))
 
-    assert collection.document["questions"] == [{"key": "q1", "csvColumn": "첫 번째 문항", "order": 1}]
+    assert collection.document["questions"] == [
+        {"key": "q1", "csvColumn": "첫 번째 문항", "order": 1}
+    ]
     assert stored.questions[0].csv_column == "첫 번째 문항"
 
 
@@ -245,7 +336,13 @@ def test_mongo_definition_storage_accepts_nested_scale_spec() -> None:
                         "text": "AI 서비스 유료 결제 경험이 있나요?",
                         "type": "single",
                         "required": True,
-                        "detail": {"when": 2, "field": {"key": "usage.q16_amount", "label": "월 결제 금액"}},
+                        "detail": {
+                            "when": 2,
+                            "field": {
+                                "key": "usage.q16_amount",
+                                "label": "월 결제 금액",
+                            },
+                        },
                     },
                     {
                         "key": "usage.q19",
@@ -253,7 +350,13 @@ def test_mongo_definition_storage_accepts_nested_scale_spec() -> None:
                         "text": "주로 사용하는 AI 서비스",
                         "type": "single",
                         "required": True,
-                        "other": {"when": 99, "field": {"key": "usage.q19_other", "label": "기타 서비스명"}},
+                        "other": {
+                            "when": 99,
+                            "field": {
+                                "key": "usage.q19_other",
+                                "label": "기타 서비스명",
+                            },
+                        },
                     },
                     {
                         "key": "aiexp.q12",
@@ -266,7 +369,10 @@ def test_mongo_definition_storage_accepts_nested_scale_spec() -> None:
                                 "key": "aiexp.q12_other",
                                 "label": "기타",
                                 "type": "select",
-                                "otherText": {"key": "aiexp.q12_other_txt", "label": "기타 대상"},
+                                "otherText": {
+                                    "key": "aiexp.q12_other_txt",
+                                    "label": "기타 대상",
+                                },
                             }
                         ],
                     },
@@ -280,14 +386,21 @@ def test_mongo_definition_storage_accepts_nested_scale_spec() -> None:
     stored = asyncio.run(repository.create(definition))
 
     assert collection.document["audience"] == "elementary"
-    assert collection.document["spec"]["scales"][0]["questions"][0]["key"] == "demo.screening1"
+    assert (
+        collection.document["spec"]["scales"][0]["questions"][0]["key"]
+        == "demo.screening1"
+    )
     assert collection.document["questions"] == [
         {
             "key": "demo.screening1",
             "csvColumn": "인구통계학적 정보 및 일반적 사항 | screening1 | 생성형 AI를 사용한 적이 있나요?",
             "order": 1,
         },
-        {"key": "demo.age", "csvColumn": "인구통계학적 정보 및 일반적 사항 | 3 | 나이", "order": 2},
+        {
+            "key": "demo.age",
+            "csvColumn": "인구통계학적 정보 및 일반적 사항 | 3 | 나이",
+            "order": 2,
+        },
         {
             "key": "usage.q11_1",
             "csvColumn": "인구통계학적 정보 및 일반적 사항 | 11 | 최근 한 달 생성형 AI 서비스별 사용 빈도 | ChatGPT",
