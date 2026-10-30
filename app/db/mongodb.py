@@ -231,6 +231,11 @@ class MongoDatabase:
             ],
             name="chat_submissions_participant_point",
         )
+        await self.database["chat_submissions"].create_index(
+            [("submitted_at", ASCENDING)],
+            name="chat_submissions_submitted_at",
+            background=True,
+        )
         await self.database["transcript_parse_runs"].create_index(
             [("submission_id", ASCENDING), ("completed_at", ASCENDING)],
             name="transcript_parse_runs_submission",
