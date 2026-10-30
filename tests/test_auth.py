@@ -1,10 +1,15 @@
 from datetime import UTC, datetime
+import asyncio
+from dataclasses import replace
+from unittest.mock import AsyncMock
 
 import jwt
 from app.core.security import hash_password, verify_password
 from app.core.settings import Settings
 from app.main import create_app
 from app.services.auth import ParticipantAccount, ParticipantAccountRepository
+from app.services.auth import MongoParticipantAccountRepository
+from bson import ObjectId
 from fastapi.testclient import TestClient
 
 
@@ -67,6 +72,77 @@ class InMemoryParticipantAccountRepository(ParticipantAccountRepository):
 def _client() -> TestClient:
     settings = Settings("test", None, "ai_us_test", (), "test-secret-at-least-thirty-two-bytes", 60)
     return TestClient(create_app(settings, participant_account_repository=InMemoryParticipantAccountRepository()))
+
+
+def test_consent_withdrawal_is_atomic_and_restoration_preserves_history() -> None:
+    collection = AsyncMock()
+    collection.update_one.return_value.matched_count = 1
+    repository = MongoParticipantAccountRepository(collection)
+    account = ParticipantAccount(str(ObjectId()), "01012345678", "hash", False, True)
+    assert asyncio.run(repository.change_chat_consent(account, False, False, "contact", "researcher-1"))
+    filters, update = collection.update_one.call_args.args
+    assert filters["$or"][-1] == {"chat_consent_revision": {"$exists": False}}
+    assert update["$set"]["chat_consent"] is False
+    cutoff = update["$set"]["chat_restricted_before"]
+    event = update["$push"]["chat_consent_history"]
+    assert event["previousConsent"] is True
+    assert event["updatedBy"] == "researcher-1"
+    withdrawn = replace(account, chat_consent=False, chat_consent_revision=1, chat_restricted_before=cutoff)
+    assert not withdrawn.allows_chat_material(cutoff)
+    future_only = replace(withdrawn, chat_consent=True)
+    assert not future_only.allows_chat_material(cutoff.replace(tzinfo=None))
+    from datetime import timedelta
+    assert future_only.allows_chat_material(cutoff + timedelta(seconds=1))
+    assert asyncio.run(repository.change_chat_consent(future_only, True, True, "restore requested", "researcher-2"))
+    filters, update = collection.update_one.call_args.args
+    assert filters["chat_consent_revision"] == 1
+    assert update["$set"]["chat_restricted_before"] is None
+    assert update["$push"]["chat_consent_history"]["previousRestrictedBefore"] == cutoff
+    assert "$unset" not in update
+    collection.update_one.return_value.matched_count = 0
+    assert not asyncio.run(repository.change_chat_consent(account, True, False, "stale", "researcher-1"))
+
+
+def test_consent_compare_and_set_through_real_async_database_adapter() -> None:
+    from copy import deepcopy
+    from threading import Lock
+    from types import SimpleNamespace
+    from app.db.mongodb import AsyncCollection
+
+    document = {"_id": ObjectId(), "role": "participant", "phone_normalized": "01012345678", "password_hash": "hash", "must_change_password": False, "chat_consent": True, "profile_note": "preserve"}
+
+    class Accounts:
+        lock = Lock()
+
+        def find_one(self, filters, **kwargs):
+            return deepcopy(document)
+
+        def update_one(self, filters, update):
+            with self.lock:
+                revision = document.get("chat_consent_revision", 0)
+                expected = filters.get("chat_consent_revision", 0)
+                if revision != expected:
+                    return SimpleNamespace(matched_count=0)
+                document.update(update["$set"])
+                document.setdefault("chat_consent_history", []).append(update["$push"]["chat_consent_history"])
+                return SimpleNamespace(matched_count=1)
+
+    async def run():
+        repository = MongoParticipantAccountRepository(AsyncCollection(Accounts()))
+        account = await repository.find_by_id(str(document["_id"]))
+        results = await asyncio.gather(
+            repository.change_chat_consent(account, False, False, "withdraw", "researcher-1"),
+            repository.change_chat_consent(account, False, False, "stale", "researcher-2"),
+        )
+        assert sorted(results) == [False, True]
+        changed = await repository.find_by_id(account.participant_id)
+        assert changed.chat_consent is False
+        assert changed.chat_consent_revision == 1
+        assert len(changed.chat_consent_history) == 1
+        assert not changed.allows_chat_material(datetime.now(UTC))
+
+    asyncio.run(run())
+    assert document["profile_note"] == "preserve"
 
 
 def test_participant_login_returns_access_token_and_password_change_requirement() -> None:

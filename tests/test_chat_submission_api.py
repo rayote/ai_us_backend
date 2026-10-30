@@ -9,6 +9,7 @@ from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
+from unittest.mock import AsyncMock
 
 from app.core.security import hash_password
 from app.core.settings import Settings
@@ -28,6 +29,7 @@ from app.services.auth import (
 )
 from app.services.chat_downloads import (
     chat_download_filename,
+    new_artifact,
     transcript_download_filename,
 )
 from app.services.chat_imports import ChatImportRepository, ChatImportSession
@@ -35,6 +37,7 @@ from app.services.chats import (
     ChatSubmissionRepository,
     ChatUploadRepository,
     build_chat_archive,
+    available_chat_submissions,
     store_chat_submission,
 )
 from app.services.jobs import JobRepository, QueueWorker
@@ -1142,6 +1145,141 @@ def test_other_review_requires_note() -> None:
     assert response.status_code == 422
 
 
+def test_withdrawal_hides_and_blocks_content_without_deleting_or_overwriting_reviews() -> None:
+    from datetime import timedelta
+
+    app, _, submissions, _ = _app(True, InMemoryTranscriptParseRuns())
+    submitted_at = datetime.now(UTC) - timedelta(days=1)
+    record = ChatSubmissionRecord(
+        submissionId="withdrawn-chat", participantId="participant-1",
+        submissionPoint="afterRound1", sourceType="text", rawInput="retained original",
+        transcript=ParsedTranscript(status="parsed", parserVersion="test", messages=[], plainText="retained", warnings=[]),
+        submittedAt=submitted_at,
+        review=ChatSubmissionReview(status="incentive_paid", note="keep payment memo", updatedAt=submitted_at, updatedBy="researcher-1"),
+    )
+    submissions.submissions.append(record)
+    with TestClient(app) as client:
+        login = client.post("/api/v1/auth/researcher/login", json={"username": "researcher", "password": "researcher-password"})
+        headers = {"Authorization": f"Bearer {login.json()['accessToken']}"}
+        participants = app.state.participant_account_repository
+        original = participants.account
+        cutoff = datetime.now(UTC)
+        participants.account = replace(original, chat_consent=False, chat_restricted_before=cutoff)
+        for review_filter in ("unreviewed", "all", "reviewed", "incentive_paid"):
+            assert client.get("/api/v1/researcher/chat-submission-previews", headers=headers, params={"review_filter": review_filter}).json() == []
+        hidden = client.get("/api/v1/researcher/chat-submission-previews", headers=headers, params={"review_filter": "consent_restricted"})
+        assert hidden.status_code == 200
+        assert hidden.json()[0]["consentRestricted"] is True
+        assert hidden.json()[0]["filenames"] == []
+        assert hidden.json()[0]["review"]["note"] == "keep payment memo"
+        for path in (
+            "/chat-submissions/files/withdrawn-chat/download",
+            "/chat-submissions/withdrawn-chat/latest-parse",
+            "/chat-submissions/withdrawn-chat/latest-parse/download?format=json",
+            "/chat-submissions/withdrawn-chat/latest-parse/download?format=csv",
+            "/chat-submissions/withdrawn-chat/parse-runs/some-run",
+        ):
+            assert client.get("/api/v1/researcher" + path, headers=headers).status_code == 409
+        assert client.post("/api/v1/researcher/chat-submissions/withdrawn-chat/parse", headers=headers).status_code == 409
+        participants.account = replace(participants.account, chat_consent=True)
+        assert asyncio.run(available_chat_submissions([record], participants)) == []
+        future = record.model_copy(update={"submission_id": "new-chat", "submitted_at": cutoff + timedelta(seconds=1)})
+        assert asyncio.run(available_chat_submissions([record, future], participants)) == [future]
+        participants.account = replace(participants.account, chat_restricted_before=None)
+        restored = client.get("/api/v1/researcher/chat-submission-previews", headers=headers, params={"review_filter": "all"})
+        assert restored.json()[0]["submissionId"] == "withdrawn-chat"
+        assert restored.json()[0]["review"]["status"] == "incentive_paid"
+        assert submissions.submissions == [record]
+        assert record.raw_input == "retained original"
+
+
+def test_completed_archives_recheck_consent_including_during_file_read() -> None:
+    from datetime import timedelta
+
+    for job_type, route in (("chat_download", "download-jobs"), ("transcript_download", "transcript-download-jobs")):
+        app, jobs, submissions, _ = _app(True)
+        record = ChatSubmissionRecord(
+            submissionId="archived-chat", participantId="participant-1",
+            submissionPoint="afterRound1", sourceType="text", rawInput="original",
+            transcript=ParsedTranscript(status="parsed", parserVersion="test", messages=[], plainText="", warnings=[]),
+            submittedAt=datetime.now(UTC) - timedelta(days=1),
+        )
+        submissions.submissions.append(record)
+        job = asyncio.run(jobs.enqueue(JobCreate(job_type=job_type, idempotency_key="archive", payload={})))
+        with TestClient(app) as client:
+            login = client.post("/api/v1/auth/researcher/login", json={"username": "researcher", "password": "researcher-password"})
+            headers = {"Authorization": f"Bearer {login.json()['accessToken']}"}
+            artifacts, uploads = AsyncMock(), AsyncMock()
+            artifact = new_artifact("archive", "file-id", "archive.zip", 3, ["archived-chat"])
+            artifacts.get.return_value = artifact
+            uploads.read_bytes.return_value = ("archive.zip", b"zip", "application/zip")
+            app.state.chat_download_artifact_repository = artifacts
+            app.state.chat_download_upload_repository = uploads
+            path = f"/api/v1/researcher/chat-submissions/{route}/{job.id}/file"
+            assert client.get(path, headers=headers).status_code == 200
+            participants = app.state.participant_account_repository
+            account = participants.account
+            participants.account = replace(account, chat_consent=False, chat_restricted_before=datetime.now(UTC))
+            uploads.read_bytes.reset_mock()
+            assert client.get(path, headers=headers).status_code == 409
+            uploads.read_bytes.assert_not_awaited()
+            participants.account = account
+
+            async def withdraw_during_read(_file_id):
+                participants.account = replace(account, chat_consent=False, chat_restricted_before=datetime.now(UTC))
+                return "archive.zip", b"zip", "application/zip"
+
+            uploads.read_bytes.side_effect = withdraw_during_read
+            assert client.get(path, headers=headers).status_code == 409
+            artifacts.get.return_value = new_artifact("archive", "file-id", "legacy.zip", 3)
+            assert client.get(path, headers=headers).status_code == 409
+
+
+def test_worker_selection_excludes_hidden_material_for_all_and_explicit_ids() -> None:
+    from datetime import timedelta
+    from app.worker import select_download_submissions
+
+    participants = InMemoryParticipants(True)
+    cutoff = datetime.now(UTC)
+    participants.account = replace(participants.account, chat_restricted_before=cutoff)
+    repository = InMemoryChatSubmissions()
+    old = ChatSubmissionRecord(
+        submissionId="old", participantId="participant-1", submissionPoint="afterRound1",
+        sourceType="text", rawInput="retained", submittedAt=cutoff - timedelta(days=1),
+        transcript=ParsedTranscript(status="parsed", parserVersion="test", messages=[], plainText="", warnings=[]),
+    )
+    future = old.model_copy(update={"submission_id": "new", "submitted_at": cutoff + timedelta(seconds=1)})
+    repository.submissions.extend([old, future])
+    for payload in ({"reviewFilter": "all"}, {"submissionIds": ["old", "new"], "reviewFilter": "all"}, {"schoolLevel": "초등", "reviewFilter": "all"}):
+        assert asyncio.run(select_download_submissions(payload, repository, participants)) == [future]
+    assert asyncio.run(select_download_submissions({"submissionIds": ["old"]}, repository, participants)) == []
+    participants.account = replace(participants.account, chat_consent=False)
+    assert asyncio.run(select_download_submissions({"reviewFilter": "all"}, repository, participants)) == []
+
+
+def test_parse_does_not_publish_when_consent_is_withdrawn_during_processing() -> None:
+    from app.services.transcript_runs import process_transcript_parse
+    import pytest
+
+    participants = InMemoryParticipants(True)
+    consented = participants.account
+    withdrawn = replace(consented, chat_consent=False, chat_restricted_before=datetime.now(UTC))
+    participants.find_by_id = AsyncMock(side_effect=[consented, withdrawn])
+    submissions = InMemoryChatSubmissions()
+    record = ChatSubmissionRecord(
+        submissionId="parse-withdrawal", participantId="participant-1", submissionPoint="afterRound1",
+        sourceType="text", rawInput="retained original", submittedAt=datetime.now(UTC),
+        transcript=ParsedTranscript(status="parsed", parserVersion="test", messages=[], plainText="", warnings=[]),
+    )
+    submissions.submissions.append(record)
+    runs = InMemoryTranscriptParseRuns()
+    run = asyncio.run(runs.create(record.submission_id, "text", "test"))
+    with pytest.raises(ValueError, match="동의 철회"):
+        asyncio.run(process_transcript_parse({"submissionId": record.submission_id, "runId": run.run_id}, submissions, InMemoryChatUploads(), runs, participants=participants))
+    assert asyncio.run(runs.get(run.run_id)).status == "failed"
+    assert submissions.submissions == [record]
+
+
 def test_researcher_chat_export_filters_selected_submissions_and_uses_kst_filename() -> (
     None
 ):
@@ -1318,7 +1456,13 @@ def test_transcript_downloads_use_kst_timestamped_filenames() -> None:
             [],
         )
     )
-    app, _, _, _ = _app(True, runs)
+    app, _, submissions, _ = _app(True, runs)
+    submissions.submissions.append(ChatSubmissionRecord(
+        submissionId="grok-download", participantId="participant-1",
+        submissionPoint="afterRound1", sourceType="text", rawInput="",
+        transcript=ParsedTranscript(status="parsed", parserVersion="test", messages=[], plainText="", warnings=[]),
+        submittedAt=datetime.now(UTC),
+    ))
     with TestClient(app) as client:
         login = client.post(
             "/api/v1/auth/researcher/login",

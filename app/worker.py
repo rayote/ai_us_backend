@@ -12,7 +12,7 @@ from typing import TextIO
 
 from app.core.settings import Settings
 from app.db.mongodb import MongoDatabase
-from app.services.auth import MongoParticipantAccountRepository
+from app.services.auth import MongoParticipantAccountRepository, ParticipantAccountRepository
 from app.services.chat_downloads import (
     MongoChatDownloadArtifactRepository,
     chat_download_filename,
@@ -21,6 +21,8 @@ from app.services.chat_downloads import (
 )
 from app.services.chats import (
     MongoChatSubmissionRepository,
+    ChatSubmissionRepository,
+    available_chat_submissions,
     build_chat_archive,
     store_chat_submission,
 )
@@ -44,6 +46,33 @@ from app.services.worker_health import (
 WORKER_HEARTBEAT_INTERVAL_SECONDS = 5
 WORKER_PROCESS_LOCK_PATH = "/tmp/ai-us-worker.lock"
 logger = logging.getLogger(__name__)
+
+
+async def select_download_submissions(
+    payload: dict[str, object], chat_submissions: ChatSubmissionRepository,
+    participants: ParticipantAccountRepository,
+) -> list:
+    submissions = await chat_submissions.list_submissions(
+        str(payload["submissionPoint"]) if payload.get("submissionPoint") else None
+    )
+    selected_ids = {
+        str(value) for value in payload.get("submissionIds", []) if isinstance(value, str)
+    }
+    if selected_ids:
+        submissions = [item for item in submissions if item.submission_id in selected_ids]
+    else:
+        review_filter = payload.get("reviewFilter", "unreviewed")
+        if review_filter == "unreviewed":
+            submissions = [item for item in submissions if item.review is None]
+        elif review_filter == "reviewed":
+            submissions = [item for item in submissions if item.review is not None]
+        elif review_filter != "all":
+            submissions = [item for item in submissions if item.review is not None and item.review.status == review_filter]
+    school_level = payload.get("schoolLevel")
+    if isinstance(school_level, str):
+        profiles = {item.participant_id: item.school_level for item in await participants.list_participants()}
+        submissions = [item for item in submissions if profiles.get(item.participant_id) == school_level]
+    return await available_chat_submissions(submissions, participants)
 
 
 def acquire_worker_process_lock(
@@ -105,65 +134,21 @@ async def run_worker() -> None:
     )
 
     async def selected_submissions(payload: dict[str, object]) -> list:
-        submissions = await chat_submissions.list_submissions(
-            str(payload.get("submissionPoint"))
-            if payload.get("submissionPoint")
-            else None
-        )
-        selected_ids = {
-            str(value)
-            for value in payload.get("submissionIds", [])
-            if isinstance(value, str)
-        }
-        if selected_ids:
-            submissions = [
-                submission
-                for submission in submissions
-                if submission.submission_id in selected_ids
-            ]
-        else:
-            review_filter = payload.get("reviewFilter", "unreviewed")
-            if review_filter == "unreviewed":
-                submissions = [
-                    submission
-                    for submission in submissions
-                    if submission.review is None
-                ]
-            elif review_filter == "reviewed":
-                submissions = [
-                    submission
-                    for submission in submissions
-                    if submission.review is not None
-                ]
-            elif review_filter != "all":
-                submissions = [
-                    submission
-                    for submission in submissions
-                    if submission.review is not None
-                    and submission.review.status == review_filter
-                ]
-        school_level = payload.get("schoolLevel")
-        if isinstance(school_level, str):
-            profiles = {
-                participant.participant_id: participant.school_level
-                for participant in await participants.list_participants()
-            }
-            submissions = [
-                submission
-                for submission in submissions
-                if profiles.get(submission.participant_id) == school_level
-            ]
-        return submissions
+        return await select_download_submissions(payload, chat_submissions, participants)
 
     async def store_download_artifact(
-        payload: dict[str, object], archive_path: Path, filename: str
+        payload: dict[str, object], archive_path: Path, filename: str, submissions: list
     ) -> None:
+        available = await available_chat_submissions(submissions, participants)
+        if len(available) != len(submissions):
+            raise ValueError("자료 이용 상태가 변경되었습니다. 다운로드를 새로 요청해 주세요.")
         file_id = await database.gridfs_bucket("chat_downloads").upload_file(
             filename, archive_path, {"job_key": payload["jobKey"]}
         )
         await chat_download_artifacts.create(
             new_artifact(
-                str(payload["jobKey"]), file_id, filename, archive_path.stat().st_size
+                str(payload["jobKey"]), file_id, filename, archive_path.stat().st_size,
+                [item.submission_id for item in submissions],
             )
         )
 
@@ -179,7 +164,7 @@ async def run_worker() -> None:
             if count == 0:
                 raise ValueError("선택한 제출에 다운로드할 첨부 파일이 없습니다.")
             await store_download_artifact(
-                payload, archive_path, chat_download_filename()
+                payload, archive_path, chat_download_filename(), submissions
             )
         finally:
             archive_path.unlink(missing_ok=True)
@@ -208,12 +193,25 @@ async def run_worker() -> None:
                 archive_path,
                 participant_profiles,
                 screenshot_extractor,
+                participants,
             )
             await store_download_artifact(
-                payload, archive_path, transcript_download_filename()
+                payload, archive_path, transcript_download_filename(), submissions
             )
         finally:
             archive_path.unlink(missing_ok=True)
+
+    async def parse_available_transcript(payload: dict[str, object]) -> None:
+        submissions = await chat_submissions.list_submissions()
+        available = await available_chat_submissions(submissions, participants)
+        if not any(item.submission_id == payload.get("submissionId") for item in available):
+            await transcript_runs.fail(str(payload["runId"]), "동의 철회 등으로 자료 이용이 제한되었습니다.", [])
+            raise ValueError("자료 이용이 제한되었습니다.")
+        await process_transcript_parse(
+            payload, chat_submissions, database.gridfs_bucket("chat_uploads"),
+            transcript_runs, screenshot_extractor,
+            participants,
+        )
 
     worker = QueueWorker(
         MongoJobRepository(database.database["submission_jobs"]),
@@ -226,13 +224,7 @@ async def run_worker() -> None:
             ),
             "chat_download": build_chat_download,
             "transcript_download": build_transcript_download,
-            "transcript_parse": lambda payload: process_transcript_parse(
-                payload,
-                chat_submissions,
-                database.gridfs_bucket("chat_uploads"),
-                transcript_runs,
-                screenshot_extractor,
-            ),
+            "transcript_parse": parse_available_transcript,
         },
     )
     await worker.recover()

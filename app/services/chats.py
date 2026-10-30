@@ -27,6 +27,21 @@ class ChatConsentRequiredError(Exception):
     """Raised when a participant has not consented to submit AI chats."""
 
 
+async def available_chat_submissions(
+    submissions: list[ChatSubmissionRecord], participants: ParticipantAccountRepository,
+) -> list[ChatSubmissionRecord]:
+    accounts = {
+        account.participant_id: account
+        for account in await participants.list_participants()
+    }
+    return [
+        submission for submission in submissions
+        if submission.participant_id in accounts and (
+            accounts[submission.participant_id].allows_chat_material(submission.submitted_at)
+        )
+    ]
+
+
 class InvalidChatLinkError(Exception):
     """Raised when a link submission does not contain a valid URL."""
 

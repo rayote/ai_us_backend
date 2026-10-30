@@ -15,6 +15,7 @@ class ChatDownloadArtifact(BaseModel):
     filename: str
     size: int
     created_at: datetime = Field(alias="createdAt")
+    submission_ids: list[str] | None = Field(default=None, alias="submissionIds")
 
 
 class ChatDownloadArtifactRepository(Protocol):
@@ -36,7 +37,8 @@ class MongoChatDownloadArtifactRepository:
 
 
 def new_artifact(
-    job_id: str, file_id: str, filename: str, size: int
+    job_id: str, file_id: str, filename: str, size: int,
+    submission_ids: list[str] | None = None,
 ) -> ChatDownloadArtifact:
     return ChatDownloadArtifact(
         jobId=job_id,
@@ -44,6 +46,7 @@ def new_artifact(
         filename=filename,
         size=size,
         createdAt=datetime.now(UTC),
+        submissionIds=submission_ids,
     )
 
 

@@ -1,4 +1,5 @@
 import asyncio
+from dataclasses import replace
 from datetime import UTC, datetime
 
 from app.core.security import hash_password
@@ -107,6 +108,22 @@ class InMemoryParticipants(ParticipantAccountRepository):
             ),
             None,
         )
+
+    async def change_chat_consent(self, account, enabled, restore_existing, reason, actor):
+        current = self.accounts[account.phone]
+        if current.chat_consent_revision != account.chat_consent_revision:
+            return False
+        cutoff = datetime.now(UTC) if not enabled else (None if restore_existing else account.chat_restricted_before)
+        self.accounts[account.phone] = replace(
+            current, chat_consent=enabled, chat_restricted_before=cutoff,
+            chat_consent_revision=current.chat_consent_revision + 1,
+            chat_consent_history=current.chat_consent_history + ({
+                "previousConsent": current.chat_consent, "chatConsent": enabled,
+                "restoreExisting": restore_existing, "reason": reason,
+                "updatedAt": datetime.now(UTC), "updatedBy": actor,
+            },),
+        )
+        return True
 
     async def update_password(self, participant_id: str, password_hash: str) -> bool:
         return False
@@ -264,7 +281,7 @@ def test_researcher_can_list_and_approve_applications() -> None:
     assert participants.accounts["01012345678"].guardian_phone == "01099999999"
 
 
-def test_researcher_chat_consent_update_syncs_application_and_participant() -> None:
+def test_researcher_chat_consent_update_preserves_original_application() -> None:
     client, participants = _client()
     with client:
         token = _researcher_token(client)
@@ -286,7 +303,7 @@ def test_researcher_chat_consent_update_syncs_application_and_participant() -> N
         response = client.put(
             "/api/v1/researcher/applications/65f000000000000000000001/chat-consent",
             headers={"Authorization": f"Bearer {token}"},
-            json={"chatConsent": True},
+            json={"chatConsent": True, "expectedRevision": 0, "reason": "본인 요청"},
         )
 
     assert response.status_code == 200
@@ -295,7 +312,38 @@ def test_researcher_chat_consent_update_syncs_application_and_participant() -> N
         "chatConsent": True,
     }
     assert participants.accounts["01012345678"].chat_consent is True
-    assert client.app.state.application_repository.records[0].consents.chat is True
+    assert client.app.state.application_repository.records[0].consents.chat is False
+    assert participants.accounts["01012345678"].chat_consent_history[0]["reason"] == "본인 요청"
+
+
+def test_csv_account_consent_lookup_withdrawal_and_explicit_restoration() -> None:
+    client, participants = _client()
+    participants.accounts["01012345678"] = ParticipantAccount(
+        "csv-account", "01012345678", "hash", False, True, "초등",
+    )
+    with client:
+        client.app.state.application_repository.records = []
+        headers = {"Authorization": f"Bearer {_researcher_token(client)}"}
+        lookup = client.post("/api/v1/researcher/participants/chat-consent/lookup", headers=headers, json={"phone": "01012345678"})
+        assert lookup.status_code == 200
+        assert lookup.json()["participantId"] == "csv-account"
+        path = "/api/v1/researcher/participants/csv-account/chat-consent"
+        withdrawn = client.put(path, headers=headers, json={"chatConsent": False, "expectedRevision": 0, "reason": "연락으로 철회"})
+        assert withdrawn.status_code == 200
+        assert withdrawn.json()["restrictedBefore"]
+        stale = client.put(path, headers=headers, json={"chatConsent": True, "expectedRevision": 0, "reason": "오래된 화면"})
+        assert stale.status_code == 409
+        future = client.put(path, headers=headers, json={"chatConsent": True, "expectedRevision": 1, "reason": "향후 제출만 재동의"})
+        assert future.status_code == 200
+        assert future.json()["restrictedBefore"] == withdrawn.json()["restrictedBefore"]
+        restored = client.put(path, headers=headers, json={"chatConsent": True, "restoreExisting": True, "expectedRevision": 2, "reason": "기존 자료 복원 요청"})
+        assert restored.status_code == 200
+        assert restored.json()["restrictedBefore"] is None
+        assert len(restored.json()["history"]) == 3
+        assert len(client.app.state.application_repository.records) == 0
+        assert client.put(path, headers=headers, json={"chatConsent": False, "restoreExisting": True, "expectedRevision": 3, "reason": "invalid"}).status_code == 422
+        assert client.put(path, headers=headers, json={"chatConsent": False, "expectedRevision": 3, "reason": " "}).status_code == 422
+        assert client.post("/api/v1/researcher/participants/chat-consent/lookup", json={"phone": "01012345678"}).status_code == 401
 
 
 def test_participant_cannot_access_researcher_applications() -> None:

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from typing import Any, Protocol
 
 from app.core.security import verify_password
@@ -21,6 +22,19 @@ class ParticipantAccount:
     email: str | None = None
     guardian_phone: str | None = None
     sns: str | None = None
+    chat_consent_revision: int = 0
+    chat_restricted_before: datetime | None = None
+    chat_consent_history: tuple[dict[str, Any], ...] = ()
+
+    def allows_chat_material(self, submitted_at: datetime) -> bool:
+        if self.chat_restricted_before is None:
+            return True
+        if not self.chat_consent:
+            return False
+        submitted_at = submitted_at.replace(tzinfo=UTC) if submitted_at.tzinfo is None else submitted_at
+        cutoff = self.chat_restricted_before
+        cutoff = cutoff.replace(tzinfo=UTC) if cutoff.tzinfo is None else cutoff
+        return submitted_at > cutoff
 
 
 class ParticipantAccountRepository(Protocol):
@@ -33,6 +47,11 @@ class ParticipantAccountRepository(Protocol):
     ) -> bool: ...
 
     async def set_chat_consent(self, participant_id: str, enabled: bool) -> bool: ...
+
+    async def change_chat_consent(
+        self, account: ParticipantAccount, enabled: bool, restore_existing: bool,
+        reason: str, actor: str,
+    ) -> bool: ...
 
     async def reset_password_by_phone_guardian(
         self, phone: str, guardian_phone: str, password_hash: str
@@ -103,6 +122,9 @@ class MongoParticipantAccountRepository:
             email=document.get("email"),
             guardian_phone=document.get("guardian_phone"),
             sns=document.get("sns"),
+            chat_consent_revision=document.get("chat_consent_revision", 0),
+            chat_restricted_before=document.get("chat_restricted_before"),
+            chat_consent_history=tuple(document.get("chat_consent_history", [])),
         )
 
     async def update_password(self, participant_id: str, password_hash: str) -> bool:
@@ -116,6 +138,47 @@ class MongoParticipantAccountRepository:
         result = await self._collection.update_one(
             {"_id": ObjectId(participant_id), "role": "participant"},
             {"$set": {"chat_consent": enabled}},
+        )
+        return result.matched_count == 1
+
+    async def change_chat_consent(
+        self, account: ParticipantAccount, enabled: bool, restore_existing: bool,
+        reason: str, actor: str,
+    ) -> bool:
+        if restore_existing and not enabled:
+            raise ValueError("Restoration requires consent")
+        changed_at = datetime.now(UTC)
+        cutoff = account.chat_restricted_before
+        if not enabled:
+            cutoff = changed_at
+        elif restore_existing:
+            cutoff = None
+        filters: dict[str, Any] = {
+            "_id": ObjectId(account.participant_id), "role": "participant",
+        }
+        if account.chat_consent_revision == 0:
+            filters["$or"] = [
+                {"chat_consent_revision": 0},
+                {"chat_consent_revision": {"$exists": False}},
+            ]
+        else:
+            filters["chat_consent_revision"] = account.chat_consent_revision
+        result = await self._collection.update_one(
+            filters,
+            {
+                "$set": {
+                    "chat_consent": enabled,
+                    "chat_restricted_before": cutoff,
+                    "chat_consent_revision": account.chat_consent_revision + 1,
+                },
+                "$push": {"chat_consent_history": {
+                    "previousConsent": account.chat_consent,
+                    "chatConsent": enabled, "restoreExisting": restore_existing,
+                    "previousRestrictedBefore": account.chat_restricted_before,
+                    "restrictedBefore": cutoff, "reason": reason,
+                    "updatedAt": changed_at, "updatedBy": actor,
+                }},
+            },
         )
         return result.matched_count == 1
 

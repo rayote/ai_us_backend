@@ -137,6 +137,7 @@ class ChatSubmissionPreview(BaseModel):
     parse_status: ParseStatus = Field(alias="parseStatus")
     submitted_at: datetime = Field(alias="submittedAt")
     review: ChatSubmissionReview | None = None
+    consent_restricted: bool = Field(default=False, alias="consentRestricted")
 
 
 class ChatDownloadJobCreate(BaseModel):

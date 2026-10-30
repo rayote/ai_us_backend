@@ -8,7 +8,8 @@ from pathlib import Path
 from typing import Any, Protocol
 from zoneinfo import ZoneInfo
 
-from app.schemas.chat import ParsedTranscript, TranscriptMessage, TranscriptParseRun
+from app.schemas.chat import ChatSubmissionRecord, ParsedTranscript, TranscriptMessage, TranscriptParseRun
+from app.services.auth import ParticipantAccountRepository
 from app.services.chats import ChatSubmissionRepository, ChatUploadRepository
 from app.services.screenshot_transcripts import (
     ScreenshotImage,
@@ -132,12 +133,22 @@ class MongoTranscriptParseRunRepository:
         )
 
 
+async def _check_material_consent(
+    submission: ChatSubmissionRecord, participants: ParticipantAccountRepository | None,
+) -> None:
+    if participants is not None:
+        account = await participants.find_by_id(submission.participant_id)
+        if account is None or not account.allows_chat_material(submission.submitted_at):
+            raise ValueError("동의 철회로 자료 이용이 제한되었습니다.")
+
+
 async def process_transcript_parse(
     payload: dict[str, object],
     submissions: ChatSubmissionRepository,
     uploads: ChatUploadRepository,
     runs: TranscriptParseRunRepository,
     screenshot_extractor: ScreenshotTranscriptExtractor | None = None,
+    participants: ParticipantAccountRepository | None = None,
 ) -> None:
     submission_id, run_id = str(payload["submissionId"]), str(payload["runId"])
     submission = next(
@@ -146,6 +157,7 @@ async def process_transcript_parse(
     if submission is None:
         raise ValueError("대화문 제출을 찾을 수 없습니다.")
     try:
+        await _check_material_consent(submission, participants)
         if submission.source_type == "image":
             if screenshot_extractor is None:
                 raise UnsupportedTranscriptError("이미지 대화문 parser adapter가 설정되지 않았습니다.")
@@ -199,6 +211,7 @@ async def process_transcript_parse(
                 submission.transcript.warnings,
             )
         projected = _project_transcript(normalized, parser_version, warnings)
+        await _check_material_consent(submission, participants)
         if not await submissions.update_transcript(submission_id, projected):
             raise ValueError("파싱 결과를 대화문 제출에 저장하지 못했습니다.")
         await runs.complete(run_id, parser_name, parser_version, normalized, warnings)
@@ -265,12 +278,14 @@ async def build_transcript_archive(
     archive_path: Path,
     participant_profiles: dict[str, tuple[str, str | None, int | None]] | None = None,
     screenshot_extractor: ScreenshotTranscriptExtractor | None = None,
+    participants: ParticipantAccountRepository | None = None,
 ) -> tuple[int, int]:
     completed = 0
     failures: list[list[str]] = []
     profiles = participant_profiles or {}
     with zipfile.ZipFile(archive_path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
         for submission in submissions:
+            await _check_material_consent(submission, participants)
             run = await runs.latest(submission.submission_id) if submission.transcript.status == "parsed" else None
             if run is None:
                 run = await runs.create(submission.submission_id, "adapter-router", "adapter-router-v1")
@@ -281,6 +296,7 @@ async def build_transcript_archive(
                         uploads,
                         runs,
                         screenshot_extractor,
+                        participants,
                     )
                 except Exception:
                     pass
@@ -310,6 +326,7 @@ async def build_transcript_archive(
                 )
                 continue
             filename = f"transcript-{submission.submission_id}.csv"
+            await _check_material_consent(submission, participants)
             archive.writestr(filename, ("\ufeff" + normalized_to_csv(run.normalized_json)).encode("utf-8"))
             completed += 1
         if failures:

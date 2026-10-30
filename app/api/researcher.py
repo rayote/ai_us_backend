@@ -23,6 +23,7 @@ from app.schemas.application import (
     ApplicationApprovalCompleted,
     ApplicationRecord,
     ApplicationSettings,
+    ChatConsentLookup,
     ChatConsentUpdate,
     SurveyRoundSetting,
 )
@@ -68,7 +69,8 @@ from app.services.analysis_jobs import (
 from app.services.application_settings import ApplicationSettingsRepository
 from app.services.applications import ApplicationRepository
 from app.services.approvals import ApplicationApprovalService, ExistingParticipantError
-from app.services.auth import ParticipantAccountRepository
+from app.services.auth import ParticipantAccount, ParticipantAccountRepository
+from bson.errors import InvalidId
 from app.services.chat_downloads import ChatDownloadArtifactRepository
 from app.services.chat_imports import (
     CHAT_IMPORT_TOOL_TYPES,
@@ -82,6 +84,7 @@ from app.services.chats import (
     ChatSubmissionManagementService,
     ChatSubmissionRepository,
     ChatUploadRepository,
+    available_chat_submissions,
     build_chat_archive,
     chat_submissions_to_csv,
     submission_summary,
@@ -562,12 +565,114 @@ async def approve_applications(
     return ApplicationApprovalCompleted(approvedCount=approved_count)
 
 
+def _participants(request: Request) -> ParticipantAccountRepository:
+    repository = getattr(request.app.state, "participant_account_repository", None)
+    if repository is None:
+        raise HTTPException(503, "참여자 정보를 준비 중입니다.")
+    return repository
+
+
+async def _require_chat_access(request: Request, submission_id: str) -> None:
+    repository = _chat_submission_repository(request)
+    submissions = await repository.list_submissions()
+    submissions.extend(await repository.list_submissions(status="deletion_requested"))
+    submission = next((item for item in submissions if item.submission_id == submission_id), None)
+    if submission is None:
+        raise HTTPException(404, "대화문 제출을 찾을 수 없습니다.")
+    participant = await _participants(request).find_by_id(submission.participant_id)
+    if participant is None or not participant.allows_chat_material(submission.submitted_at):
+        raise HTTPException(409, "동의 철회로 이용이 제한된 자료입니다.")
+
+
+async def _require_artifact_access(request: Request, artifact) -> None:
+    if not artifact.submission_ids:
+        raise HTTPException(409, "동의 상태 확인을 위해 다운로드를 새로 요청해 주세요.")
+    submissions = await _chat_submission_repository(request).list_submissions()
+    available = await available_chat_submissions(submissions, _participants(request))
+    allowed_ids = {item.submission_id for item in available}
+    if not set(artifact.submission_ids).issubset(allowed_ids):
+        raise HTTPException(409, "자료 이용 상태가 변경되었습니다. 다운로드를 새로 요청해 주세요.")
+
+
+async def _consent_snapshot(request: Request, participant: ParticipantAccount) -> dict:
+    repository = getattr(request.app.state, "chat_submission_repository", None)
+    submissions = await repository.list_for_participant(participant.participant_id) if repository else []
+    history = [dict(item) for item in participant.chat_consent_history]
+    researchers = getattr(request.app.state, "researcher_account_repository", None)
+    names: dict[str, str] = {}
+    for event in history:
+        actor = event.get("updatedBy", "")
+        if actor and researchers is not None:
+            if actor not in names:
+                names[actor] = await researchers.find_username_by_id(actor) or actor
+            event["updatedByUsername"] = names[actor]
+    return {
+        "participantId": participant.participant_id,
+        "phone": participant.phone, "name": participant.name,
+        "schoolLevel": participant.school_level, "grade": participant.grade,
+        "chatConsent": participant.chat_consent,
+        "revision": participant.chat_consent_revision,
+        "restrictedBefore": participant.chat_restricted_before,
+        "submissionCount": len(submissions),
+        "restrictedSubmissionCount": sum(
+            not participant.allows_chat_material(item.submitted_at) for item in submissions
+        ),
+        "history": history,
+    }
+
+
+@router.post("/participants/chat-consent/lookup")
+async def lookup_participant_chat_consent(
+    lookup: ChatConsentLookup, request: Request,
+    _: str = Depends(require_researcher),
+) -> dict:
+    participant = await _participants(request).find_by_phone(lookup.phone)
+    if participant is None:
+        raise HTTPException(404, "참여자 계정을 찾을 수 없습니다.")
+    return await _consent_snapshot(request, participant)
+
+
+async def _change_consent(
+    request: Request, participant: ParticipantAccount, update: ChatConsentUpdate, actor: str,
+) -> ParticipantAccount:
+    if participant.chat_consent_revision != update.expected_revision:
+        raise HTTPException(409, "동의 정보가 변경되었습니다. 계정을 다시 조회해 주세요.")
+    if participant.chat_consent == update.chat_consent and not update.restore_existing:
+        raise HTTPException(409, "이미 같은 동의 상태입니다. 계정을 다시 조회해 주세요.")
+    if update.restore_existing and participant.chat_restricted_before is None:
+        raise HTTPException(409, "복원할 동의 철회 자료가 없습니다. 계정을 다시 조회해 주세요.")
+    repository = _participants(request)
+    if not await repository.change_chat_consent(
+        participant, update.chat_consent, update.restore_existing, update.reason, actor,
+    ):
+        raise HTTPException(409, "동의 정보가 변경되었습니다. 계정을 다시 조회해 주세요.")
+    changed = await repository.find_by_id(participant.participant_id)
+    if changed is None:
+        raise HTTPException(409, "계정 상태를 다시 확인해 주세요.")
+    return changed
+
+
+@router.put("/participants/{participant_id}/chat-consent")
+async def update_participant_chat_consent(
+    participant_id: str, update: ChatConsentUpdate, request: Request,
+    actor: str = Depends(require_researcher),
+) -> dict:
+    try:
+        participant = await _participants(request).find_by_id(participant_id)
+    except (InvalidId, ValueError):
+        participant = None
+    if participant is None:
+        raise HTTPException(404, "참여자 계정을 찾을 수 없습니다.")
+    changed = await _change_consent(request, participant, update, actor)
+    return await _consent_snapshot(request, changed)
+
+
 @router.put("/applications/{application_id}/chat-consent")
 async def update_application_chat_consent(
     application_id: str,
     update: ChatConsentUpdate,
     request: Request,
-    _: str = Depends(require_researcher),
+    actor: str = Depends(require_researcher),
 ) -> dict[str, object]:
     applications = await _application_repository(request).list_applications()
     application = next(
@@ -592,20 +697,7 @@ async def update_application_chat_consent(
             status_code=status.HTTP_409_CONFLICT,
             detail="승인된 참여자 계정을 찾을 수 없습니다.",
         )
-    if not await participants.set_chat_consent(
-        participant.participant_id, update.chat_consent
-    ):
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="대화문 동의를 변경하지 못했습니다.",
-        )
-    if not await _application_repository(request).set_chat_consent(
-        application_id, update.chat_consent
-    ):
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="신청 정보의 대화문 동의를 동기화하지 못했습니다.",
-        )
+    await _change_consent(request, participant, update, actor)
     return {"applicationId": application_id, "chatConsent": update.chat_consent}
 
 
@@ -1015,6 +1107,7 @@ async def chat_submission_previews(
         "excluded",
         "duplicate",
         "other",
+        "consent_restricted",
     ] = "unreviewed",
     _: str = Depends(require_researcher),
 ) -> list[ChatSubmissionPreview]:
@@ -1037,8 +1130,15 @@ async def chat_submission_previews(
     submissions = await _chat_submission_repository(request).list_submissions(
         submission_point
     )
+    available_ids = {
+        item.submission_id
+        for item in await available_chat_submissions(submissions, participants)
+    }
     rows: list[ChatSubmissionPreview] = []
     for submission in reversed(submissions):
+        restricted = submission.submission_id not in available_ids
+        if restricted != (review_filter == "consent_restricted"):
+            continue
         profile = profiles.get(submission.participant_id, ("-", None, None))
         if school_level is not None and profile[1] != school_level:
             continue
@@ -1046,7 +1146,7 @@ async def chat_submission_previews(
             continue
         if review_filter == "reviewed" and submission.review is None:
             continue
-        if review_filter not in ("all", "unreviewed", "reviewed") and (
+        if review_filter not in ("all", "unreviewed", "reviewed", "consent_restricted") and (
             submission.review is None or submission.review.status != review_filter
         ):
             continue
@@ -1060,12 +1160,13 @@ async def chat_submission_previews(
                 sourceType=submission.source_type,
                 tool=submission.tool,
                 filenames=[
-                    attachment.filename for attachment in submission.attachments
+                    attachment.filename for attachment in submission.attachments if not restricted
                 ],
-                attachmentCount=len(submission.attachments),
+                attachmentCount=0 if restricted else len(submission.attachments),
                 parseStatus=submission.transcript.status,
                 submittedAt=submission.submitted_at,
                 review=submission.review,
+                consentRestricted=restricted,
             )
         )
     return rows[:100]
@@ -1118,6 +1219,7 @@ async def download_chat_submission_files(
     request: Request,
     _: str = Depends(require_researcher),
 ) -> Response:
+    await _require_chat_access(request, submission_id)
     repository = _chat_submission_repository(request)
     submissions = await repository.list_submissions()
     submissions.extend(await repository.list_submissions(status="deletion_requested"))
@@ -1147,6 +1249,7 @@ async def download_chat_submission_files(
         content = archive_path.read_bytes()
     finally:
         archive_path.unlink(missing_ok=True)
+    await _require_chat_access(request, submission_id)
     return Response(
         content=content,
         media_type="application/zip",
@@ -1241,7 +1344,9 @@ async def download_chat_job_file(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="다운로드 파일이 아직 준비되지 않았습니다.",
         )
+    await _require_artifact_access(request, artifact)
     filename, content, _ = await uploads.read_bytes(artifact.file_id)
+    await _require_artifact_access(request, artifact)
     return Response(
         content=content,
         media_type="application/zip",
@@ -1331,7 +1436,9 @@ async def download_transcript_job_file(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="다운로드 파일이 아직 준비되지 않았습니다.",
         )
+    await _require_artifact_access(request, artifact)
     filename, content, _ = await uploads.read_bytes(artifact.file_id)
+    await _require_artifact_access(request, artifact)
     return Response(
         content=content,
         media_type="application/zip",
@@ -1631,6 +1738,7 @@ async def request_transcript_parse(
     request: Request,
     _: str = Depends(require_researcher),
 ) -> TranscriptParseRequestAccepted:
+    await _require_chat_access(request, submission_id)
     submission_repository = _chat_submission_repository(request)
     submissions = await submission_repository.list_submissions()
     submission = next(
@@ -1694,6 +1802,7 @@ async def get_transcript_parse_run(
     request: Request,
     _: str = Depends(require_researcher),
 ) -> TranscriptParseRun:
+    await _require_chat_access(request, submission_id)
     run = await _transcript_parse_run_repository(request).get(run_id)
     if run is None or run.submission_id != submission_id:
         raise HTTPException(
@@ -1710,6 +1819,7 @@ async def get_transcript_parse_run(
 async def get_latest_transcript_parse(
     submission_id: str, request: Request, _: str = Depends(require_researcher)
 ) -> TranscriptParsePreview:
+    await _require_chat_access(request, submission_id)
     return TranscriptParsePreview(
         submissionId=submission_id,
         latestRun=await _transcript_parse_run_repository(request).latest(submission_id),
@@ -1723,6 +1833,7 @@ async def download_latest_transcript_parse(
     request: Request = None,
     _: str = Depends(require_researcher),
 ) -> Response:
+    await _require_chat_access(request, submission_id)
     run = await _transcript_parse_run_repository(request).latest(submission_id)
     if run is None or run.normalized_json is None:
         raise HTTPException(

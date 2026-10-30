@@ -143,7 +143,23 @@ class SurveyRoundSettingUpdate(BaseModel):
 
 
 class ChatConsentUpdate(BaseModel):
-    chat_consent: bool = Field(alias="chatConsent")
+    chat_consent: bool = Field(alias="chatConsent", strict=True)
+    expected_revision: int = Field(alias="expectedRevision", ge=0, strict=True)
+    restore_existing: bool = Field(default=False, alias="restoreExisting", strict=True)
+    reason: str = Field(min_length=1, max_length=500)
+
+    @model_validator(mode="after")
+    def validate_change(self) -> ChatConsentUpdate:
+        self.reason = self.reason.strip()
+        if not self.reason:
+            raise ValueError("변경 사유를 입력해 주세요.")
+        if self.restore_existing and not self.chat_consent:
+            raise ValueError("기존 자료 복원에는 대화문 동의가 필요합니다.")
+        return self
+
+
+class ChatConsentLookup(BaseModel):
+    phone: str = Field(pattern=r"^01[0-9]{9}$")
 
 
 class ApplicationRecord(BaseModel):
