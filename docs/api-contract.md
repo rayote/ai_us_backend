@@ -2,7 +2,7 @@
 
 Base URL: the public backend URL deployed by CloudType for the current environment.
 
-`GET /health` checks only the public API process and remains suitable for participant connection checks and CloudType deployment readiness. Authenticated researchers use `GET /api/v1/researcher/system-health` for separate API and Queue worker status. The worker records a heartbeat every 5 seconds and is reported as `stale` after 60 seconds without an update; this researcher endpoint always returns HTTP `200` so worker degradation does not trigger the participant full-modal flow.
+`GET /health` checks only the public API process and remains suitable for participant connection checks and CloudType deployment readiness. Authenticated researchers use `GET /api/v1/researcher/system-health` for separate `api`, submission `worker`, and `analysisWorker` status. Each worker records a heartbeat every 5 seconds and is reported as `stale` after 60 seconds without an update; this researcher endpoint always returns HTTP `200` so worker degradation does not trigger the participant full-modal flow.
 
 All request and response bodies use JSON unless an endpoint explicitly returns a file.
 
@@ -29,7 +29,7 @@ Final survey submission, temporary browser storage, MongoDB documents, and CSV e
 
 These endpoints and policies are implemented locally. The two development MongoDB definitions and real-Mongo progress concurrency checks have been verified. Development CloudType deployment remains a separate gate; no production migration is implied.
 
-- T2 versions: `t2-part1-v9-1022` and `t2-part2-v9-1022`, `surveyRound=2`, stored `audience=all` (`common` is normalized to `all`). Their source has 240/92 question objects and 256/96 flattened answer fields. The T1-only `followup.researchConsent` addition is not applied to T2.
+- T2 versions: `t2-part1-v9-1022` and `t2-part2-v9-1022`, `surveyRound=2`, stored `audience=all` (`common` is normalized to `all`). Current source definitions have 256/97 flattened answer fields and 270/111 final CSV columns. Part 2 originally had 96 fields/110 columns; the approved 2026-10-26 additive `reward.gifticon` question retains the same version, uses `csvAppend: true`, and appends its CSV column without moving existing columns. Older responses leave that column blank. The T1-only `followup.researchConsent` addition is not applied to T2.
 - T2 demographics are independently entered in each part. The server replaces only the participant and guardian phone subfields with the authenticated account values. Grade, optional email/SNS and other original answers are preserved; neither account profiles nor T1 answers are updated. Progress and final metadata use `demographicEntryPolicy=reenter` and `demographicPolicyVersion=2026-10-23`.
 - `GET /api/v1/participant/survey-status` returns `completedVersionsByRound` (string round keys), `completedRounds`, `surveyRoundsOpen` (boolean values with string keys `"1"` through `"4"`) and the backward-compatible `t1SubmissionsOpen` field. Completion requires a stored part-2 response; queued jobs and partial snapshots never count. T2 part 1 has no T1 prerequisite; T2 part 2 requires a stored T2 part-1 response.
 - Admission is controlled by the DB-backed round settings below. `surveyRoundStates` reports `preparing`, `open` or `closed`; `surveyConfigurations` lists the selected version/audience/part identities by round. A closed round rejects new final/progress submissions with HTTP 403 and `참여 기간이 끝났어요`; a preparing round uses `설문 준비 중이에요`. History/export and already accepted worker jobs remain available. Before a DB selection override, only the complete current T1 v2-0916 and T2 v9-1022 configurations are selected for compatibility. T1 retains `T1_SUBMISSIONS_OPEN` (default `true`); existing closed T1 is treated as period-ended. T2 retains its permission; T3/T4 start preparing. No arbitrary new/draft release is auto-selected.
@@ -55,7 +55,7 @@ On 2026-10-23, development connectivity was restored after the stopped services 
 
 Real-Mongo tests used unique temporary development collections and verified one-winner/one-conflict concurrent revision saves, complete snapshot replacement, participant isolation, page history, idempotent final-response retries and refusal to reopen finalized progress. Those temporary collections were removed; actual participant response/progress records were not changed. Browser checks with mocked APIs verified page-3 save/page-4 reload recovery, explicit restoration of a newer remote snapshot and rejection of a stale revision. These are not deployed CloudType end-to-end tests.
 
-Both public development services return HTTP 200, but the running frontend lacks `SURVEY_SETS_T2` and the backend OpenAPI lacks the three new status/progress/researcher-progress paths. They are still serving the previous deployment. Commit/push and manual development backend/frontend redeployment have not been performed; deploy the approved local changes before researcher acceptance testing. Production was not accessed or modified, and T1 closure settings were not changed.
+The preceding definition-registration and real-Mongo results are historical checks from 2026-10-23, not current deployment status. T2 source was subsequently pushed and the development deployment was verified with the new routes and questionnaire. Later patches still require their own manual deployment and acceptance checks; a Git push or service restart does not prove which commit CloudType is running. Preserve T1 closure and never infer production promotion from development checks.
 
 ## Register survey definition
 
@@ -195,7 +195,7 @@ The optional `detail` object is stored separately from `answers`; the server-sid
 
 `POST /api/v1/participant/survey-sessions/heartbeat` requires a participant bearer token and upserts the current session's last heartbeat, active seconds, resume count, and page number.
 
-`GET /api/v1/researcher/activity-summary` aggregates these session records for the researcher console. `dau`, `wau`, `mau`, and the 30-day `activityTrend` use KST calendar-day windows based on the last heartbeat; `activeNow` uses the trailing 60 seconds. `totalParticipants` is the number of distinct participants in all stored sessions, and `totalSessions` is the cumulative number of stored sessions. `firstStartedAt` is the earliest stored session start; `generatedAt` is the end of the current aggregation. The researcher console requests this endpoint on load and refreshes it every 30 seconds, so a browser refresh is not required.
+`GET /api/v1/researcher/activity-summary` aggregates these session records for the researcher console. `dau`, `wau`, `mau`, and the 30-day `activityTrend` use KST calendar-day windows based on the last heartbeat; `activeNow` uses the trailing 60 seconds. `totalParticipants` is the number of distinct participants in all stored sessions, and `totalSessions` is the cumulative number of stored sessions. `firstStartedAt` is the earliest stored session start; `generatedAt` is the end of the current aggregation. The researcher console requests this endpoint when the activity menu is first shown and refreshes it every 30 seconds only while that menu is shown, so a browser refresh is not required.
 
 ## Daily traffic and funnel metrics
 
@@ -226,7 +226,7 @@ The frontend combines this server state with browser-local completion markers, s
 
 `POST /api/v1/chat-submissions`
 
-This endpoint requires a participant bearer token and is available only to participants who consented to AI chat submission at application approval. It queues the submitted original input.
+This endpoint requires a participant bearer token, the account's current AI chat submission consent, and at least one completed survey round. Application-time consent is historical, not the current authorization source. It queues the submitted original input.
 
 ```json
 {
@@ -237,7 +237,7 @@ This endpoint requires a participant bearer token and is available only to parti
 }
 ```
 
-`submissionPoint` is `afterRound1` or `afterRound4`; `sourceType` is `link` or `text`. The response is `202 Accepted` with the Queue `submissionId` and current status. Use `GET /api/v1/submission-jobs/{submissionId}` to check completion.
+`submissionPoint` supports `afterRound1` through `afterRound4`; `sourceType` is `link` or `text`. The response is `202 Accepted` with the Queue `submissionId` and current status. Use `GET /api/v1/submission-jobs/{submissionId}` to check completion.
 
 The backend stores `rawInput` separately from the normalized transcript. The text parser normalizes pasted speaker labels. A valid shared link receives `placeholder` parser status until a service-specific parser is added; it is not treated as extracted transcript text.
 
@@ -279,9 +279,9 @@ Both endpoints require the participant who owns the submission. The participant 
 
 `GET /api/v1/researcher/exports/chat-submissions?submission_point=afterRound1`
 
-This endpoint accepts an `admin` or `researcher` bearer token. It returns a UTF-8 BOM status CSV containing active submissions only: participant ID, phone, school level, grade, submission metadata, parser status/version/warnings, and review status/note/audit fields. It excludes participant names and transcript content (`plainText`, `rawInput`). The optional `submission_point` is `afterRound1` or `afterRound4`; the optional `school_level` is `초등`, `중등`, or `고등`. The researcher console download uses these two filters but includes every review status. Filenames follow `C{round}_{audience}_status_{KST timestamp}.csv`, consistent with survey response exports.
+This endpoint accepts an `admin` or `researcher` bearer token. It returns a UTF-8 BOM status CSV containing active submissions only: participant ID, phone, school level, grade, submission metadata, parser status/version/warnings, and review status/note/audit fields. It excludes participant names and transcript content (`plainText`, `rawInput`). The optional `submission_point` supports `afterRound1` through `afterRound4`; the optional `school_level` is `초등`, `중등`, or `고등`. The researcher console download uses these two filters but includes every review status. This content-free management export remains available independently of consent material restrictions. Filenames follow `C{round}_{audience}_status_{KST timestamp}.csv`, consistent with survey response exports.
 
-`GET /api/v1/researcher/chat-submission-previews` returns up to 100 active chat submissions for the researcher preview table, newest first, filtered by optional `submission_point`, `school_level`, and `review_filter` parameters. `review_filter` defaults to `unreviewed`; it also accepts `all`, `reviewed`, `incentive_paid`, `excluded`, `duplicate`, and `other`. Each row includes its embedded `review` object when reviewed.
+`GET /api/v1/researcher/chat-submission-previews` returns up to 100 active chat submissions for the researcher preview table, newest first, filtered by optional `submission_point`, `school_level`, and `review_filter` parameters. `review_filter` defaults to `unreviewed`; it also accepts `all`, `reviewed`, `incentive_paid`, `excluded`, `duplicate`, `other`, and `consent_restricted`. Normal filters, including `all`, exclude consent-restricted material. The special `consent_restricted` view returns only restricted management rows with `consentRestricted: true`, no filenames and zero attachment count; it does not expose transcript content. Each row includes its embedded `review` object when reviewed.
 
 `PATCH /api/v1/researcher/chat-submissions/{submissionId}/review` records one review result (`incentive_paid`, `excluded`, `duplicate`, or `other`) in the existing `chat_submissions` document. Every result can retain an optional `note`; `other` requires a non-empty note. `DELETE` on the same URL removes the embedded review and returns the submission to the unreviewed state. Review updates record the timestamp and authenticated researcher ID.
 
@@ -306,6 +306,56 @@ The stored and returned review object is:
 `GET /api/v1/researcher/chat-submissions/files/{submissionId}/download` downloads one submission's original attachments as a ZIP. `POST /api/v1/researcher/chat-submissions/download-jobs` creates an asynchronous ZIP job for explicit `submissionIds` or the submitted filters, including `reviewFilter`. Explicit IDs bypass `reviewFilter` but remain subject to `submissionPoint` and `schoolLevel`; an empty ID list means the current filter set. Poll `GET /api/v1/researcher/chat-submissions/download-jobs/{jobId}`; when `completed`, download the archive from its `downloadUrl`. Bulk jobs use the `chat_download` queue type and preserve each submission in its own folder.
 
 `POST /api/v1/researcher/chat-submissions/transcript-download-jobs` creates an asynchronous transcript ZIP job using the same selection fields. Missing parse results are generated automatically. Each successful submission is stored as a separate CSV entry, while unsupported or failed submissions are listed in `parse-failures.csv`. Poll the returned job at `GET /api/v1/researcher/chat-submissions/transcript-download-jobs/{jobId}` and download its `downloadUrl` when complete.
+
+Explicit IDs and review filters never bypass account consent restrictions. Both ZIP types store a `submissionIds` manifest of the included submissions and revalidate material availability when the worker publishes the artifact and before/after the API reads its bytes. Receipt returns 409 when an included submission is no longer available, or when an older artifact has no usable manifest. The frontend clears that job ID only for this 409 and creates a new job on the next explicit request; network/poll/file-transfer failures retain known job IDs. Already delivered copies cannot be recalled.
+
+## Account Chat Consent
+
+All three endpoints below require an `admin` or `researcher` bearer token. The frontend exposes the dedicated `동의 관리` menu immediately after `참여 현황`; CSV-only accounts do not require an application record.
+
+`POST /api/v1/researcher/participants/chat-consent/lookup` accepts an exact normalized phone in the body, not in a URL or partial search:
+
+```json
+{"phone": "01012345678"}
+```
+
+The phone must match `^01[0-9]{9}$`. The response is the current account snapshot:
+
+```json
+{
+  "participantId": "65f000000000000000000001",
+  "phone": "01012345678",
+  "name": null,
+  "schoolLevel": "초등",
+  "grade": 4,
+  "chatConsent": true,
+  "revision": 0,
+  "restrictedBefore": null,
+  "submissionCount": 2,
+  "restrictedSubmissionCount": 0,
+  "history": []
+}
+```
+
+`PUT /api/v1/researcher/participants/{participantId}/chat-consent` changes consent and returns a fresh snapshot with the same shape:
+
+```json
+{
+  "chatConsent": false,
+  "expectedRevision": 0,
+  "restoreExisting": false,
+  "reason": "본인 요청으로 대화문 동의 철회"
+}
+```
+
+- `chatConsent` and `expectedRevision` are required strict boolean/nonnegative integer values. `restoreExisting` is a strict boolean defaulting to false; true requires `chatConsent=true`. `reason` is required, at most 500 characters and nonempty after trimming.
+- Current consent, restriction cutoff, incremented revision and appended audit event are stored atomically in one participant document using revision compare-and-set. Events preserve previous/new consent and cutoff, restoration scope, reason, timestamp and actor ID. Responses additionally resolve `updatedByUsername` when available without rewriting stored actor IDs.
+- Explicit withdrawal sets a cutoff and blocks new submission plus access to existing materials. Re-consent alone keeps the cutoff: only submissions strictly after it become available. Explicit requested restoration clears only this consent restriction, not a deletion request or review/payment state. No source files, parse records, review notes or original application consent are deleted or rewritten.
+- Legacy accounts without a cutoff retain legacy material access; deployment does not retroactively classify every existing `chatConsent=false` account as a withdrawal. The audited mutation establishes the restriction explicitly.
+- Stale revision, same state without restoration, or restoration without an existing restriction return 409 and require a fresh lookup. Invalid body values return 422, missing accounts return 404, and unavailable account storage returns 503. Do not retry an uncertain mutation automatically.
+- Original attachment download, parse request/run/latest JSON/CSV reads, bulk selection (including explicit IDs), worker parsing and archive output enforce material availability. Restricted content returns 409, not an authentication failure. Content-free management metadata remains available.
+
+`PUT /api/v1/researcher/applications/{applicationId}/chat-consent` remains a compatibility entry point with the same required mutation body. It delegates to the account audit operation and returns `{applicationId, chatConsent}`; it does not overwrite the original application consent. Application listings overlay the current account consent. Missing approved accounts return 409. New clients should use the participant endpoint so CSV-only accounts are supported.
 
 ## Parse AI chat transcripts
 
@@ -430,7 +480,7 @@ Both endpoints require an `admin` or `researcher` bearer token.
 
 `GET /api/v1/researcher/participation-status`
 
-Returns participant totals by elementary, middle, high, and total. Survey completion requires a response whose registered survey definition has `part: 2`; a part 1 response alone is incomplete. Completion is grouped by round, deduplicated by participant across part 2 versions, and includes school-level counts. Registered rounds with a part 2 definition are returned even when their completed count is zero. The response also includes school-level chat-consent and unique submitter counts for `afterRound1` and `afterRound4`; detailed follow-up lists are provided only by the incomplete-participant endpoint.
+Returns participant totals by elementary, middle, high, and total. Survey completion requires a response whose registered survey definition has `part: 2`; a part 1 response alone is incomplete. Completion is grouped by round, deduplicated by participant across part 2 versions, and includes school-level counts. Registered rounds with a part 2 definition are returned even when their completed count is zero. The response also includes school-level chat-consent and unique submitter counts for `afterRound1` through `afterRound4`, including `submittedAfterRound2` and `submittedAfterRound3`; detailed follow-up lists are provided only by the incomplete-participant endpoint.
 
 `GET /api/v1/researcher/nonparticipants?survey_round=1&survey_version=t1-elem-part1-v2-0916`
 
@@ -438,13 +488,13 @@ Returns the participants without a completed response for the specified survey r
 
 `GET /api/v1/researcher/incomplete-participants?category=survey&criterion=1&school_level=초등`
 
-Returns the follow-up list used by the unified incomplete-participant management screen. For `category=survey`, `criterion` is a survey round; only responses for a registered `part: 2` definition count as completion, so part 1-only participants remain in this list. For `category=chat`, `criterion` is `afterRound1` or `afterRound4`; only chat-consented participants without either an active or deletion-requested submission are returned. The optional `school_level` is `초등`, `중등`, or `고등`.
+Returns the follow-up list used by the unified incomplete-participant management screen. For `category=survey`, `criterion` is a survey round; only responses for a registered `part: 2` definition count as completion, so part 1-only participants remain in this list. For `category=chat`, `criterion` supports `afterRound1` through `afterRound4`; only chat-consented participants without either an active or deletion-requested submission are returned. The optional `school_level` is `초등`, `중등`, or `고등`.
 
 ## Import participants from CSV
 
 `POST /api/v1/researcher/participants/imports`
 
-This endpoint accepts an `admin` or `researcher` bearer token and a `multipart/form-data` file field named `file`. It currently accepts UTF-8 CSV files only. The required columns are `이름`, `휴대폰번호`, `학교급`, `학년`, and `이메일`.
+This endpoint accepts an `admin` or `researcher` bearer token and a `multipart/form-data` file field named `file`. It currently accepts UTF-8 CSV files only. The required columns are `이름`, `휴대폰번호`, `보호자휴대폰`, `학교급`, and `학년`; `이메일` and `SNS` are optional.
 
 Successful response: `200 OK`
 
@@ -566,7 +616,7 @@ Successful response: `200 OK`
 }
 ```
 
-`audience` is required: use `elementary` for the elementary-school mode and `secondary` for the middle/high-school mode. If the selected audience does not match the participant's registered school level, the backend still logs in after password verification and returns the registered audience in `audience`, the submitted value in `requestedAudience`, and `audienceSwitched: true`. `chatConsent` reflects whether the approved participant consented to AI chat transcript submission. The frontend sends the access token in the `Authorization: Bearer <JWT>` header for authenticated requests. When `needsPasswordChange` is `true`, it must show the first-password-change screen before opening the survey panel.
+`audience` is required: use `elementary` for the elementary-school mode and `secondary` for the middle/high-school mode. If the selected audience does not match the participant's registered school level, the backend still logs in after password verification and returns the registered audience in `audience`, the submitted value in `requestedAudience`, and `audienceSwitched: true`. `chatConsent` reflects the account's current AI chat submission consent, including audited researcher changes after approval. The frontend sends the access token in the `Authorization: Bearer <JWT>` header for authenticated requests. When `needsPasswordChange` is `true`, it must show the first-password-change screen before opening the survey panel.
 
 ## Change participant password
 
@@ -592,6 +642,8 @@ Successful response: `200 OK`
 ## Refresh participant session
 
 `POST /api/v1/auth/participant/refresh` requires a valid participant bearer token and returns a renewed participant access token. The frontend checks every five minutes and renews when fewer than 30 minutes remain. Successful authenticated participant API calls also trigger the same expiry check. The default participant session lifetime is 240 minutes; researcher tokens remain 60 minutes.
+
+The frontend also checks before authenticated requests and on tab return. Network/5xx failures preserve the session and drafts; they are not treated as actual expiry. A 401 for the current participant token saves current answers to the account-scoped local draft before showing the expiry dialog. After same-account login, resume still requires the original version, open round and completed prerequisites; T2 reconciles local/server revisions. Late refresh responses for an earlier token cannot overwrite a newer session. No separate four-hour inactivity timeout or ten-minute warning is implemented.
 
 ## Reset participant password
 
