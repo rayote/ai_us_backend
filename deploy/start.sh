@@ -2,6 +2,7 @@
 set -eu
 
 run_worker() {
+  worker_module="$1"
   restart_delay=2
   worker_pid=""
 
@@ -17,7 +18,7 @@ run_worker() {
 
   while true; do
     started_at=$(date +%s)
-    python -m app.worker &
+    python -m "$worker_module" &
     worker_pid=$!
 
     set +e
@@ -27,7 +28,7 @@ run_worker() {
     worker_pid=""
 
     runtime=$(( $(date +%s) - started_at ))
-    echo "Worker exited with status $exit_status after ${runtime}s; restarting in ${restart_delay}s." >&2
+    echo "$worker_module exited with status $exit_status after ${runtime}s; restarting in ${restart_delay}s." >&2
     sleep "$restart_delay"
 
     if [ "$runtime" -ge 60 ]; then
@@ -41,14 +42,16 @@ run_worker() {
   done
 }
 
-run_worker &
+run_worker app.worker &
 worker_supervisor_pid=$!
+run_worker app.analysis_worker &
+analysis_supervisor_pid=$!
 uvicorn app.main:app --host 0.0.0.0 --port "${PORT:-5000}" &
 api_pid=$!
 
 cleanup() {
-  kill "$api_pid" "$worker_supervisor_pid" 2>/dev/null || true
-  wait "$worker_supervisor_pid" 2>/dev/null || true
+  kill "$api_pid" "$worker_supervisor_pid" "$analysis_supervisor_pid" 2>/dev/null || true
+  wait "$worker_supervisor_pid" "$analysis_supervisor_pid" 2>/dev/null || true
 }
 
 trap cleanup EXIT INT TERM

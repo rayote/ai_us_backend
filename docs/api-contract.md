@@ -8,6 +8,16 @@ All request and response bodies use JSON unless an endpoint explicitly returns a
 
 The API supports the current CloudType preconfigured MongoDB service through PyMongo 3.x compatibility. This does not change the HTTP request or response contract.
 
+## Queued Researcher Analysis
+
+- `POST /api/v1/researcher/abuse-review/jobs?survey_round=1&survey_version=...` requires researcher/admin authentication and returns `202 {jobId, status}`. Optional `refresh=true` requests a fresh completed snapshot; queued/processing work for the same scope is always reused.
+- `GET /api/v1/researcher/abuse-review/jobs/{jobId}` returns `{jobId, status, result, error}`. `result` is present only after completion; failures expose a safe message. Unknown IDs return `404`. Participant tokens return `403`.
+- Result pagination uses `pair_page`, `pair_page_size` (1..5000, default 200), `speed_page`, `pairing_page`, and `combined_page`. Reading pages does not recompute the comparison. The frontend displays 200 items per page.
+- Completed snapshots are reused for five minutes unless explicitly refreshed. The dedicated analysis worker processes only `analysis_jobs`, one job at a time, independently of `submission_jobs`. Interrupted jobs are recovered at worker restart. Failed work requires explicit re-request.
+- Legacy `GET /api/v1/researcher/abuse-review` returns the cached report or `202 {jobId, status}`; it no longer computes comparisons in the API process. Deploy the updated researcher frontend with this backend contract.
+- Individual/group review updates require a completed snapshot for that scope and return `409` before any review writes if the snapshot is not ready. They reuse the computed candidate/group graph without recomputing similarity.
+- Authenticated `/api/v1/researcher/system-health` additionally returns `analysisWorker` using the existing heartbeat shape (`status`, `lastHeartbeatAt`, `ageSeconds`). Submission-worker `worker` and public `/health` are unchanged. Busy analysis is not a worker-health failure.
+
 ## Survey data terminology
 
 - `surveyRound`: the numbered survey round, such as `1` or `2`.

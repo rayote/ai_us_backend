@@ -93,6 +93,35 @@ def test_researcher_system_health_requires_authentication_and_reports_worker() -
     assert response.status_code == 200
     assert response.json()["api"]["status"] == "ok"
     assert response.json()["worker"]["status"] == "ok"
+    assert response.json()["analysisWorker"]["status"] == "unavailable"
+
+
+def test_analysis_worker_health_is_separate_and_authenticated() -> None:
+    settings = Settings(
+        "test",
+        None,
+        "ai_us_test",
+        (),
+        jwt_secret="test-secret-that-is-at-least-32-characters-long",
+    )
+    token = create_access_token("researcher-1", "researcher", settings.jwt_secret, 60)
+    with TestClient(
+        create_app(
+            settings,
+            worker_health_repository=InMemoryWorkerHealth(
+                datetime.now(UTC) - timedelta(seconds=120)
+            ),
+            analysis_worker_health_repository=InMemoryWorkerHealth(datetime.now(UTC)),
+        )
+    ) as client:
+        result = client.get(
+            "/api/v1/researcher/system-health",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert result.status_code == 200
+        assert result.json()["worker"]["status"] == "stale"
+        assert result.json()["analysisWorker"]["status"] == "ok"
+        assert "analysisWorker" not in client.get("/health").json()
 
 
 def test_worker_heartbeat_is_published_immediately() -> None:

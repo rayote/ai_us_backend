@@ -56,10 +56,14 @@ from app.schemas.survey import (
     SurveyResponsePreview,
     SurveyResponseRecord,
 )
-from app.services.abuse_review import AbuseReviewService
 from app.services.abuse_review_status import (
     AbuseReviewStatusRepository,
     abuse_candidate_key,
+)
+from app.services.analysis_jobs import (
+    MongoAnalysisJobRepository,
+    analysis_job_id,
+    paginate_report,
 )
 from app.services.application_settings import ApplicationSettingsRepository
 from app.services.applications import ApplicationRepository
@@ -118,6 +122,9 @@ async def system_health(
     return {
         "api": {"status": "ok"},
         "worker": await worker_health_snapshot(repository),
+        "analysisWorker": await worker_health_snapshot(
+            getattr(request.app.state, "analysis_worker_health_repository", None)
+        ),
         "checkedAt": datetime.now(UTC).isoformat(),
     }
 
@@ -288,16 +295,28 @@ def _reporting_service(request: Request) -> ResearcherReportingService:
     return ResearcherReportingService(participants, responses, definitions, chats)
 
 
-def _abuse_review_service(request: Request) -> AbuseReviewService:
-    participants = getattr(request.app.state, "participant_account_repository", None)
-    responses = getattr(request.app.state, "survey_response_repository", None)
-    definitions = getattr(request.app.state, "survey_definition_repository", None)
-    if participants is None or responses is None or definitions is None:
+def _analysis_jobs(request: Request) -> MongoAnalysisJobRepository:
+    repository = getattr(request.app.state, "analysis_job_repository", None)
+    if repository is None:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="어뷰징 검토 서비스를 준비 중입니다.",
+            detail="분석 작업 서비스를 준비 중입니다.",
         )
-    return AbuseReviewService(participants, responses, definitions)
+    return repository
+
+
+async def _cached_abuse_review(
+    request: Request, survey_round: int, survey_version: str
+) -> AbuseReviewReport:
+    report = await _analysis_jobs(request).report(
+        analysis_job_id(survey_round, survey_version)
+    )
+    if report is None:
+        raise HTTPException(
+            status_code=409,
+            detail="분석 결과가 준비되지 않았습니다. 분석 완료 후 다시 확인해 주세요.",
+        )
+    return report
 
 
 def _abuse_review_status_repository(request: Request) -> AbuseReviewStatusRepository:
@@ -328,9 +347,61 @@ async def activity_summary(
     return summary
 
 
-@router.get("/abuse-review", response_model=AbuseReviewReport)
+@router.post("/abuse-review/jobs", status_code=202)
+async def request_abuse_review(
+    request: Request,
+    survey_round: int,
+    survey_version: str,
+    refresh: bool = False,
+    _: str = Depends(require_researcher),
+) -> dict[str, object]:
+    job = await _analysis_jobs(request).request_report(
+        survey_round, survey_version, refresh
+    )
+    return {"jobId": job.id, "status": job.status}
+
+
+@router.get("/abuse-review/jobs/{job_id}")
+async def abuse_review_job(
+    job_id: str,
+    request: Request,
+    pair_page: int = Query(1, ge=1),
+    pair_page_size: int = Query(200, ge=1, le=5000),
+    speed_page: int = Query(1, ge=1),
+    pairing_page: int = Query(1, ge=1),
+    combined_page: int = Query(1, ge=1),
+    _: str = Depends(require_researcher),
+) -> dict[str, object]:
+    repository = _analysis_jobs(request)
+    job = await repository.get(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="분석 작업을 찾을 수 없습니다.")
+    result = None
+    if job.status == "completed":
+        report = await repository.report(job_id)
+        if report is None:
+            raise HTTPException(
+                status_code=503, detail="분석 결과를 불러올 수 없습니다."
+            )
+        result = paginate_report(
+            report, pair_page, pair_page_size, speed_page, pairing_page, combined_page
+        )
+    return {
+        "jobId": job.id,
+        "status": job.status,
+        "result": result,
+        "error": (
+            "분석 처리에 실패했습니다. 다시 요청해 주세요."
+            if job.status == "failed"
+            else None
+        ),
+    }
+
+
+@router.get("/abuse-review", response_model=AbuseReviewReport | dict[str, object])
 async def abuse_review(
     request: Request,
+    response: Response,
     survey_round: int | None = None,
     survey_version: str | None = None,
     pair_page: int = 1,
@@ -339,20 +410,21 @@ async def abuse_review(
     pairing_page: int = 1,
     combined_page: int = 1,
     _: str = Depends(require_researcher),
-) -> AbuseReviewReport:
+) -> AbuseReviewReport | dict[str, object]:
     if (survey_round is None) != (survey_version is None):
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="회차와 설문 버전을 함께 선택해 주세요.",
         )
-    return await _abuse_review_service(request).report(
-        survey_round,
-        survey_version,
-        pair_page,
-        pair_page_size,
-        speed_page,
-        pairing_page,
-        combined_page,
+    job = await _analysis_jobs(request).request_report(survey_round, survey_version)
+    if job.status != "completed":
+        response.status_code = 202
+        return {"jobId": job.id, "status": job.status}
+    report = await _analysis_jobs(request).report(job.id)
+    if report is None:
+        raise HTTPException(status_code=503, detail="분석 결과를 불러올 수 없습니다.")
+    return paginate_report(
+        report, pair_page, pair_page_size, speed_page, pairing_page, combined_page
     )
 
 
@@ -379,12 +451,10 @@ async def update_abuse_review_status(
     candidate_key = abuse_candidate_key(
         survey_round, survey_version, update.phone, update.paired_phone
     )
+    report = await _cached_abuse_review(request, survey_round, survey_version)
     repository = _abuse_review_status_repository(request)
     result = await repository.set_status(
         survey_round, survey_version, candidate_key, update.reviewed, reviewer
-    )
-    report = await _abuse_review_service(request).report(
-        survey_round, survey_version, 1, 100000
     )
     statuses = await repository.list_statuses(survey_round, survey_version)
     reviewed_keys = {item.candidate_key for item in statuses if item.reviewed}
@@ -424,9 +494,7 @@ async def update_abuse_review_group_status(
     reviewer: str = Depends(require_researcher),
 ) -> AbuseReviewStatus:
     status_repository = _abuse_review_status_repository(request)
-    report = await _abuse_review_service(request).report(
-        survey_round, survey_version, 1, 100000
-    )
+    report = await _cached_abuse_review(request, survey_round, survey_version)
     member_phones = set(update.phones)
     for candidate in report.pairing_candidates + report.combined_candidates:
         if candidate.paired_phone and {

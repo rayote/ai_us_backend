@@ -116,6 +116,14 @@
 - 개별 첨부는 `GET /api/v1/researcher/chat-submissions/files/{submissionId}/download`로 받고, 선택 원본 ZIP은 `POST /api/v1/researcher/chat-submissions/download-jobs`, 선택 대화문 CSV ZIP은 `POST /api/v1/researcher/chat-submissions/transcript-download-jobs`로 생성한다. 두 작업 모두 상태 polling 후 `downloadUrl`을 사용하며 삭제 요청 상태는 기본 다운로드에서 제외한다.
 - 개별 파싱은 `POST /api/v1/researcher/chat-submissions/{submissionId}/parse` 후 run 상태를 polling한다. 완료 결과는 `latest-parse/download?format=json|csv`로 받는다. 파싱 불가 항목은 성공으로 꾸미지 않고 warning/error를 표시한다.
 
+## 관리자 분석 분리
+
+- 어뷰징 전수 비교는 API가 아니라 같은 컨테이너의 `app.analysis_worker` 프로세스가 전용 `analysis_jobs` 큐에서 처리합니다. 기존 제출 워커와 잠금·큐·생존 신호가 다릅니다. API 내부에서 `AbuseReviewService.report()`를 다시 호출하지 않습니다.
+- 새 작업 요청·진행 조회·강제 새로고침·5분 캐시·페이지네이션 계약은 `api-contract.md`의 Queued Researcher Analysis를 따릅니다. 조회 중 연결이 끊기면 기존 작업 번호를 유지하고 재조회합니다. 상태 변경 요청은 자동 재전송하지 않습니다.
+- 관리자 상단의 `설문 Worker`와 `관리자 Worker`는 각 워커의 생존 신호이고, 메뉴 내부의 대기/계산/완료/실패는 개별 작업 상태입니다. `관리자 Worker`의 현재 담당 기능은 관리자 분석이며 계산 중에도 상태등은 정상으로 유지됩니다.
+- 어뷰징은 메뉴 진입 시에만 요청하고 활성/유입 통계는 해당 메뉴가 표시될 때만 갱신합니다. 참가자 로그인·설문 제출·기존 워커 정책은 그대로 유지합니다.
+- backend 시작 스크립트와 frontend를 함께 반영해야 합니다. 추가 컨테이너·서비스·Secret은 없으며 운영 배포나 DB 변경은 별도 승인 없이 실행하지 않습니다.
+
 ## 운영 절차
 
 ### 설문 정의 동기화

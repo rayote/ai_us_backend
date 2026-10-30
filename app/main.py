@@ -13,6 +13,7 @@ from app.services.abuse_review_status import (
     AbuseReviewStatusRepository,
     MongoAbuseReviewStatusRepository,
 )
+from app.services.analysis_jobs import ANALYSIS_HEARTBEAT_ID, MongoAnalysisJobRepository
 from app.services.analytics import DailyMetricsRepository, MongoDailyMetricsRepository
 from app.services.application_settings import (
     ApplicationSettingsRepository,
@@ -79,6 +80,8 @@ def create_app(
     transcript_parse_run_repository: TranscriptParseRunRepository | None = None,
     worker_health_repository: WorkerHealthRepository | None = None,
     survey_progress_repository: SurveyProgressRepository | None = None,
+    analysis_job_repository: MongoAnalysisJobRepository | None = None,
+    analysis_worker_health_repository: WorkerHealthRepository | None = None,
 ) -> FastAPI:
     application_settings = settings or Settings.from_environment()
 
@@ -174,6 +177,20 @@ def create_app(
         elif application_settings.mongodb_uri:
             app.state.worker_health_repository = MongoWorkerHealthRepository(
                 database.database["service_heartbeats"]
+            )
+        if analysis_job_repository is not None:
+            app.state.analysis_job_repository = analysis_job_repository
+        elif application_settings.mongodb_uri:
+            app.state.analysis_job_repository = MongoAnalysisJobRepository(
+                database.database["analysis_jobs"]
+            )
+        if analysis_worker_health_repository is not None:
+            app.state.analysis_worker_health_repository = (
+                analysis_worker_health_repository
+            )
+        elif application_settings.mongodb_uri:
+            app.state.analysis_worker_health_repository = MongoWorkerHealthRepository(
+                database.database["service_heartbeats"], ANALYSIS_HEARTBEAT_ID
             )
         if chat_submission_repository is not None:
             app.state.chat_submission_repository = chat_submission_repository

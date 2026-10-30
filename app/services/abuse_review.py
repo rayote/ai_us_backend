@@ -33,14 +33,22 @@ def _number(value: object | None) -> float | None:
 
 
 def _canonical(value: object) -> str:
-    return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"), default=str)
+    return json.dumps(
+        value, ensure_ascii=False, sort_keys=True, separators=(",", ":"), default=str
+    )
 
 
 def _answer_items(response: SurveyResponseRecord) -> dict[str, str]:
-    return {key: _canonical(value) for key, value in response.answers.items() if value is not None}
+    return {
+        key: _canonical(value)
+        for key, value in response.answers.items()
+        if value is not None
+    }
 
 
-def _required_complete(response: SurveyResponseRecord, definition: SurveyDefinition | None) -> bool | None:
+def _required_complete(
+    response: SurveyResponseRecord, definition: SurveyDefinition | None
+) -> bool | None:
     explicit = _detail_value(response.detail, "requiredComplete", "required_complete")
     if isinstance(explicit, bool):
         return explicit
@@ -55,7 +63,9 @@ def _required_complete(response: SurveyResponseRecord, definition: SurveyDefinit
     if not required_keys:
         return None
     answers = response.answers
-    return all(key in answers and answers[key] not in (None, "", []) for key in required_keys)
+    return all(
+        key in answers and answers[key] not in (None, "", []) for key in required_keys
+    )
 
 
 def _similarity(left: SurveyResponseRecord, right: SurveyResponseRecord) -> int:
@@ -86,9 +96,13 @@ def _priority(reasons: list[str], similarity: int) -> str:
     return "참고"
 
 
-def _speed_reasons(response: SurveyResponseRecord, survey_round: int | None) -> list[str]:
+def _speed_reasons(
+    response: SurveyResponseRecord, survey_round: int | None
+) -> list[str]:
     detail = response.detail or {}
-    wall_clock_seconds = _number(_detail_value(detail, "wallClockSeconds", "wall_clock_seconds"))
+    wall_clock_seconds = _number(
+        _detail_value(detail, "wallClockSeconds", "wall_clock_seconds")
+    )
     reasons: list[str] = []
     threshold = 300 if survey_round == 2 else 600
     if wall_clock_seconds is not None and wall_clock_seconds <= threshold:
@@ -97,7 +111,9 @@ def _speed_reasons(response: SurveyResponseRecord, survey_round: int | None) -> 
 
 
 def _speed_bucket(response: SurveyResponseRecord) -> str:
-    seconds = _number(_detail_value(response.detail, "wallClockSeconds", "wall_clock_seconds"))
+    seconds = _number(
+        _detail_value(response.detail, "wallClockSeconds", "wall_clock_seconds")
+    )
     if seconds is None:
         return "응답시간 확인 불가"
     if seconds <= 300:
@@ -112,10 +128,14 @@ def _candidate_detail(response: SurveyResponseRecord) -> dict[str, object]:
     return {
         "submittedAt": response.submitted_at.isoformat(),
         "activeSeconds": detail.get("activeSeconds", detail.get("active_seconds")),
-        "wallClockSeconds": detail.get("wallClockSeconds", detail.get("wall_clock_seconds")),
+        "wallClockSeconds": detail.get(
+            "wallClockSeconds", detail.get("wall_clock_seconds")
+        ),
         "pageCount": detail.get("visitedPageCount", detail.get("pageCount")),
         "totalPageCount": detail.get("totalPageCount", detail.get("total_page_count")),
-        "navigationCount": detail.get("navigationCount", detail.get("navigation_count")),
+        "navigationCount": detail.get(
+            "navigationCount", detail.get("navigation_count")
+        ),
         "resumeCount": detail.get("resumeCount", detail.get("resume_count")),
     }
 
@@ -140,18 +160,27 @@ class AbuseReviewService:
         speed_page: int = 1,
         pairing_page: int = 1,
         combined_page: int = 1,
+        include_all_candidates: bool = False,
     ) -> AbuseReviewReport:
         if survey_round is not None and survey_version:
-            responses = await self._responses.list_responses(survey_round, survey_version)
+            responses = await self._responses.list_responses(
+                survey_round, survey_version
+            )
             definition = await self._definitions.get(survey_round, survey_version)
         else:
             responses = await self._responses.list_all_responses()
             definition = None
         participants = {
-            participant.participant_id: participant for participant in await self._participants.list_participants()
+            participant.participant_id: participant
+            for participant in await self._participants.list_participants()
         }
         buckets = {"100% 일치": 0, "95~99% 일치": 0, "90~94% 일치": 0}
-        speed_buckets = {"5분 이하": 0, "5분 초과~10분 이하": 0, "10분 초과": 0, "응답시간 확인 불가": 0}
+        speed_buckets = {
+            "5분 이하": 0,
+            "5분 초과~10분 이하": 0,
+            "10분 초과": 0,
+            "응답시간 확인 불가": 0,
+        }
         candidates: list[AbuseReviewCandidate] = []
         speed_candidates: list[AbuseReviewCandidate] = []
         pairing_candidates: list[AbuseReviewCandidate] = []
@@ -161,13 +190,18 @@ class AbuseReviewService:
             profile = participants.get(response.participant_id)
             speed_bucket = _speed_bucket(response)
             speed_buckets[speed_bucket] += 1
-            response_round = survey_round if survey_round is not None else response.survey_round
+            response_round = (
+                survey_round if survey_round is not None else response.survey_round
+            )
             reasons = _speed_reasons(response, response_round)
             if profile is not None and reasons:
                 speed_candidates.append(
                     AbuseReviewCandidate(
                         candidateKey=abuse_candidate_key(
-                            response.survey_round, response.survey_version, profile.phone, None
+                            response.survey_round,
+                            response.survey_version,
+                            profile.phone,
+                            None,
                         ),
                         phone=profile.phone,
                         reasons=reasons,
@@ -200,33 +234,70 @@ class AbuseReviewService:
                 left_detail = left.detail or {}
                 right_detail = right.detail or {}
                 left_page = _number(
-                    _detail_value(left_detail, "visitedPageCount", "visited_page_count", "pageCount", "page_count")
+                    _detail_value(
+                        left_detail,
+                        "visitedPageCount",
+                        "visited_page_count",
+                        "pageCount",
+                        "page_count",
+                    )
                 )
                 right_page = _number(
-                    _detail_value(right_detail, "visitedPageCount", "visited_page_count", "pageCount", "page_count")
+                    _detail_value(
+                        right_detail,
+                        "visitedPageCount",
+                        "visited_page_count",
+                        "pageCount",
+                        "page_count",
+                    )
                 )
-                left_total = _number(_detail_value(left_detail, "totalPageCount", "total_page_count"))
-                right_total = _number(_detail_value(right_detail, "totalPageCount", "total_page_count"))
+                left_total = _number(
+                    _detail_value(left_detail, "totalPageCount", "total_page_count")
+                )
+                right_total = _number(
+                    _detail_value(right_detail, "totalPageCount", "total_page_count")
+                )
                 if left_page is not None and left_total and left_page < left_total:
                     reasons.append("방문한 페이지 수가 전체 페이지 수보다 적음")
                 if right_page is not None and right_total and right_page < right_total:
                     reasons.append("방문한 페이지 수가 전체 페이지 수보다 적음")
-                if _required_complete(left, definition) is True and _required_complete(right, definition) is True:
+                if (
+                    _required_complete(left, definition) is True
+                    and _required_complete(right, definition) is True
+                ):
                     reasons.append("필수 응답은 모두 존재함")
-                response_threshold = 300 if (survey_round or left.survey_round) == 2 else 600
+                response_threshold = (
+                    300 if (survey_round or left.survey_round) == 2 else 600
+                )
                 response_times = [
-                    _number(_detail_value(left_detail, "wallClockSeconds", "wall_clock_seconds")),
-                    _number(_detail_value(right_detail, "wallClockSeconds", "wall_clock_seconds")),
+                    _number(
+                        _detail_value(
+                            left_detail, "wallClockSeconds", "wall_clock_seconds"
+                        )
+                    ),
+                    _number(
+                        _detail_value(
+                            right_detail, "wallClockSeconds", "wall_clock_seconds"
+                        )
+                    ),
                 ]
-                if all(value is not None and value <= response_threshold for value in response_times):
-                    reasons.append(f"응답시간이 {response_threshold // 60}분 이하로 짧음")
+                if all(
+                    value is not None and value <= response_threshold
+                    for value in response_times
+                ):
+                    reasons.append(
+                        f"응답시간이 {response_threshold // 60}분 이하로 짧음"
+                    )
                 if similarity >= 90:
                     reasons.append("다른 참여자와 응답 패턴이 매우 유사함")
                 if not reasons:
                     continue
                 candidate = AbuseReviewCandidate(
                     candidateKey=abuse_candidate_key(
-                        left.survey_round, left.survey_version, left_profile.phone, right_profile.phone
+                        left.survey_round,
+                        left.survey_version,
+                        left_profile.phone,
+                        right_profile.phone,
                     ),
                     phone=left_profile.phone,
                     pairedPhone=right_profile.phone,
@@ -234,7 +305,9 @@ class AbuseReviewService:
                     similarityBucket=bucket,
                     reasons=sorted(set(reasons)),
                     reviewPriority=_priority(reasons, similarity),
-                    candidateType="복합 의심" if len(set(reasons)) >= 2 else "응답 패턴 유사",
+                    candidateType=(
+                        "복합 의심" if len(set(reasons)) >= 2 else "응답 패턴 유사"
+                    ),
                     left=_candidate_detail(left),
                     right=_candidate_detail(right),
                 )
@@ -243,8 +316,19 @@ class AbuseReviewService:
                     combined_candidates.append(candidate)
                 else:
                     pairing_candidates.append(candidate)
-        candidates.sort(key=lambda item: (-len(item.reasons), -item.similarity_percent, item.phone, item.paired_phone))
-        for candidate_list in (speed_candidates, pairing_candidates, combined_candidates):
+        candidates.sort(
+            key=lambda item: (
+                -len(item.reasons),
+                -item.similarity_percent,
+                item.phone,
+                item.paired_phone,
+            )
+        )
+        for candidate_list in (
+            speed_candidates,
+            pairing_candidates,
+            combined_candidates,
+        ):
             candidate_list.sort(
                 key=lambda item: (
                     0 if item.review_priority == "우선 검토" else 1,
@@ -267,14 +351,24 @@ class AbuseReviewService:
                 item.paired_phone or "",
             ),
         )
-        pair_page_count = max((len(all_pair_candidates) + pair_page_size - 1) // pair_page_size, 1)
+        pair_page_count = max(
+            (len(all_pair_candidates) + pair_page_size - 1) // pair_page_size, 1
+        )
         pair_start = (pair_page - 1) * pair_page_size
         pair_page_items = all_pair_candidates[pair_start : pair_start + pair_page_size]
         display_page_size = 200
-        speed_page_count = max((len(speed_candidates) + display_page_size - 1) // display_page_size, 1)
-        pairing_page_count = max((len(pairing_candidates) + display_page_size - 1) // display_page_size, 1)
-        combined_page_count = max((len(combined_candidates) + display_page_size - 1) // display_page_size, 1)
-        speed_page_candidates = speed_candidates[(speed_page - 1) * pair_page_size : speed_page * pair_page_size]
+        speed_page_count = max(
+            (len(speed_candidates) + display_page_size - 1) // display_page_size, 1
+        )
+        pairing_page_count = max(
+            (len(pairing_candidates) + display_page_size - 1) // display_page_size, 1
+        )
+        combined_page_count = max(
+            (len(combined_candidates) + display_page_size - 1) // display_page_size, 1
+        )
+        speed_page_candidates = speed_candidates[
+            (speed_page - 1) * pair_page_size : speed_page * pair_page_size
+        ]
         pairing_page_candidates = pairing_candidates[
             (pairing_page - 1) * pair_page_size : pairing_page * pair_page_size
         ]
@@ -301,10 +395,14 @@ class AbuseReviewService:
         grouped_candidates: dict[str, list[AbuseReviewCandidate]] = {}
         for candidate in candidates:
             if candidate.paired_phone:
-                grouped_candidates.setdefault(find(candidate.phone), []).append(candidate)
+                grouped_candidates.setdefault(find(candidate.phone), []).append(
+                    candidate
+                )
         review_groups: list[AbuseReviewGroup] = []
         group_round = survey_round or (responses[0].survey_round if responses else 0)
-        group_version = survey_version or (responses[0].survey_version if responses else "")
+        group_version = survey_version or (
+            responses[0].survey_version if responses else ""
+        )
         for group_candidates in grouped_candidates.values():
             phones = sorted(
                 {
@@ -316,23 +414,39 @@ class AbuseReviewService:
             )
             if len(phones) < 2:
                 continue
-            similarities = [candidate.similarity_percent or 0 for candidate in group_candidates]
-            reasons = sorted({reason for candidate in group_candidates for reason in candidate.reasons})
-            combined_count = sum(candidate.candidate_type == "복합 의심" for candidate in group_candidates)
+            similarities = [
+                candidate.similarity_percent or 0 for candidate in group_candidates
+            ]
+            reasons = sorted(
+                {
+                    reason
+                    for candidate in group_candidates
+                    for reason in candidate.reasons
+                }
+            )
+            combined_count = sum(
+                candidate.candidate_type == "복합 의심"
+                for candidate in group_candidates
+            )
             review_groups.append(
                 AbuseReviewGroup(
                     groupKey=abuse_group_key(group_round, group_version, phones),
                     phones=phones,
                     memberCount=len(phones),
                     pairCount=len(group_candidates),
-                    averageSimilarityPercent=round(sum(similarities) / len(similarities)),
+                    averageSimilarityPercent=round(
+                        sum(similarities) / len(similarities)
+                    ),
                     maximumSimilarityPercent=max(similarities),
                     reasons=reasons,
                     combinedPairCount=combined_count,
                     reviewPriority=(
                         "우선 검토"
                         if combined_count
-                        or any(candidate.review_priority == "우선 검토" for candidate in group_candidates)
+                        or any(
+                            candidate.review_priority == "우선 검토"
+                            for candidate in group_candidates
+                        )
                         else "확인 필요"
                     ),
                 )
@@ -350,11 +464,21 @@ class AbuseReviewService:
             surveyVersion=survey_version,
             totalResponses=len(responses),
             similarityBuckets=[
-                SimilarityBucket(label=label, minimumPercent=minimum, pairCount=buckets[label])
-                for label, minimum in (("100% 일치", 100), ("95~99% 일치", 95), ("90~94% 일치", 90))
+                SimilarityBucket(
+                    label=label, minimumPercent=minimum, pairCount=buckets[label]
+                )
+                for label, minimum in (
+                    ("100% 일치", 100),
+                    ("95~99% 일치", 95),
+                    ("90~94% 일치", 90),
+                )
             ],
             speedBuckets=[
-                SpeedBucket(label=label, maximumSeconds=maximum, responseCount=speed_buckets[label])
+                SpeedBucket(
+                    label=label,
+                    maximumSeconds=maximum,
+                    responseCount=speed_buckets[label],
+                )
                 for label, maximum in (
                     ("5분 이하", 300),
                     ("5분 초과~10분 이하", 600),
@@ -362,10 +486,22 @@ class AbuseReviewService:
                     ("응답시간 확인 불가", None),
                 )
             ],
-            candidates=pair_page_items,
-            speedCandidates=speed_page_candidates,
-            pairingCandidates=pairing_page_candidates,
-            combinedCandidates=combined_page_candidates,
+            candidates=(
+                all_pair_candidates if include_all_candidates else pair_page_items
+            ),
+            speedCandidates=(
+                speed_candidates if include_all_candidates else speed_page_candidates
+            ),
+            pairingCandidates=(
+                pairing_candidates
+                if include_all_candidates
+                else pairing_page_candidates
+            ),
+            combinedCandidates=(
+                combined_candidates
+                if include_all_candidates
+                else combined_page_candidates
+            ),
             speedCandidateCount=len(speed_candidates),
             pairingCandidateCount=len(pairing_candidates),
             combinedCandidateCount=len(combined_candidates),

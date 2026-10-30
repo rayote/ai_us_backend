@@ -14,18 +14,21 @@ class WorkerHealthRepository(Protocol):
 
 
 class MongoWorkerHealthRepository:
-    def __init__(self, collection: Any) -> None:
+    def __init__(
+        self, collection: Any, heartbeat_id: str = WORKER_HEARTBEAT_ID
+    ) -> None:
         self._collection = collection
+        self._heartbeat_id = heartbeat_id
 
     async def touch(self, timestamp: datetime) -> None:
         await self._collection.update_one(
-            {"_id": WORKER_HEARTBEAT_ID},
+            {"_id": self._heartbeat_id},
             {"$set": {"updated_at": timestamp}},
             upsert=True,
         )
 
     async def last_heartbeat(self) -> datetime | None:
-        document = await self._collection.find_one({"_id": WORKER_HEARTBEAT_ID})
+        document = await self._collection.find_one({"_id": self._heartbeat_id})
         if document is None:
             return None
         timestamp = document.get("updated_at")

@@ -52,13 +52,22 @@ CloudType Secret의 bootstrap 계정은 최초 backend 실행 시 `admin`으로 
 
 초기 개발 중 등록된 이전 설문 정의의 `csv_column` 형식과 현재 API의 `csvColumn` 형식을 모두 읽도록 호환 처리합니다.
 
+## 관리자 분석 워커
+
+- 같은 backend 컨테이너에서 API, 기존 제출 워커(`app.worker`), 분석 전용 워커(`app.analysis_worker`)를 각각 별도 프로세스로 실행합니다. 추가 서비스나 환경변수는 필요하지 않습니다.
+- 전용 `analysis_jobs` 큐와 별도 프로세스 잠금으로 한 번에 1건만 분석합니다. 제출 큐를 점유하지 않고 CPU 우선순위를 낮춥니다. CPU·메모리·DB 자체는 공유하므로 모든 자원 경쟁이 없어지는 구성은 아닙니다.
+- 어뷰징 메뉴 진입 시 작업을 요청하며 진행 중인 같은 조건의 작업은 재사용합니다. 완료 결과는 5분간 재사용하고 `다시 조회`는 새 계산을 요청합니다. 실패 작업은 명시적 재요청으로 다시 실행합니다.
+- 결과는 압축해 저장하고 페이지 조회와 검토 상태 변경에서 재사용합니다. 유사도·권고 기준과 참가자 인증·설문 저장 정책은 변경하지 않습니다.
+- 인증된 `/api/v1/researcher/system-health`의 `analysisWorker`는 별도 생존 신호입니다. 긴 계산 중에도 갱신되며 5초 주기, 60초 초과 시 `stale`입니다. 계산 상태는 메뉴 안에서 별도로 표시합니다.
+- backend를 새 시작 스크립트로 재배포한 후 frontend를 반영하고 세 상태등과 분석 완료를 확인합니다. 공개 `/health`만으로 분석 워커 실행을 확인할 수는 없습니다. 로컬 실행에는 운영 설정이 아닌 개발 전용 DB를 사용합니다.
+
 ## CloudType 배포
 
 개발과 운영 모두 아래 3개 서비스를 사용합니다.
 
 ```text
 frontend container   # ai_us GitHub 저장소
-backend container    # 이 저장소: Uvicorn + Queue worker daemon
+backend container    # 이 저장소: Uvicorn + 제출 worker + 분석 worker
 MongoDB container    # CloudType 사전구성 컨테이너
 ```
 
@@ -81,6 +90,7 @@ app/
   schemas/    # 요청·응답 모델
   services/   # 신청, 인증, Queue, 설문, 대화문 파싱·검토, 결과 파일 처리
   worker.py   # Queue worker daemon
+  analysis_worker.py # 관리자 분석 전용 worker
 deploy/       # CloudType 시작 스크립트
 docs/         # API 계약, 현재 구조, 배포, 프론트 AI 인수인계
 tests/        # API와 서비스 테스트

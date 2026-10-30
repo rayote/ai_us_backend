@@ -12,6 +12,7 @@ JobType = Literal[
     "chat_download",
     "transcript_download",
     "transcript_parse",
+    "abuse_review",
 ]
 JobStatus = Literal["queued", "processing", "completed", "failed"]
 
