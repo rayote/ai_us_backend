@@ -4,6 +4,8 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
+from app.services.chat_imports import inspect_chat_import
+from app.services.transcript_adapters import normalize_export
 from bson import ObjectId
 from scripts.import_chat_upload import (
     import_submission,
@@ -48,6 +50,52 @@ def test_rejects_zip_without_gemini_activity(tmp_path: Path) -> None:
 
     with pytest.raises(ValueError, match="Gemini 내 활동 HTML"):
         inspect_gemini_zip(archive_path)
+
+
+@pytest.mark.parametrize(
+    "members",
+    [
+        ["nested/conversations.json"],
+        ["nested/conversations-001.json", "nested/conversations-000.json"],
+    ],
+)
+def test_chatgpt_import_accepts_supported_layouts(
+    tmp_path: Path, members: list[str]
+) -> None:
+    source = tmp_path / "export.zip"
+    with zipfile.ZipFile(source, "w") as archive:
+        for name in members:
+            archive.writestr(name, "[]")
+
+    digest = inspect_chat_import(source, "chatgpt", "file", "application/zip")
+
+    assert len(digest) == 64
+
+
+@pytest.mark.parametrize(
+    "members",
+    [
+        ["user.json"],
+        ["conversations-000.json", "conversations-002.json"],
+        ["conversations-001.json"],
+        ["conversations-0.json", "conversations-000.json"],
+        ["conversations.json", "conversations-000.json"],
+        ["first/conversations.json", "second/conversations.json"],
+        ["first/conversations-000.json", "second/conversations-001.json"],
+    ],
+)
+def test_chatgpt_import_and_parser_reject_ambiguous_or_incomplete_layouts(
+    tmp_path: Path, members: list[str]
+) -> None:
+    source = tmp_path / "export.zip"
+    with zipfile.ZipFile(source, "w") as archive:
+        for name in members:
+            archive.writestr(name, "[]")
+
+    with pytest.raises(ValueError):
+        inspect_chat_import(source, "chatgpt", "file", "application/zip")
+    with pytest.raises(ValueError):
+        normalize_export("chatgpt", source.name, source.read_bytes(), "participant-1")
 
 
 def test_import_submission_associates_participant_and_file(tmp_path: Path) -> None:

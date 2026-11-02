@@ -9,6 +9,7 @@ from pathlib import Path, PurePosixPath
 from typing import Any, Protocol
 
 from app.services.transcript_adapters import (
+    find_chatgpt_export_members,
     find_claude_export_member,
     find_grok_export_member,
 )
@@ -361,7 +362,6 @@ def inspect_chat_import(
             inspect_gemini_zip(source)
         else:
             with zipfile.ZipFile(source) as archive:
-                names = [member.filename.lower() for member in archive.infolist()]
                 expanded_bytes = sum(member.file_size for member in archive.infolist())
                 if expanded_bytes > 4 * DEFAULT_MAX_FILE_BYTES:
                     raise ValueError("ZIP 압축 해제 크기가 허용 범위를 초과했습니다.")
@@ -369,12 +369,8 @@ def inspect_chat_import(
                 compression_ratio = expanded_bytes / archive_size if archive_size else 0
                 if compression_ratio > 100:
                     raise ValueError("ZIP 압축률이 비정상적으로 높습니다.")
-                if tool == "chatgpt" and not any(
-                    PurePosixPath(name).name == "conversations.json" for name in names
-                ):
-                    raise ValueError(
-                        "ZIP에서 ChatGPT conversations.json을 찾지 못했습니다."
-                    )
+                if tool == "chatgpt":
+                    find_chatgpt_export_members(archive)
                 if tool == "claude":
                     find_claude_export_member(archive)
                 if tool == "grok":

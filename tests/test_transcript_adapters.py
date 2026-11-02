@@ -132,6 +132,103 @@ def test_chatgpt_adapter_preserves_multiple_conversations_as_sessions() -> None:
     ]
 
 
+def test_chatgpt_adapter_combines_shards_in_numeric_order() -> None:
+    archive = io.BytesIO()
+    with zipfile.ZipFile(archive, "w") as zipper:
+        for index in reversed(range(11)):
+            export = [
+                {
+                    "id": f"conversation-{index}",
+                    "current_node": "user",
+                    "mapping": {
+                        "user": {
+                            "parent": None,
+                            "message": {
+                                "author": {"role": "user"},
+                                "content": {"parts": [f"Question {index}"]},
+                                "create_time": 1_700_000_000 + index,
+                            },
+                        }
+                    },
+                }
+            ]
+            zipper.writestr(f"nested/conversations-{index}.json", json.dumps(export))
+        zipper.writestr("user.json", "{}")
+        zipper.writestr("chat.html", "ignored")
+
+    name, version, normalized, warnings = normalize_export(
+        "chatgpt", "export.zip", archive.getvalue(), "participant-1"
+    )
+
+    assert (name, version) == ("chatgpt-json", "chatgpt-json-v1")
+    assert normalized["participantId"] == "participant-1"
+    assert normalized["summary"] == {
+        "totalSessions": 11,
+        "totalTurns": 11,
+        "firstActivityTime": "2023-11-15T07:13:20+09:00",
+        "lastActivityTime": "2023-11-15T07:13:30+09:00",
+    }
+    expected_ids = [f"chatgpt_conversation-{index}" for index in range(11)]
+    assert [session["sessionId"] for session in normalized["sessions"]] == expected_ids
+    rows = list(csv.DictReader(io.StringIO(normalized_to_csv(normalized))))
+    assert [row["sessionId"] for row in rows] == expected_ids
+    assert warnings == [
+        f"ZIP 내부의 nested/conversations-{index}.json 파일을 파싱했습니다."
+        for index in range(11)
+    ]
+
+
+@pytest.mark.parametrize("invalid_payload", ["{broken", "{}"])
+def test_chatgpt_adapter_rejects_invalid_shard(invalid_payload: str) -> None:
+    archive = io.BytesIO()
+    with zipfile.ZipFile(archive, "w") as zipper:
+        zipper.writestr("conversations-000.json", "[]")
+        zipper.writestr("conversations-001.json", invalid_payload)
+
+    with pytest.raises(ValueError, match="conversations-001.json"):
+        normalize_export("chatgpt", "export.zip", archive.getvalue(), "participant-1")
+
+
+def test_chatgpt_adapter_rejects_duplicate_conversations_across_shards() -> None:
+    export = [
+        {
+            "id": "duplicate",
+            "current_node": "user",
+            "mapping": {
+                "user": {
+                    "parent": None,
+                    "message": {
+                        "author": {"role": "user"},
+                        "content": {"parts": ["Question"]},
+                    },
+                }
+            },
+        }
+    ]
+    archive = io.BytesIO()
+    with zipfile.ZipFile(archive, "w") as zipper:
+        for index in range(2):
+            zipper.writestr(f"conversations-{index:03}.json", json.dumps(export))
+
+    with pytest.raises(ValueError, match="중복 대화 ID"):
+        normalize_export("chatgpt", "export.zip", archive.getvalue(), "participant-1")
+
+
+def test_chatgpt_adapter_accepts_empty_shards() -> None:
+    archive = io.BytesIO()
+    with zipfile.ZipFile(archive, "w") as zipper:
+        zipper.writestr("conversations-000.json", "[]")
+        zipper.writestr("conversations-001.json", "[]")
+
+    _, _, normalized, warnings = normalize_export(
+        "chatgpt", "export.zip", archive.getvalue(), "participant-1"
+    )
+
+    assert normalized["sessions"] == []
+    assert normalized["summary"]["totalTurns"] == 0
+    assert len(warnings) == 2
+
+
 def test_claude_adapter_decodes_unicode_and_excludes_internal_content() -> None:
     export = [
         {

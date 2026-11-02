@@ -27,11 +27,11 @@ def normalize_export(
     if "chatgpt" in selected_tool or (
         not selected_tool and name == "conversations.json"
     ):
-        payload, warnings = _chatgpt_payload(content)
+        normalized, warnings = _normalize_chatgpt(content, participant_id)
         return (
             "chatgpt-json",
             "chatgpt-json-v1",
-            _parse_chatgpt(payload, participant_id),
+            normalized,
             warnings,
         )
     if "claude" in selected_tool or (not selected_tool and "claude" in name):
@@ -157,25 +157,56 @@ def find_claude_export_member(archive: zipfile.ZipFile) -> str:
     )
 
 
-def _chatgpt_payload(content: bytes) -> tuple[bytes, list[str]]:
-    if not zipfile.is_zipfile(io.BytesIO(content)):
-        return content, []
-    with zipfile.ZipFile(io.BytesIO(content)) as archive:
-        source_name = next(
-            (
-                name
-                for name in archive.namelist()
-                if PurePosixPath(name).name.lower() == "conversations.json"
-            ),
-            None,
+def find_chatgpt_export_members(archive: zipfile.ZipFile) -> list[str]:
+    legacy: list[str] = []
+    shards: list[tuple[int, str]] = []
+    for member in archive.infolist():
+        if member.is_dir():
+            continue
+        name = PurePosixPath(member.filename).name.lower()
+        if name == "conversations.json":
+            legacy.append(member.filename)
+        elif match := re.fullmatch(r"conversations-([0-9]+)\.json", name):
+            shards.append((int(match.group(1)), member.filename))
+    if not legacy and not shards:
+        raise ValueError(
+            "ZIP 파일 안에서 ChatGPT conversations.json 또는 분할 파일을 찾지 못했습니다."
         )
-        if source_name is None:
-            raise ValueError(
-                "ZIP 파일 안에서 ChatGPT conversations.json 파일을 찾지 못했습니다."
-            )
-        return archive.read(source_name), [
-            f"ZIP 내부의 {source_name} 파일을 파싱했습니다."
-        ]
+    if len(legacy) > 1 or (legacy and shards):
+        raise ValueError("ZIP에 여러 ChatGPT 내보내기 구성이 섞여 있습니다.")
+    if legacy:
+        return legacy
+    shards.sort()
+    if len({str(PurePosixPath(name).parent) for _, name in shards}) != 1:
+        raise ValueError("ChatGPT 분할 파일은 같은 폴더에 있어야 합니다.")
+    if [index for index, _ in shards] != list(range(len(shards))):
+        raise ValueError("ChatGPT 분할 파일 번호가 누락되거나 중복되었습니다.")
+    return [name for _, name in shards]
+
+
+def _normalize_chatgpt(
+    content: bytes, participant_id: str
+) -> tuple[dict[str, Any], list[str]]:
+    if not zipfile.is_zipfile(io.BytesIO(content)):
+        return _parse_chatgpt(content, participant_id), []
+    with zipfile.ZipFile(io.BytesIO(content)) as archive:
+        source_names = find_chatgpt_export_members(archive)
+        sessions: list[dict[str, Any]] = []
+        seen_ids: set[str] = set()
+        warnings: list[str] = []
+        for source_name in source_names:
+            try:
+                normalized = _parse_chatgpt(archive.read(source_name), participant_id)
+            except ValueError as error:
+                raise ValueError(f"ChatGPT {source_name} 파일을 파싱하지 못했습니다.") from error
+            for session in normalized["sessions"]:
+                session_id = session["sessionId"]
+                if len(source_names) > 1 and session_id in seen_ids:
+                    raise ValueError("ChatGPT 분할 파일에 중복 대화 ID가 있습니다.")
+                seen_ids.add(session_id)
+                sessions.append(session)
+            warnings.append(f"ZIP 내부의 {source_name} 파일을 파싱했습니다.")
+        return _summary(participant_id, "chatgpt", "chatgpt_export_json", sessions), warnings
 
 
 def _claude_payload(content: bytes) -> tuple[bytes, list[str]]:
