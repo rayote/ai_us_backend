@@ -71,6 +71,8 @@ class ChatSubmissionRepository(Protocol):
 
     async def list_submission_summaries(self) -> list[ChatSubmissionSummary]: ...
 
+    async def has_participant_submission(self, participant_id: str) -> bool: ...
+
     async def list_for_participant(
         self, participant_id: str
     ) -> list[ChatSubmissionRecord]: ...
@@ -198,6 +200,11 @@ class MongoChatSubmissionRepository:
             }
         )
         return _record_from_document(document) if document else None
+
+    async def has_participant_submission(self, participant_id: str) -> bool:
+        return await self._collection.find_one(
+            {"participant_id": participant_id}, projection={"_id": 1}
+        ) is not None
 
     async def list_for_participant(
         self, participant_id: str

@@ -34,6 +34,14 @@ These endpoints and policies are implemented locally. The two development MongoD
 - `GET /api/v1/participant/survey-status` returns `completedVersionsByRound` (string round keys), `completedRounds`, `surveyRoundsOpen` (boolean values with string keys `"1"` through `"4"`) and the backward-compatible `t1SubmissionsOpen` field. Completion requires a stored part-2 response; queued jobs and partial snapshots never count. T2 part 1 has no T1 prerequisite; T2 part 2 requires a stored T2 part-1 response.
 - Admission is controlled by the DB-backed round settings below. `surveyRoundStates` reports `preparing`, `open` or `closed`; `surveyConfigurations` lists the selected version/audience/part identities by round. A closed round rejects new final/progress submissions with HTTP 403 and `참여 기간이 끝났어요`; a preparing round uses `설문 준비 중이에요`. History/export and already accepted worker jobs remain available. Before a DB selection override, only the complete current T1 v2-0916 and T2 v9-1022 configurations are selected for compatibility. T1 retains `T1_SUBMISSIONS_OPEN` (default `true`); existing closed T1 is treated as period-ended. T2 retains its permission; T3/T4 start preparing. No arbitrary new/draft release is auto-selected.
 
+### Temporary Global Pause
+
+`PARTICIPATION_PAUSED` defaults to `false`. Public `GET /api/v1/applications/status` returns `participationPaused`, `noticeTitle` and `notice`. When true, `POST /api/v1/applications`, `POST /api/v1/survey-responses` and `PUT /api/v1/survey-progress` reject new writes with 403 and the approved notice. Existing worker jobs continue normally; login, password reset and read/history routes are not disabled.
+
+Participant survey status additionally returns `participationPaused`, `participationNotice`, `chatSubmissionAllowed` (boolean while paused, otherwise null) and `chatSubmissionUnavailableReason`. During the pause every round is closed for new writes, every `surveyRoundStates` value is `paused`, and configuration lists are empty; stored completion history is preserved and round settings are not rewritten.
+
+While paused, chat submission requires existing chat consent, a stored Part 2 completion in at least one round, no prior chat record of any status and no queued/processing/completed participant chat-submission job. Both text and upload routes enforce the same policy under an owner-released atomic participant lock; overlapping submissions return 409, ineligible participants return 403. Failed jobs alone do not prevent retry. Submission history and deletion/restore remain available. Reopening requires explicitly clearing the global flag, independently of T3 or any date.
+
 ### Partial Progress
 
 `GET /api/v1/survey-progress?surveyRound=2&surveyVersion=...` and `PUT /api/v1/survey-progress` require participant authentication and always address the token owner's record. The existing `/api/v1/participant/survey-progress?survey_round=...` completion-history endpoint is unchanged.

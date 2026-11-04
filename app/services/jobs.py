@@ -15,6 +15,8 @@ JobHandler = Callable[[dict[str, Any]], Awaitable[None]]
 class JobRepository(Protocol):
     async def enqueue(self, job: JobCreate) -> Job: ...
 
+    async def has_participant_chat_job(self, participant_id: str) -> bool: ...
+
     async def get(self, job_id: str) -> Job | None: ...
 
     async def recover_interrupted(self) -> int: ...
@@ -45,6 +47,16 @@ def _job_from_document(document: dict[str, Any]) -> Job:
 class MongoJobRepository:
     def __init__(self, collection: Any) -> None:
         self._collection = collection
+
+    async def has_participant_chat_job(self, participant_id: str) -> bool:
+        return await self._collection.find_one(
+            {
+                "job_type": "chat_submission",
+                "payload.participantId": participant_id,
+                "status": {"$in": ["queued", "processing", "completed"]},
+            },
+            projection={"_id": 1},
+        ) is not None
 
     async def enqueue(self, job: JobCreate) -> Job:
         document = {

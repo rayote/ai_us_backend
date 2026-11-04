@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
+from uuid import uuid4
+
 from app.api.auth import _participant_id
 from app.api.survey import _job_repository, _survey_status
 from app.schemas.chat import (
@@ -43,10 +46,35 @@ async def _require_completed_survey(request: Request, participant_id: str) -> No
     )
     if participant is None or not participant.chat_consent:
         raise HTTPException(status_code=403, detail="대화문 제출 동의가 필요합니다.")
-    if not (await _survey_status(request, participant_id))["completedRounds"]:
+    survey_status = await _survey_status(request, participant_id)
+    if not survey_status["completedRounds"]:
         raise HTTPException(
             status_code=403, detail="설문을 한 회차 이상 완료한 후 제출할 수 있습니다."
         )
+    if survey_status["participationPaused"] and not survey_status["chatSubmissionAllowed"]:
+        raise HTTPException(
+            status_code=403, detail=survey_status["chatSubmissionUnavailableReason"]
+        )
+
+
+async def _chat_submission_participant(
+    request: Request, participant_id: str = Depends(_participant_id)
+) -> AsyncIterator[str]:
+    if not request.app.state.settings.participation_paused:
+        await _require_completed_survey(request, participant_id)
+        yield participant_id
+        return
+    participants = getattr(request.app.state, "participant_account_repository", None)
+    if participants is None:
+        raise HTTPException(status_code=503, detail="대화문 제출 서비스를 준비 중입니다.")
+    token = str(uuid4())
+    if not await participants.acquire_chat_submission_lock(participant_id, token):
+        raise HTTPException(status_code=409, detail="대화문 제출을 처리 중입니다. 잠시 후 제출 내역을 확인해 주세요. 문제가 계속되면 연구팀에 문의해 주세요.")
+    try:
+        await _require_completed_survey(request, participant_id)
+        yield participant_id
+    finally:
+        await participants.release_chat_submission_lock(participant_id, token)
 
 
 def _submission_service(request: Request) -> ChatSubmissionService:
@@ -100,9 +128,8 @@ def _management_service(request: Request) -> ChatSubmissionManagementService:
 async def submit_chat(
     submission: ChatSubmissionCreate,
     request: Request,
-    participant_id: str = Depends(_participant_id),
+    participant_id: str = Depends(_chat_submission_participant),
 ) -> ChatSubmissionAccepted:
-    await _require_completed_survey(request, participant_id)
     try:
         job = await _submission_service(request).submit(participant_id, submission)
     except ChatConsentRequiredError as error:
@@ -130,9 +157,8 @@ async def submit_chat_upload(
     submission_point: str = Form(..., alias="submissionPoint"),
     source_type: str = Form(..., alias="sourceType"),
     submission_id: str = Form(..., alias="submissionId", min_length=1, max_length=128),
-    participant_id: str = Depends(_participant_id),
+    participant_id: str = Depends(_chat_submission_participant),
 ) -> ChatSubmissionAccepted:
-    await _require_completed_survey(request, participant_id)
     try:
         upload_files = [
             ChatUploadFile(

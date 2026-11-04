@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from app.api.applications import PARTICIPATION_NOTICE, require_participation_open
 from app.api.auth import _participant_id
 from app.schemas.survey import (
     ParticipantSurveyProgress,
@@ -65,6 +66,7 @@ def _session_repository(request: Request):
 async def _require_survey_access(
     request: Request, participant_id: str, survey_round: int, survey_version: str
 ):
+    require_participation_open(request)
     rounds = await load_survey_rounds(
         getattr(request.app.state, "application_settings_repository", None),
         request.app.state.settings.t1_submissions_open,
@@ -141,13 +143,39 @@ async def _survey_status(request: Request, participant_id: str) -> dict[str, obj
         request.app.state.settings.t1_submissions_open,
         definitions,
     )
+    paused = request.app.state.settings.participation_paused
+    chat_allowed = False
+    chat_reason = "설문을 한 회차 이상 완료한 후 제출할 수 있습니다."
+    if paused and completed_rounds:
+        participants = _participant_repository(request)
+        account = await participants.find_by_id(participant_id) if participants else None
+        if account is not None and account.chat_consent:
+            submissions = getattr(request.app.state, "chat_submission_repository", None)
+            jobs = _job_repository(request)
+            if submissions is None:
+                raise HTTPException(status_code=503, detail="대화문 제출 서비스를 준비 중입니다.")
+            already_submitted = (
+                await submissions.has_participant_submission(participant_id)
+                or await jobs.has_participant_chat_job(participant_id)
+            )
+            chat_allowed = not already_submitted
+            chat_reason = (
+                "이미 대화문을 제출하셨습니다. 접수 중단 기간에는 미제출자만 제출할 수 있습니다."
+                if already_submitted else ""
+            )
+        else:
+            chat_reason = "대화문 제출 동의가 필요합니다."
     return {
+        "participationPaused": paused,
+        "participationNotice": PARTICIPATION_NOTICE if paused else "",
+        "chatSubmissionAllowed": chat_allowed if paused else None,
+        "chatSubmissionUnavailableReason": chat_reason if paused else "",
         "completedVersionsByRound": versions_by_round,
         "completedRounds": completed_rounds,
-        "t1SubmissionsOpen": rounds["1"]["is_open"],
-        "surveyRoundsOpen": {key: record["is_open"] for key, record in rounds.items()},
+        "t1SubmissionsOpen": not paused and rounds["1"]["is_open"],
+        "surveyRoundsOpen": {key: not paused and record["is_open"] for key, record in rounds.items()},
         "surveyRoundStates": {
-            key: record.get(
+            key: "paused" if paused else record.get(
                 "state",
                 (
                     "open"
@@ -158,7 +186,7 @@ async def _survey_status(request: Request, participant_id: str) -> dict[str, obj
             for key, record in rounds.items()
         },
         "surveyConfigurations": {
-            key: (record.get("selected_configuration") or {}).get("versions", [])
+            key: [] if paused else (record.get("selected_configuration") or {}).get("versions", [])
             for key, record in rounds.items()
         },
     }

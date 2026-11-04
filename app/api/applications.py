@@ -10,6 +10,23 @@ from fastapi import APIRouter, HTTPException, Request, status
 
 router = APIRouter(prefix="/api/v1/applications", tags=["applications"])
 
+PARTICIPATION_NOTICE_TITLE = "[안내] 설문 접수 일시 중단"
+PARTICIPATION_NOTICE = "응답 자료 검수 중입니다. 현재는 설문을 이미 완료한 기존 참가자의 대화문 제출만 가능하며, 재개 시 문자로 안내드립니다."
+
+
+def require_participation_open(request: Request) -> None:
+    if request.app.state.settings.participation_paused:
+        raise HTTPException(status_code=403, detail=PARTICIPATION_NOTICE)
+
+
+@router.get("/status")
+async def participation_admission_status(request: Request):
+    return {
+        "participationPaused": request.app.state.settings.participation_paused,
+        "noticeTitle": PARTICIPATION_NOTICE_TITLE,
+        "notice": PARTICIPATION_NOTICE,
+    }
+
 
 def _repository(request: Request) -> ApplicationRepository:
     repository = getattr(request.app.state, "application_repository", None)
@@ -39,6 +56,7 @@ def _participant_audience(school_level: str | None) -> str:
 async def create_application(
     application: ApplicationCreate, request: Request
 ) -> ApplicationCreated:
+    require_participation_open(request)
     participant_repository = _participant_repository(request)
     if (
         participant_repository is not None

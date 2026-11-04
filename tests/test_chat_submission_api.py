@@ -51,6 +51,7 @@ from fastapi.testclient import TestClient
 
 class InMemoryParticipants(ParticipantAccountRepository):
     def __init__(self, chat_consent: bool) -> None:
+        self.chat_lock: str | None = None
         self.account = ParticipantAccount(
             "participant-1",
             "01012345678",
@@ -68,6 +69,16 @@ class InMemoryParticipants(ParticipantAccountRepository):
 
     async def update_password(self, participant_id: str, password_hash: str) -> bool:
         return False
+
+    async def acquire_chat_submission_lock(self, participant_id: str, token: str) -> bool:
+        if self.chat_lock is not None:
+            return False
+        self.chat_lock = token
+        return True
+
+    async def release_chat_submission_lock(self, participant_id: str, token: str) -> None:
+        if self.chat_lock == token:
+            self.chat_lock = None
 
     async def create(
         self,
@@ -90,6 +101,14 @@ class InMemoryParticipants(ParticipantAccountRepository):
 class InMemoryJobs(JobRepository):
     def __init__(self) -> None:
         self.jobs: list[Job] = []
+
+    async def has_participant_chat_job(self, participant_id: str) -> bool:
+        return any(
+            job.job_type == "chat_submission"
+            and job.payload.get("participantId") == participant_id
+            and job.status in {"queued", "processing", "completed"}
+            for job in self.jobs
+        )
 
     async def enqueue(self, job: JobCreate) -> Job:
         existing = next(
@@ -234,6 +253,9 @@ class InMemoryChatSubmissions(ChatSubmissionRepository):
 
     async def create_submission(self, submission: ChatSubmissionRecord) -> None:
         self.submissions.append(submission)
+
+    async def has_participant_submission(self, participant_id: str) -> bool:
+        return any(item.participant_id == participant_id for item in self.submissions)
 
     async def get_by_id(self, submission_id: str) -> ChatSubmissionRecord | None:
         return next(
@@ -773,6 +795,113 @@ def test_consented_participant_submission_is_parsed_and_saved() -> None:
     assert status_response.json()["status"] == "completed"
     assert submissions.submissions[0].raw_input == "사용자: 안녕하세요\nAI: 반가워요"
     assert submissions.submissions[0].transcript.status == "parsed"
+
+
+def test_paused_chat_lock_blocks_overlap_and_releases_after_invalid_upload():
+    app, _, submissions, _ = _app(True)
+    with TestClient(app) as client:
+        app.state.settings = replace(app.state.settings, participation_paused=True)
+        login = client.post("/api/v1/auth/participant/login", json={
+            "phone": "01012345678", "password": "password-2026", "audience": "elementary",
+        })
+        headers = {"Authorization": f"Bearer {login.json()['accessToken']}"}
+        participants = app.state.participant_account_repository
+        participants.chat_lock = "other-request"
+        payload = {"submissionPoint": "afterRound1", "sourceType": "text", "rawInput": "hello", "submissionId": "overlap"}
+        assert client.post("/api/v1/chat-submissions", headers=headers, json=payload).status_code == 409
+        assert participants.chat_lock == "other-request"
+        participants.chat_lock = None
+        invalid = client.post("/api/v1/chat-submissions/uploads", headers=headers,
+            data={"tool": "chatgpt", "submissionPoint": "afterRound1", "sourceType": "file", "submissionId": "bad-upload"},
+            files={"files": ("export.txt", b"invalid", "text/plain")})
+        assert invalid.status_code == 422
+        assert participants.chat_lock is None
+        archive_buffer = io.BytesIO()
+        with zipfile.ZipFile(archive_buffer, "w") as archive:
+            archive.writestr("conversations.json", "[]")
+        uploaded = client.post("/api/v1/chat-submissions/uploads", headers=headers,
+            data={"tool": "chatgpt", "submissionPoint": "afterRound1", "sourceType": "file", "submissionId": "good-upload"},
+            files={"files": ("export.zip", archive_buffer.getvalue(), "application/zip")})
+        assert uploaded.status_code == 202, uploaded.json()
+        assert len(submissions.submissions) == 1
+        assert participants.chat_lock is None
+        assert client.post("/api/v1/chat-submissions", headers=headers, json=payload).status_code == 403
+
+
+def test_paused_participation_keeps_login_and_only_first_chat_submission():
+    app, jobs, submissions, uploads = _app(True)
+    with TestClient(app) as client:
+        app.state.settings = replace(app.state.settings, participation_paused=True)
+        public = client.get("/api/v1/applications/status")
+        assert public.json()["participationPaused"] is True
+        rejected_signup = client.post("/api/v1/applications", json={
+            "gender": "여", "grade": "중학교 2학년", "phone": "01012345678", "guardianPhone": "01098765432",
+            "consents": {"documentRead": True, "survey": True, "chat": False, "participant": True, "guardian": True},
+        })
+        assert rejected_signup.status_code == 403
+        assert rejected_signup.json()["detail"] == public.json()["notice"]
+        login = client.post("/api/v1/auth/participant/login", json={
+            "phone": "01012345678", "password": "password-2026", "audience": "elementary",
+        })
+        assert login.status_code == 200
+        headers = {"Authorization": f"Bearer {login.json()['accessToken']}"}
+        rejected_survey = client.post("/api/v1/survey-responses", headers=headers, json={
+            "surveyRound": 1, "surveyVersion": "completed-part2", "answers": {}, "submissionId": "paused-survey",
+        })
+        assert rejected_survey.status_code == 403
+        rejected_progress = client.put("/api/v1/survey-progress", headers=headers, json={
+            "surveyRound": 1, "surveyVersion": "completed-part2", "answers": {}, "revision": 0,
+            "completedPage": 0, "nextPage": 1, "totalPages": 1, "clientSavedAt": datetime.now(UTC).isoformat(),
+        })
+        assert rejected_progress.status_code == 403
+        status = client.get("/api/v1/participant/survey-status", headers=headers).json()
+        assert status["completedRounds"] == [1]
+        assert not any(status["surveyRoundsOpen"].values())
+        assert set(status["surveyRoundStates"].values()) == {"paused"}
+        assert status["chatSubmissionAllowed"] is True
+        payload = {
+            "submissionPoint": "afterRound1", "sourceType": "text",
+            "rawInput": "User: hello\nAI: hi", "submissionId": "pause-first",
+        }
+        assert client.post("/api/v1/chat-submissions", headers=headers, json=payload).status_code == 202
+        status = client.get("/api/v1/participant/survey-status", headers=headers).json()
+        assert status["chatSubmissionAllowed"] is False
+        payload["submissionId"] = "pause-second"
+        assert client.post("/api/v1/chat-submissions", headers=headers, json=payload).status_code == 403
+        rejected = client.post("/api/v1/chat-submissions/uploads", headers=headers,
+            data={"tool": "chatgpt", "submissionPoint": "afterRound1", "sourceType": "file", "submissionId": "pause-upload"},
+            files={"files": ("export.zip", b"not read", "application/zip")})
+        assert rejected.status_code == 403
+        assert len(jobs.jobs) == 1
+        assert submissions.submissions == []
+        assert not uploads.files
+
+
+def test_paused_participation_blocks_existing_chat_and_incomplete_survey():
+    app, _, submissions, _ = _app(True)
+    with TestClient(app) as client:
+        app.state.settings = replace(app.state.settings, participation_paused=True)
+        login = client.post("/api/v1/auth/participant/login", json={
+            "phone": "01012345678", "password": "password-2026", "audience": "elementary",
+        })
+        headers = {"Authorization": f"Bearer {login.json()['accessToken']}"}
+        submissions.submissions.append(ChatSubmissionRecord(
+            submissionId="existing", participantId="participant-1", submissionPoint="afterRound1",
+            sourceType="text", rawInput="", transcript=ParsedTranscript(
+                status="placeholder", parserVersion="test", messages=[], plainText="", warnings=[]),
+            submittedAt=datetime.now(UTC), status="deletion_requested",
+        ))
+        status = client.get("/api/v1/participant/survey-status", headers=headers).json()
+        assert status["chatSubmissionAllowed"] is False
+        assert "이미" in status["chatSubmissionUnavailableReason"]
+        app.state.survey_response_repository.list_versions_for_participant = AsyncMock(return_value=[])
+        response = client.post("/api/v1/chat-submissions", headers=headers, json={
+            "submissionPoint": "afterRound1", "sourceType": "text",
+            "rawInput": "User: hello\nAI: hi", "submissionId": "incomplete",
+        })
+        assert response.status_code == 403
+        assert "설문" in response.json()["detail"]
+        assert client.get("/api/v1/chat-submissions/mine", headers=headers).status_code == 200
 
 
 def test_original_archive_includes_deletion_requested_attachments_only_when_requested() -> (

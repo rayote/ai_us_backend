@@ -13,6 +13,23 @@ from bson import ObjectId
 from fastapi.testclient import TestClient
 
 
+def test_mongo_paused_chat_lock_is_atomic_and_owner_released():
+    collection = AsyncMock()
+    collection.update_one.return_value.modified_count = 1
+    repository = MongoParticipantAccountRepository(collection)
+    participant_id = str(ObjectId())
+    assert asyncio.run(repository.acquire_chat_submission_lock(participant_id, "request-1")) is True
+    filters, update = collection.update_one.await_args.args
+    assert filters == {"_id": ObjectId(participant_id), "role": "participant", "paused_chat_submission_lock": {"$exists": False}}
+    assert update["$set"]["paused_chat_submission_lock"]["token"] == "request-1"
+    collection.update_one.return_value.modified_count = 0
+    assert asyncio.run(repository.acquire_chat_submission_lock(participant_id, "request-2")) is False
+    asyncio.run(repository.release_chat_submission_lock(participant_id, "request-1"))
+    filters, update = collection.update_one.await_args.args
+    assert filters["paused_chat_submission_lock.token"] == "request-1"
+    assert update == {"$unset": {"paused_chat_submission_lock": ""}}
+
+
 class InMemoryParticipantAccountRepository(ParticipantAccountRepository):
     def __init__(self) -> None:
         self.account = ParticipantAccount(

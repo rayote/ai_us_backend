@@ -42,6 +42,10 @@ class ParticipantAccountRepository(Protocol):
 
     async def find_by_id(self, participant_id: str) -> ParticipantAccount | None: ...
 
+    async def acquire_chat_submission_lock(self, participant_id: str, token: str) -> bool: ...
+
+    async def release_chat_submission_lock(self, participant_id: str, token: str) -> None: ...
+
     async def update_password(
         self, participant_id: str, password_hash: str
     ) -> bool: ...
@@ -103,6 +107,19 @@ class MongoParticipantAccountRepository:
             {"_id": ObjectId(participant_id), "role": "participant"}
         )
         return self._account_from_document(document)
+
+    async def acquire_chat_submission_lock(self, participant_id: str, token: str) -> bool:
+        result = await self._collection.update_one(
+            {"_id": ObjectId(participant_id), "role": "participant", "paused_chat_submission_lock": {"$exists": False}},
+            {"$set": {"paused_chat_submission_lock": {"token": token, "acquired_at": datetime.now(UTC)}}},
+        )
+        return result.modified_count == 1
+
+    async def release_chat_submission_lock(self, participant_id: str, token: str) -> None:
+        await self._collection.update_one(
+            {"_id": ObjectId(participant_id), "role": "participant", "paused_chat_submission_lock.token": token},
+            {"$unset": {"paused_chat_submission_lock": ""}},
+        )
 
     @staticmethod
     def _account_from_document(

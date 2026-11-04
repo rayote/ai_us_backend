@@ -18,6 +18,22 @@ Backend startup ensures the non-unique `survey_responses_submitted_at` index on 
 
 `GET /api/v1/researcher/participation-status` now reads unsorted survey/chat metadata projections without answers, transcript bodies, raw input or attachments. Existing full-record export/download queries remain unchanged. Preserve Part 2 distinct-participant counts, legacy missing-status active submissions and deletion-requested submissions. Compare school-level/round/chat counts, response time and backend peak memory after deployment; verify existing exports still work. No frontend or memory-limit configuration change is required.
 
+### Temporary Participation Pause
+
+This feature is local until an authorized deployment. Deploy the approved backend first with `PARTICIPATION_PAUSED=true` in the intended CloudType service, then deploy the participant frontend. The default is `false`; no real environment file or production setting is changed by this patch. Keep the existing per-round settings and `T1_SUBMISSIONS_OPEN` value unchanged.
+
+The public `GET /api/v1/applications/status` must report `participationPaused: true`. Verify the exact notice on the home page, participant login and participant dashboard:
+
+> [안내] 설문 접수 일시 중단
+>
+> 응답 자료 검수 중입니다. 현재는 설문을 이미 완료한 기존 참가자의 대화문 제출만 가능하며, 재개 시 문자로 안내드립니다.
+
+New signup, survey final submissions and server progress saves return 403. Existing login/password reset, completion/history reads, chat deletion/restore and already accepted worker jobs remain available. A consented existing participant with a stored Part 2 completion in at least one round may submit chat material only if no prior chat submission (including deletion-requested records) and no queued/processing/completed chat job exists. Test both direct text and file/image endpoints, not only disabled buttons.
+
+Paused-period submissions use an atomic participant-document lock before rechecking eligibility. It is owner-released on success or error; another concurrent request receives 409. A process crash can leave `paused_chat_submission_lock` on the participant document. There is deliberately no timed unlock that could admit a second still-running upload. If a participant remains blocked, first verify no request is active and inspect their stored submissions and accepted jobs; only then may an authorized operator clear that participant's stale lock. No bulk lock reset or new index is required.
+
+Reopening is a separate explicit decision: set `PARTICIPATION_PAUSED=false` and redeploy/restart the backend with the approved configuration, then verify the public status and the retained round permissions. T3 registration or opening must not automatically clear this pause. No reopening date or automatic SMS sending is implemented. Changing configuration/restarting/deploying production still requires separate approval.
+
 ### Round Admission Rollout
 
 Deploy the approved backend before the frontend. Keep the development `T1_SUBMISSIONS_OPEN=false` setting during the first deployment so the existing T1 closure is preserved before a DB override exists. No startup migration or live DB write is required: missing rounds use T1's environment fallback, T2 open and T3/T4 closed. Production remains unchanged without separate approval.
