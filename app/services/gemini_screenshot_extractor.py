@@ -106,7 +106,7 @@ class GeminiScreenshotTranscriptExtractor:
                 ),
                 "스크린샷 대화",
             ),
-            "turns": [turn for extracted in extracted_batches for turn in extracted.get("turns", [])],
+            "turns": self._merge_batch_turns(extracted_batches),
             "extractionMetadata": {
                 "provider": "google-gemini",
                 "model": self._model,
@@ -115,6 +115,44 @@ class GeminiScreenshotTranscriptExtractor:
                 "platformHint": platform or None,
             },
         }
+
+    @staticmethod
+    def _merge_batch_turns(batches: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        def same_turn(first: Any, second: Any) -> bool:
+            if not isinstance(first, dict) or not isinstance(second, dict):
+                return False
+            first_sources = set(first.get("sourceImageIndexes") or [])
+            second_sources = set(second.get("sourceImageIndexes") or [])
+            return bool(first_sources & second_sources) and (
+                first.get("role") == second.get("role")
+                and (first.get("speakerLabel") or None) == (second.get("speakerLabel") or None)
+                and (first.get("timestamp") or None) == (second.get("timestamp") or None)
+                and " ".join(str(first.get("content") or "").split())
+                == " ".join(str(second.get("content") or "").split())
+            )
+
+        turns: list[dict[str, Any]] = []
+        for batch in batches:
+            incoming = batch.get("turns", [])
+            overlap = next((
+                length for length in range(min(len(turns), len(incoming)), 0, -1)
+                if all(same_turn(first, second) for first, second in zip(turns[-length:], incoming[:length]))
+            ), 0)
+            for index in range(overlap):
+                previous = dict(turns[len(turns) - overlap + index])
+                previous["sourceImageIndexes"] = sorted(
+                    set(previous.get("sourceImageIndexes") or [])
+                    | set(incoming[index].get("sourceImageIndexes") or [])
+                )
+                confidences = [previous.get("confidence"), incoming[index].get("confidence")]
+                previous["confidence"] = (
+                    min(confidences)
+                    if all(isinstance(value, (int, float)) and not isinstance(value, bool) for value in confidences)
+                    else None
+                )
+                turns[len(turns) - overlap + index] = previous
+            turns.extend(incoming[overlap:])
+        return turns
 
     async def _extract_batch(
         self,

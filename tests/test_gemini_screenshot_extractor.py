@@ -158,3 +158,59 @@ def test_batches_large_image_sets_with_global_indexes_and_overlap(monkeypatch) -
         "경계 응답",
         "다음 질문",
     ]
+
+
+def test_removes_multiple_overlapping_turns_at_image_batch_boundary(monkeypatch) -> None:
+    monkeypatch.setattr("app.services.gemini_screenshot_extractor.MAX_INLINE_REQUEST_BYTES", 10)
+    question = {"role": "user", "content": "overlap question", "sourceImageIndexes": [2], "confidence": 1}
+    answer = {"role": "assistant", "content": "overlap answer", "sourceImageIndexes": [2], "confidence": 1}
+    models = FakeModels(
+        {"turns": [
+            {"role": "user", "content": "first question", "sourceImageIndexes": [1], "confidence": 1},
+            question, answer,
+        ]},
+        [{"turns": [question, answer, {"role": "user", "content": "next question", "sourceImageIndexes": [3], "confidence": 1}]}],
+    )
+    extractor = GeminiScreenshotTranscriptExtractor(
+        "", client=SimpleNamespace(aio=SimpleNamespace(models=models)), types_module=FakeTypes,
+    )
+    images = [image("1.jpg", b"1111"), image("2.jpg", b"2222"), image("3.jpg", b"3333")]
+    extracted = asyncio.run(extractor.extract(images))
+    normalized, _ = normalize_screenshot_extraction(extracted, images, "participant-1", "other")
+    assert [turn["content"] for turn in normalized["sessions"][0]["turns"]] == [
+        "first question", "overlap question", "overlap answer", "next question",
+    ]
+
+
+@pytest.mark.parametrize("difference", [
+    {"sourceImageIndexes": [3]},
+    {"role": "assistant"},
+    {"speakerLabel": "another speaker"},
+    {"timestamp": "12:01"},
+    {"content": "different text"},
+])
+def test_batch_merge_preserves_distinct_turns(difference):
+    first = {"role": "user", "speakerLabel": "speaker", "content": "repeated text", "timestamp": "12:00", "sourceImageIndexes": [2], "confidence": 1}
+    second = {**first, **difference}
+    result = GeminiScreenshotTranscriptExtractor._merge_batch_turns([
+        {"turns": [first]}, {"turns": [second]},
+    ])
+    assert result == [first, second]
+
+
+def test_batch_merge_preserves_provenance_and_lower_confidence_without_mutating_inputs():
+    first = {"role": "user", "content": "question", "sourceImageIndexes": [1, 2], "confidence": 1}
+    second = {"role": "user", "content": "question", "sourceImageIndexes": [2, 3], "confidence": 0.6}
+    result = GeminiScreenshotTranscriptExtractor._merge_batch_turns([
+        {"turns": [first]}, {"turns": [second]},
+    ])
+    assert len(result) == 1
+    assert result[0]["sourceImageIndexes"] == [1, 2, 3]
+    assert result[0]["confidence"] == 0.6
+    assert first["sourceImageIndexes"] == [1, 2]
+    assert first["confidence"] == 1
+
+
+def test_batch_merge_does_not_remove_repeated_turns_within_one_batch():
+    turn = {"role": "user", "content": "yes", "sourceImageIndexes": [1], "confidence": 1}
+    assert GeminiScreenshotTranscriptExtractor._merge_batch_turns([{"turns": [turn, turn]}]) == [turn, turn]
