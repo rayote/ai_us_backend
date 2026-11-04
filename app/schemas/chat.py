@@ -9,7 +9,8 @@ ChatSourceType = Literal["link", "text", "file", "image"]
 ChatSubmissionPoint = Literal[
     "afterRound1", "afterRound2", "afterRound3", "afterRound4"
 ]
-ParseStatus = Literal["parsed", "placeholder", "warning"]
+ParseStatus = Literal["parsed", "placeholder", "warning", "invalid_source"]
+SourceErrorCode = Literal["missing_required_files", "wrong_service_export", "invalid_archive"]
 ChatSubmissionStatus = Literal["active", "deletion_requested"]
 ChatReviewStatus = Literal["incentive_paid", "excluded", "duplicate", "other"]
 
@@ -27,6 +28,7 @@ class ParsedTranscript(BaseModel):
     messages: list[TranscriptMessage]
     plain_text: str = Field(alias="plainText")
     warnings: list[str]
+    source_error_code: SourceErrorCode | None = Field(default=None, alias="sourceErrorCode")
 
 
 class ChatSubmissionCreate(BaseModel):
@@ -135,6 +137,8 @@ class ChatSubmissionPreview(BaseModel):
     filenames: list[str]
     attachment_count: int = Field(alias="attachmentCount")
     parse_status: ParseStatus = Field(alias="parseStatus")
+    source_error_code: SourceErrorCode | None = Field(default=None, alias="sourceErrorCode")
+    parse_error: str | None = Field(default=None, alias="parseError")
     submitted_at: datetime = Field(alias="submittedAt")
     review: ChatSubmissionReview | None = None
     consent_restricted: bool = Field(default=False, alias="consentRestricted")
@@ -185,6 +189,7 @@ class TranscriptParseRun(BaseModel):
     created_at: datetime = Field(alias="createdAt")
     completed_at: datetime | None = Field(default=None, alias="completedAt")
     error: str | None = None
+    source_error_code: SourceErrorCode | None = Field(default=None, alias="sourceErrorCode")
 
 
 class TranscriptParseRequestAccepted(BaseModel):

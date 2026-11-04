@@ -17,8 +17,16 @@ from app.services.screenshot_transcripts import (
     normalize_screenshot_extraction,
     order_screenshot_images,
 )
-from app.services.transcript_adapters import UnsupportedTranscriptError, normalize_export
+from app.services.transcript_adapters import InvalidTranscriptSourceError, UnsupportedTranscriptError, normalize_export
 from bson import ObjectId
+
+
+def source_error_reason(code: str | None) -> str:
+    return {
+        "missing_required_files": "필수 대화 파일 없음",
+        "wrong_service_export": "다른 서비스 export",
+        "invalid_archive": "ZIP 손상 · 재내보내기 필요",
+    }.get(code, "대화 원본 확인 필요")
 
 
 class TranscriptParseRunRepository(Protocol):
@@ -40,7 +48,7 @@ class TranscriptParseRunRepository(Protocol):
         status: str = "completed",
     ) -> None: ...
 
-    async def fail(self, run_id: str, error: str, warnings: list[str]) -> None: ...
+    async def fail(self, run_id: str, error: str, warnings: list[str], source_error_code: str | None = None) -> None: ...
 
 
 def _run(document: dict[str, Any]) -> TranscriptParseRun:
@@ -56,6 +64,7 @@ def _run(document: dict[str, Any]) -> TranscriptParseRun:
         createdAt=document["created_at"],
         completedAt=document.get("completed_at"),
         error=document.get("error"),
+        sourceErrorCode=document.get("source_error_code"),
     )
 
 
@@ -119,7 +128,7 @@ class MongoTranscriptParseRunRepository:
             },
         )
 
-    async def fail(self, run_id: str, error: str, warnings: list[str]) -> None:
+    async def fail(self, run_id: str, error: str, warnings: list[str], source_error_code: str | None = None) -> None:
         await self._collection.update_one(
             {"_id": ObjectId(run_id)},
             {
@@ -128,6 +137,7 @@ class MongoTranscriptParseRunRepository:
                     "warnings": warnings,
                     "completed_at": datetime.now(UTC),
                     "error": error[:1000],
+                    "source_error_code": source_error_code,
                 }
             },
         )
@@ -158,6 +168,12 @@ async def process_transcript_parse(
         raise ValueError("대화문 제출을 찾을 수 없습니다.")
     try:
         await _check_material_consent(submission, participants)
+        if submission.transcript.status == "invalid_source":
+            await runs.fail(
+                run_id, source_error_reason(submission.transcript.source_error_code), [],
+                source_error_code=submission.transcript.source_error_code,
+            )
+            return
         if submission.source_type == "image":
             if screenshot_extractor is None:
                 raise UnsupportedTranscriptError("이미지 대화문 parser adapter가 설정되지 않았습니다.")
@@ -215,6 +231,23 @@ async def process_transcript_parse(
         if not await submissions.update_transcript(submission_id, projected):
             raise ValueError("파싱 결과를 대화문 제출에 저장하지 못했습니다.")
         await runs.complete(run_id, parser_name, parser_version, normalized, warnings)
+    except InvalidTranscriptSourceError as error:
+        reason = source_error_reason(error.code)
+        await runs.fail(run_id, reason, [])
+        await _check_material_consent(submission, participants)
+        previous = await runs.latest(submission_id)
+        if previous is not None and previous.normalized_json is not None:
+            restored = _project_transcript(previous.normalized_json, previous.parser_version, previous.warnings)
+            if not await submissions.update_transcript(submission_id, restored):
+                raise ValueError("기존 파싱 결과를 복원하지 못했습니다.")
+        elif submission.transcript.status != "parsed":
+            invalid = ParsedTranscript(
+                status="invalid_source", parserVersion="source-validation-v1",
+                messages=[], plainText="", warnings=[reason], sourceErrorCode=error.code,
+            )
+            if not await submissions.update_transcript(submission_id, invalid):
+                raise ValueError("원본 파일 오류 상태를 저장하지 못했습니다.")
+            await runs.fail(run_id, reason, [], source_error_code=error.code)
     except UnsupportedTranscriptError as error:
         warnings = [str(error)]
         normalized = {"participantId": submission.participant_id, "schemaVersion": "transcript-v1", "sessions": []}
@@ -287,7 +320,7 @@ async def build_transcript_archive(
         for submission in submissions:
             await _check_material_consent(submission, participants)
             run = await runs.latest(submission.submission_id) if submission.transcript.status == "parsed" else None
-            if run is None:
+            if run is None and submission.transcript.status != "invalid_source":
                 run = await runs.create(submission.submission_id, "adapter-router", "adapter-router-v1")
                 try:
                     await process_transcript_parse(
@@ -302,7 +335,9 @@ async def build_transcript_archive(
                     pass
                 run = await runs.get(run.run_id)
             if run is None or run.status != "completed" or run.normalized_json is None:
-                reason = run.error if run and run.error else "지원되는 파싱 결과를 생성하지 못했습니다."
+                reason = source_error_reason(submission.transcript.source_error_code) if submission.transcript.status == "invalid_source" else (
+                    run.error if run and run.error else "지원되는 파싱 결과를 생성하지 못했습니다."
+                )
                 if run and run.warnings:
                     reason = " ".join(run.warnings)
                 phone, school_level, grade = profiles.get(submission.participant_id, ("", None, None))

@@ -536,6 +536,53 @@ def test_gemini_fallback_rejects_multiple_matching_activity_files():
         normalize_export("gemini", "export.zip", archive.getvalue(), "participant-1")
 
 
+def test_wrong_product_and_missing_activity_are_terminal_source_errors() -> None:
+    from app.services.transcript_adapters import InvalidTranscriptSourceError
+
+    for member, html, expected_code in [
+        ("Takeout/내 활동/Gmail/내활동.html", '<div class="outer-cell"><div class="header-cell">Gmail</div><div class="content-cell">search</div></div>', "wrong_service_export"),
+        ("archive_browser.html", "Takeout summary", "missing_required_files"),
+    ]:
+        archive = io.BytesIO()
+        with zipfile.ZipFile(archive, "w") as zipper:
+            zipper.writestr(member, html)
+        with pytest.raises(InvalidTranscriptSourceError) as error:
+            normalize_export("gemini", "takeout.zip", archive.getvalue(), "participant-1")
+        assert error.value.code == expected_code
+    with pytest.raises(InvalidTranscriptSourceError) as error:
+        normalize_export("gemini", "takeout.zip", b"not a zip", "participant-1")
+    assert error.value.code == "invalid_archive"
+
+
+@pytest.mark.parametrize("tool", ["chatgpt", "claude", "grok"])
+def test_missing_required_native_export_files_are_terminal(tool):
+    from app.services.transcript_adapters import InvalidTranscriptSourceError
+
+    archive = io.BytesIO()
+    with zipfile.ZipFile(archive, "w") as zipper:
+        zipper.writestr("summary.html", "No conversation data")
+    with pytest.raises(InvalidTranscriptSourceError) as error:
+        normalize_export(tool, "export.zip", archive.getvalue(), "participant-1")
+    assert error.value.code == "missing_required_files"
+
+
+@pytest.mark.parametrize("tool", ["gemini", "chatgpt", "claude", "grok"])
+def test_alternate_documents_remain_unsupported_not_invalid(tool):
+    archive = io.BytesIO()
+    with zipfile.ZipFile(archive, "w") as zipper:
+        zipper.writestr("chat.html", "<p>User question</p><p>Assistant answer</p>")
+    with pytest.raises(UnsupportedTranscriptError):
+        normalize_export(tool, "export.zip", archive.getvalue(), "participant-1")
+
+
+def test_alternate_gemini_json_format_remains_unsupported_not_invalid():
+    archive = io.BytesIO()
+    with zipfile.ZipFile(archive, "w") as zipper:
+        zipper.writestr("Takeout/Gemini/MyActivity.json", "[]")
+    with pytest.raises(UnsupportedTranscriptError):
+        normalize_export("gemini", "takeout.zip", archive.getvalue(), "participant-1")
+
+
 def test_gemini_adapter_groups_activity_cards_by_conversation() -> None:
     def activity(
         conversation_id: str, timestamp: str, prompt: str, response: str

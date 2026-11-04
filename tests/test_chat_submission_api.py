@@ -210,11 +210,12 @@ class InMemoryTranscriptParseRuns(TranscriptParseRunRepository):
             completed_at=datetime.now(UTC),
         )
 
-    async def fail(self, run_id: str, error: str, warnings: list[str]) -> None:
+    async def fail(self, run_id: str, error: str, warnings: list[str], source_error_code: str | None = None) -> None:
         self._update(
             run_id,
             status="failed",
             error=error,
+            source_error_code=source_error_code,
             warnings=warnings,
             completed_at=datetime.now(UTC),
         )
@@ -1601,6 +1602,150 @@ def test_chat_preview_restores_persisted_parsed_transcript_status() -> None:
     assert response.status_code == 200
     assert response.json()[0]["submissionId"] == "persisted-parse"
     assert response.json()[0]["parseStatus"] == "parsed"
+
+
+def _source_validation_case() -> tuple[Any, ...]:
+    runs = InMemoryTranscriptParseRuns()
+    app, jobs, submissions, uploads = _app(True, runs)
+    archive = io.BytesIO()
+    with zipfile.ZipFile(archive, "w") as zipper:
+        zipper.writestr("Takeout/내 활동/Gmail/내활동.html", '<div class="outer-cell"><div class="header-cell">Gmail</div><div class="content-cell">search</div></div>')
+    content = archive.getvalue()
+    uploads.files["source"] = ("takeout.zip", content, {})
+    submissions.submissions.append(ChatSubmissionRecord(
+        submissionId="source-validation", participantId="participant-1", submissionPoint="afterRound1",
+        sourceType="file", tool="gemini", rawInput="takeout.zip", submittedAt=datetime.now(UTC),
+        transcript=ParsedTranscript(status="placeholder", parserVersion="pending", messages=[], plainText="", warnings=[]),
+        attachments=[{"fileId": "source", "filename": "takeout.zip", "contentType": "application/zip", "size": len(content)}],
+    ))
+    return app, jobs, submissions, uploads, runs
+
+
+def test_invalid_source_persists_in_preview_and_blocks_new_jobs_but_allows_original_download() -> None:
+    from app.services.transcript_runs import process_transcript_parse
+
+    app, jobs, submissions, uploads, runs = _source_validation_case()
+    with TestClient(app) as client:
+        login = client.post("/api/v1/auth/researcher/login", json={"username": "researcher", "password": "researcher-password"})
+        headers = {"Authorization": f"Bearer {login.json()['accessToken']}"}
+        requested = client.post("/api/v1/researcher/chat-submissions/source-validation/parse", headers=headers)
+        run_id = requested.json()["runId"]
+        asyncio.run(process_transcript_parse({"submissionId": "source-validation", "runId": run_id}, submissions, uploads, runs))
+        transcript = submissions.submissions[0].transcript
+        assert transcript.status == "invalid_source"
+        assert transcript.source_error_code == "wrong_service_export"
+        submissions.submissions[0] = submissions.submissions[0].model_copy(update={
+            "transcript": ParsedTranscript.model_validate(transcript.model_dump()),
+        })
+        for _ in range(2):
+            preview = client.get("/api/v1/researcher/chat-submission-previews", headers=headers).json()[0]
+            assert preview["parseStatus"] == "invalid_source"
+            assert preview["sourceErrorCode"] == "wrong_service_export"
+            assert preview["parseError"] == "다른 서비스 export"
+            assert preview["attachmentCount"] == 1
+            blocked = client.post("/api/v1/researcher/chat-submissions/source-validation/parse", headers=headers)
+            assert blocked.status_code == 409
+            assert "다른 서비스 export" in blocked.json()["detail"]
+        state = client.get(f"/api/v1/researcher/chat-submissions/source-validation/parse-runs/{run_id}", headers=headers)
+        assert state.json()["status"] == "failed"
+        assert state.json()["sourceErrorCode"] == "wrong_service_export"
+        assert len(jobs.jobs) == len(runs.runs) == 1
+        original = client.get("/api/v1/researcher/chat-submissions/files/source-validation/download", headers=headers)
+        assert original.status_code == 200
+        with zipfile.ZipFile(io.BytesIO(original.content)) as archive:
+            assert archive.testzip() is None
+        participants = app.state.participant_account_repository
+        participants.account = replace(participants.account, chat_consent=False, chat_restricted_before=datetime.now(UTC))
+        restricted = client.get("/api/v1/researcher/chat-submission-previews?review_filter=consent_restricted", headers=headers).json()[0]
+        assert restricted["parseError"] is None
+        assert restricted["sourceErrorCode"] is None
+
+
+def test_technical_failure_and_unsupported_export_remain_retryable() -> None:
+    from app.services.transcript_runs import process_transcript_parse
+    import pytest
+
+    for unsupported in (False, True):
+        app, jobs, submissions, uploads, runs = _source_validation_case()
+        if unsupported:
+            submissions.submissions[0] = submissions.submissions[0].model_copy(update={"tool": "perplexity"})
+        else:
+            uploads.read_bytes = AsyncMock(side_effect=TimeoutError("temporary storage timeout"))
+        with TestClient(app) as client:
+            login = client.post("/api/v1/auth/researcher/login", json={"username": "researcher", "password": "researcher-password"})
+            headers = {"Authorization": f"Bearer {login.json()['accessToken']}"}
+            first = client.post("/api/v1/researcher/chat-submissions/source-validation/parse", headers=headers).json()
+            parsing = process_transcript_parse({"submissionId": "source-validation", "runId": first["runId"]}, submissions, uploads, runs)
+            if unsupported:
+                asyncio.run(parsing)
+                assert runs.runs[-1].status == "warning"
+            else:
+                with pytest.raises(TimeoutError):
+                    asyncio.run(parsing)
+                assert runs.runs[-1].status == "failed"
+            assert runs.runs[-1].source_error_code is None
+            assert submissions.submissions[0].transcript.status == "placeholder"
+            assert client.post("/api/v1/researcher/chat-submissions/source-validation/parse", headers=headers).status_code == 202
+            assert len(jobs.jobs) == 2
+
+
+def test_source_error_does_not_replace_previously_completed_results() -> None:
+    from app.services.transcript_runs import process_transcript_parse
+
+    app, _, submissions, uploads, runs = _source_validation_case()
+    previous = asyncio.run(runs.create("source-validation", "gemini", "previous-v1"))
+    normalized = {"sessions": [{"turns": [{"role": "user", "content": "previous valid result"}]}]}
+    asyncio.run(runs.complete(previous.run_id, "gemini", "previous-v1", normalized, []))
+    with TestClient(app) as client:
+        login = client.post("/api/v1/auth/researcher/login", json={"username": "researcher", "password": "researcher-password"})
+        headers = {"Authorization": f"Bearer {login.json()['accessToken']}"}
+        requested = client.post("/api/v1/researcher/chat-submissions/source-validation/parse", headers=headers).json()
+        asyncio.run(process_transcript_parse({"submissionId": "source-validation", "runId": requested["runId"]}, submissions, uploads, runs))
+        preview = client.get("/api/v1/researcher/chat-submission-previews", headers=headers).json()[0]
+        assert preview["parseStatus"] == "parsed"
+        assert preview["sourceErrorCode"] is None
+        downloaded = client.get("/api/v1/researcher/chat-submissions/source-validation/latest-parse/download", headers=headers)
+        assert downloaded.json() == normalized
+        assert runs.runs[-1].status == "failed"
+        assert runs.runs[-1].source_error_code is None
+        assert submissions.submissions[0].transcript.plain_text == "user: previous valid result"
+
+
+def test_known_invalid_source_skips_reading_files_in_worker_and_bulk_download() -> None:
+    from app.services.transcript_runs import process_transcript_parse
+
+    _, _, submissions, uploads, runs = _source_validation_case()
+    run = asyncio.run(runs.create("source-validation", "adapter", "v1"))
+    payload = {"submissionId": "source-validation", "runId": run.run_id}
+    asyncio.run(process_transcript_parse(payload, submissions, uploads, runs))
+    uploads.read_bytes = AsyncMock(side_effect=AssertionError("Known invalid files must not be read again"))
+    duplicate = asyncio.run(runs.create("source-validation", "adapter", "v1"))
+    asyncio.run(process_transcript_parse({**payload, "runId": duplicate.run_id}, submissions, uploads, runs))
+    with tempfile.TemporaryDirectory() as directory:
+        path = Path(directory) / "transcripts.zip"
+        before = len(runs.runs)
+        assert asyncio.run(build_transcript_archive(submissions.submissions, submissions, uploads, runs, path)) == (0, 1)
+        assert len(runs.runs) == before
+        with zipfile.ZipFile(path) as archive:
+            assert "다른 서비스 export" in archive.read("parse-failures.csv").decode("utf-8-sig")
+    uploads.read_bytes.assert_not_called()
+
+
+def test_source_error_is_not_projected_after_consent_withdrawal() -> None:
+    from app.services.transcript_runs import process_transcript_parse
+    import pytest
+
+    _, _, submissions, uploads, runs = _source_validation_case()
+    participants = InMemoryParticipants(True)
+    consented = participants.account
+    withdrawn = replace(consented, chat_consent=False, chat_restricted_before=datetime.now(UTC))
+    participants.find_by_id = AsyncMock(side_effect=[consented, withdrawn])
+    run = asyncio.run(runs.create("source-validation", "adapter", "v1"))
+    with pytest.raises(ValueError, match="동의 철회"):
+        asyncio.run(process_transcript_parse({"submissionId": "source-validation", "runId": run.run_id}, submissions, uploads, runs, participants=participants))
+    assert runs.runs[-1].status == "failed"
+    assert runs.runs[-1].source_error_code is None
+    assert submissions.submissions[0].transcript.status == "placeholder"
 
 
 def test_reparse_request_hides_previous_parse_until_completion() -> None:

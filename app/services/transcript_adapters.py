@@ -7,7 +7,7 @@ import zipfile
 from datetime import UTC, datetime
 from html.parser import HTMLParser
 from pathlib import PurePosixPath
-from typing import Any
+from typing import Any, NoReturn
 from urllib.parse import urlparse
 from zoneinfo import ZoneInfo
 
@@ -19,11 +19,29 @@ class UnsupportedTranscriptError(ValueError):
     pass
 
 
+class InvalidTranscriptSourceError(ValueError):
+    def __init__(self, code: str, message: str) -> None:
+        super().__init__(message)
+        self.code = code
+
+
+def _missing_export_source(archive: zipfile.ZipFile, message: str) -> NoReturn:
+    metadata_names = {"archive_browser.html", "summary.html", "readme.txt", ".ds_store"}
+    if any(not member.is_dir() and PurePosixPath(member.filename).name.lower() not in metadata_names for member in archive.infolist()):
+        raise UnsupportedTranscriptError("필수 대화 파일이 없어 ZIP의 다른 자료 형식을 확인해야 합니다.")
+    raise InvalidTranscriptSourceError("missing_required_files", message)
+
+
 def normalize_export(
     tool: str | None, filename: str, content: bytes, participant_id: str
 ) -> tuple[str, str, dict[str, Any], list[str]]:
     name = filename.lower()
     selected_tool = (tool or "").lower()
+    known_export = any(service in selected_tool for service in ("chatgpt", "claude", "grok", "gemini")) or (
+        not selected_tool and any(service in name for service in ("claude", "grok", "takeout"))
+    )
+    if known_export and name.endswith(".zip") and not zipfile.is_zipfile(io.BytesIO(content)):
+        raise InvalidTranscriptSourceError("invalid_archive", "ZIP 파일이 손상되었거나 올바른 ZIP이 아닙니다.")
     if "chatgpt" in selected_tool or (
         not selected_tool and name == "conversations.json"
     ):
@@ -100,6 +118,8 @@ def _is_grok_export(payload: Any) -> bool:
 
 def find_grok_export_member(archive: zipfile.ZipFile) -> str:
     candidates = [name for name in archive.namelist() if name.lower().endswith(".json")]
+    if not candidates:
+        _missing_export_source(archive, "ZIP 파일 안에 필수 Grok 대화 JSON이 없습니다.")
     candidates.sort(
         key=lambda name: (
             "grok" not in name.lower() and "conversation" not in name.lower(),
@@ -139,6 +159,8 @@ def _is_claude_export(payload: Any) -> bool:
 
 def find_claude_export_member(archive: zipfile.ZipFile) -> str:
     candidates = [name for name in archive.namelist() if name.lower().endswith(".json")]
+    if not candidates:
+        _missing_export_source(archive, "ZIP 파일 안에 필수 Claude 대화 JSON이 없습니다.")
     candidates.sort(
         key=lambda name: (
             PurePosixPath(name).name.lower() != "conversations.json",
@@ -169,7 +191,8 @@ def find_chatgpt_export_members(archive: zipfile.ZipFile) -> list[str]:
         elif match := re.fullmatch(r"conversations-([0-9]+)\.json", name):
             shards.append((int(match.group(1)), member.filename))
     if not legacy and not shards:
-        raise ValueError(
+        _missing_export_source(
+            archive,
             "ZIP 파일 안에서 ChatGPT conversations.json 또는 분할 파일을 찾지 못했습니다."
         )
     if len(legacy) > 1 or (legacy and shards):
@@ -261,11 +284,13 @@ def find_gemini_export_member(archive: zipfile.ZipFile) -> str:
     )
     if source_name is None:
         verified = []
+        other_products = set()
         for name in candidates:
             if PurePosixPath(name).name.lower() not in {"myactivity.html", "내활동.html"}:
                 continue
             parser = _GeminiTakeoutParser()
             parser.feed(_decode_html(archive.read(name)))
+            other_products.update(parser.products)
             if parser.activities and parser.products and all(
                 re.fullmatch(r"(?:Gemini|Bard)(?:\s+Apps?|\s+앱)?", product, re.IGNORECASE)
                 for product in parser.products
@@ -273,7 +298,16 @@ def find_gemini_export_member(archive: zipfile.ZipFile) -> str:
                 verified.append(name)
         if len(verified) == 1:
             source_name = verified[0]
+        elif not verified and other_products and all(
+            product in {"Gmail", "Search", "YouTube", "Google 검색", "검색"}
+            for product in other_products
+        ):
+            raise InvalidTranscriptSourceError("wrong_service_export", "Gemini 대화가 없는 다른 서비스 내보내기입니다.")
     if source_name is None:
+        if any(name.lower().endswith(".json") for name in archive.namelist()):
+            raise UnsupportedTranscriptError("Gemini 대화 HTML이 없어 ZIP의 JSON 형식을 확인해야 합니다.")
+        if not any(PurePosixPath(name).name.lower() in {"myactivity.html", "내활동.html"} for name in candidates):
+            _missing_export_source(archive, "ZIP 파일 안에 필수 Gemini 대화 파일이 없습니다.")
         raise ValueError("ZIP 파일 안에서 Gemini 내 활동 HTML 파일을 찾지 못했습니다.")
     return source_name
 

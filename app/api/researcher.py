@@ -97,7 +97,7 @@ from app.services.surveys import (
     SurveyResponseRepository,
     survey_responses_to_csv,
 )
-from app.services.transcript_runs import TranscriptParseRunRepository, normalized_to_csv
+from app.services.transcript_runs import TranscriptParseRunRepository, normalized_to_csv, source_error_reason
 from app.services.worker_health import WorkerHealthRepository, worker_health_snapshot
 from fastapi import (
     APIRouter,
@@ -1163,6 +1163,8 @@ async def chat_submission_previews(
                 ],
                 attachmentCount=0 if restricted else len(submission.attachments),
                 parseStatus=submission.transcript.status,
+                sourceErrorCode=submission.transcript.source_error_code if not restricted else None,
+                parseError=source_error_reason(submission.transcript.source_error_code) if not restricted and submission.transcript.status == "invalid_source" else None,
                 submittedAt=submission.submitted_at,
                 review=submission.review,
                 consentRestricted=restricted,
@@ -1731,16 +1733,12 @@ async def request_transcript_parse(
     request: Request,
     _: str = Depends(require_researcher),
 ) -> TranscriptParseRequestAccepted:
-    await _require_chat_access(request, submission_id)
+    submission = await _require_chat_access(request, submission_id)
     submission_repository = _chat_submission_repository(request)
-    submissions = await submission_repository.list_submissions()
-    submission = next(
-        (item for item in submissions if item.submission_id == submission_id), None
-    )
-    if submission is None:
+    if submission.transcript.status == "invalid_source":
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="대화문 제출을 찾을 수 없습니다.",
+            status_code=status.HTTP_409_CONFLICT,
+            detail=source_error_reason(submission.transcript.source_error_code) + " · 올바른 원본을 새로 제출해 주세요.",
         )
     if submission.transcript.status != "placeholder":
         pending_transcript = submission.transcript.model_copy(
