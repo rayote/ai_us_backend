@@ -1,8 +1,11 @@
 import asyncio
+from io import BytesIO
 from types import SimpleNamespace
 from typing import Any
+from unittest.mock import AsyncMock
 
 import pytest
+from PIL import Image
 from app.services.gemini_screenshot_extractor import (
     EXTRACTION_SCHEMA,
     MAX_INLINE_REQUEST_BYTES,
@@ -66,7 +69,7 @@ def test_sends_ordered_images_in_one_structured_request() -> None:
         "extractionMetadata": {
             "provider": "google-gemini",
             "model": "gemini-3.8-flash",
-            "promptVersion": "screenshot-transcript-v5",
+            "promptVersion": "screenshot-transcript-v6",
             "batchCount": 1,
             "platformHint": None,
         },
@@ -102,6 +105,45 @@ def test_adds_zeta_specific_role_rules_only_for_zeta() -> None:
     assert turn_schema["properties"]["speakerLabel"] == {"type": ["string", "null"]}
     assert "speakerLabel" in turn_schema["required"]
     assert result["extractionMetadata"]["platformHint"] == "zeta"
+
+
+def test_long_screenshots_are_cropped_without_losing_rows_or_global_source_indexes() -> None:
+    with Image.new("RGB", (300, 5000)) as source:
+        for row in range(source.height):
+            source.paste((row % 256, row // 256, 0), (0, row, source.width, row + 1))
+        output = BytesIO()
+        source.save(output, format="PNG")
+        original = image("long.png", output.getvalue(), "image/png")
+        batches = GeminiScreenshotTranscriptExtractor._image_batches([image("first.jpg"), original])
+        regions = [region for batch in batches for index, region in batch if index == 2]
+        assert len(regions) == 3
+        assert all(region.content_type == "image/png" for region in regions)
+        for region, top in zip(regions, [0, 1888, 3776]):
+            with Image.open(BytesIO(region.data)) as crop:
+                assert crop.width == source.width
+                assert crop.height == min(2048, source.height - top)
+                assert crop.tobytes() == source.crop((0, top, source.width, top + crop.height)).tobytes()
+            assert f"rows {top}:" in region.filename
+        assert regions[-1].filename.endswith("5000 of 5000]")
+
+
+def test_regular_screenshots_keep_original_bytes() -> None:
+    output = BytesIO()
+    with Image.new("RGB", (600, 1200), "white") as source:
+        source.save(output, format="PNG")
+    original = image("normal.png", output.getvalue(), "image/png")
+    assert GeminiScreenshotTranscriptExtractor._image_regions(original) == [original]
+
+
+@pytest.mark.parametrize("reason", ["SAFETY", "MAX_TOKENS"])
+def test_empty_provider_response_preserves_finish_reason(reason: str) -> None:
+    response = SimpleNamespace(parsed=None, text=None, candidates=[SimpleNamespace(finish_reason=reason)])
+    models = SimpleNamespace(generate_content=AsyncMock(return_value=response))
+    extractor = GeminiScreenshotTranscriptExtractor(
+        "", client=SimpleNamespace(aio=SimpleNamespace(models=models)), types_module=FakeTypes,
+    )
+    with pytest.raises(ScreenshotExtractionError, match=reason):
+        asyncio.run(extractor.extract([image("source.jpg")]))
 
 
 @pytest.mark.parametrize(

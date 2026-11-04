@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 import json
+from io import BytesIO
 from typing import Any
+
+from PIL import Image, UnidentifiedImageError
 
 from app.services.screenshot_transcripts import ScreenshotExtractionError, ScreenshotImage
 
 DEFAULT_MODEL = "gemini-3.8-flash"
-PROMPT_VERSION = "screenshot-transcript-v5"
+PROMPT_VERSION = "screenshot-transcript-v6"
 MAX_INLINE_REQUEST_BYTES = 20 * 1024 * 1024
 SUPPORTED_IMAGE_TYPES = {"image/jpeg", "image/png", "image/webp", "image/heic", "image/heif"}
 
@@ -55,6 +58,8 @@ Rules:
 - Use a timestamp only when it is visibly attached to that message. Otherwise use null.
 - Screenshot filename times are capture metadata, not message timestamps.
 - sourceImageIndexes are the 1-based image numbers where any part of the turn is visible.
+- Images labeled with row ranges are overlapping crops of the same original screenshot. Read them top to bottom, merge boundary fragments, and transcribe overlapping text only once. Their image number is unchanged.
+- Do not guess similar-looking names, dates, or words. Preserve only readable text and lower confidence when text is uncertain.
 - confidence expresses transcription confidence from 0 to 1.
 """
 
@@ -185,6 +190,19 @@ class GeminiScreenshotTranscriptExtractor:
 
         parsed = response.parsed
         if parsed is None:
+            if not response.text:
+                reasons = [
+                    str(getattr(reason, "value", reason))
+                    for candidate in (getattr(response, "candidates", None) or [])
+                    if (reason := getattr(candidate, "finish_reason", None)) is not None
+                ]
+                feedback = getattr(response, "prompt_feedback", None)
+                if (reason := getattr(feedback, "block_reason", None)) is not None:
+                    reasons.append(str(getattr(reason, "value", reason)))
+                if reasons:
+                    raise ScreenshotExtractionError(
+                        "Gemini가 대화문 응답을 생성하지 않았습니다: " + ", ".join(reasons)
+                    )
             try:
                 parsed = json.loads(response.text or "")
             except (TypeError, json.JSONDecodeError) as error:
@@ -194,11 +212,43 @@ class GeminiScreenshotTranscriptExtractor:
         return parsed
 
     @staticmethod
+    def _image_regions(image: ScreenshotImage) -> list[ScreenshotImage]:
+        try:
+            source = Image.open(BytesIO(image.data))
+        except (UnidentifiedImageError, OSError):
+            return [image]
+        with source:
+            width, height = source.size
+            if height <= max(2400, width * 3):
+                return [image]
+            regions = []
+            top = 0
+            while top < height:
+                bottom = min(top + 2048, height)
+                with source.crop((0, top, width, bottom)) as crop:
+                    output = BytesIO()
+                    crop.convert("RGB").save(output, format="PNG")
+                regions.append(ScreenshotImage(
+                    filename=f"{image.filename} [rows {top}:{bottom} of {height}]",
+                    content_type="image/png",
+                    data=output.getvalue(),
+                ))
+                if bottom == height:
+                    break
+                top = bottom - 160
+            return regions
+
+    @staticmethod
     def _image_batches(images: list[ScreenshotImage]) -> list[list[tuple[int, ScreenshotImage]]]:
         batches: list[list[tuple[int, ScreenshotImage]]] = []
         current: list[tuple[int, ScreenshotImage]] = []
         current_bytes = 0
-        for index, image in enumerate(images, start=1):
+        indexed_regions = [
+            (index, region)
+            for index, original in enumerate(images, start=1)
+            for region in GeminiScreenshotTranscriptExtractor._image_regions(original)
+        ]
+        for index, image in indexed_regions:
             image_bytes = len(image.data)
             if current and current_bytes + image_bytes >= MAX_INLINE_REQUEST_BYTES:
                 batches.append(current)

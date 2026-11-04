@@ -1,5 +1,6 @@
 fastapi>=0.116,<1.0
 google-genai>=1.0,<2.0
+Pillow>=11,<13
 PyJWT>=2.13,<3.0
 pymongo>=3.12,<4.0
 python-dotenv>=1.0,<2.0
