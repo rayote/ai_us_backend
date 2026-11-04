@@ -572,16 +572,15 @@ def _participants(request: Request) -> ParticipantAccountRepository:
     return repository
 
 
-async def _require_chat_access(request: Request, submission_id: str) -> None:
+async def _require_chat_access(request: Request, submission_id: str) -> ChatSubmissionRecord:
     repository = _chat_submission_repository(request)
-    submissions = await repository.list_submissions()
-    submissions.extend(await repository.list_submissions(status="deletion_requested"))
-    submission = next((item for item in submissions if item.submission_id == submission_id), None)
+    submission = await repository.get_by_id(submission_id)
     if submission is None:
         raise HTTPException(404, "대화문 제출을 찾을 수 없습니다.")
     participant = await _participants(request).find_by_id(submission.participant_id)
     if participant is None or not participant.allows_chat_material(submission.submitted_at):
         raise HTTPException(409, "동의 철회로 이용이 제한된 자료입니다.")
+    return submission
 
 
 async def _require_artifact_access(request: Request, artifact) -> None:
@@ -1219,14 +1218,8 @@ async def download_chat_submission_files(
     request: Request,
     _: str = Depends(require_researcher),
 ) -> Response:
-    await _require_chat_access(request, submission_id)
-    repository = _chat_submission_repository(request)
-    submissions = await repository.list_submissions()
-    submissions.extend(await repository.list_submissions(status="deletion_requested"))
-    submission = next(
-        (item for item in submissions if item.submission_id == submission_id), None
-    )
-    if submission is None or not submission.attachments:
+    submission = await _require_chat_access(request, submission_id)
+    if not submission.attachments:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="다운로드할 제출 파일을 찾을 수 없습니다.",

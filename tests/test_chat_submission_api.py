@@ -36,6 +36,7 @@ from app.services.chat_imports import ChatImportRepository, ChatImportSession
 from app.services.chats import (
     ChatSubmissionRepository,
     ChatUploadRepository,
+    MongoChatSubmissionRepository,
     build_chat_archive,
     available_chat_submissions,
     store_chat_submission,
@@ -232,6 +233,14 @@ class InMemoryChatSubmissions(ChatSubmissionRepository):
 
     async def create_submission(self, submission: ChatSubmissionRecord) -> None:
         self.submissions.append(submission)
+
+    async def get_by_id(self, submission_id: str) -> ChatSubmissionRecord | None:
+        return next(
+            (submission for submission in self.submissions
+             if submission.submission_id == submission_id
+             and submission.status in {"active", "deletion_requested"}),
+            None,
+        )
 
     async def list_submissions(
         self, submission_point: str | None = None, status: str = "active"
@@ -811,6 +820,78 @@ def test_original_archive_includes_deletion_requested_attachments_only_when_requ
         )
         with zipfile.ZipFile(original_path) as archive:
             assert archive.read("chat-deletion-requested/original.txt") == b"original"
+
+
+def test_original_download_uses_target_lookup_and_rechecks_consent() -> None:
+    for submission_status in ("active", "deletion_requested"):
+        app, _, submissions, uploads = _app(True)
+        file_id = asyncio.run(uploads.upload("original.txt", b"original", {}))
+        submissions.submissions.append(
+            ChatSubmissionRecord(
+                submissionId="target-chat", participantId="participant-1",
+                submissionPoint="afterRound1", sourceType="file", rawInput="",
+                transcript=ParsedTranscript(status="placeholder", parserVersion="test", messages=[], plainText="", warnings=[]),
+                submittedAt=datetime.now(UTC), status=submission_status,
+                attachments=[{"fileId": file_id, "filename": "original.txt", "contentType": "text/plain", "size": 8}],
+            )
+        )
+        submissions.list_submissions = AsyncMock(side_effect=AssertionError("Single-file downloads must not list all submissions"))
+        submissions.get_by_id = AsyncMock(wraps=submissions.get_by_id)
+        with TestClient(app) as client:
+            login = client.post("/api/v1/auth/researcher/login", json={"username": "researcher", "password": "researcher-password"})
+            headers = {"Authorization": f"Bearer {login.json()['accessToken']}"}
+            path = "/api/v1/researcher/chat-submissions/files/target-chat/download"
+            response = client.get(path, headers=headers)
+            assert response.status_code == 200
+            with zipfile.ZipFile(io.BytesIO(response.content)) as archive:
+                assert archive.read("target-chat/original.txt") == b"original"
+            assert submissions.get_by_id.await_count == 2
+            assert all(call.args == ("target-chat",) for call in submissions.get_by_id.await_args_list)
+            assert client.get("/api/v1/researcher/chat-submissions/files/missing/download", headers=headers).status_code == 404
+
+            participants = app.state.participant_account_repository
+            download_to_path = uploads.download_to_path
+
+            async def withdraw_during_read(file_id: str, target: Path) -> None:
+                await download_to_path(file_id, target)
+                participants.account = replace(participants.account, chat_consent=False, chat_restricted_before=datetime.now(UTC))
+
+            uploads.download_to_path = withdraw_during_read
+            submissions.get_by_id.reset_mock()
+            assert client.get(path, headers=headers).status_code == 409
+            assert submissions.get_by_id.await_count == 2
+            submissions.list_submissions.assert_not_awaited()
+
+
+def test_mongo_submission_lookup_uses_id_and_preserves_legacy_and_deletion_statuses() -> None:
+    from types import SimpleNamespace
+    from bson import ObjectId
+
+    identifier = ObjectId()
+    collection = SimpleNamespace(find_one=AsyncMock())
+    repository = MongoChatSubmissionRepository(collection)
+    for submission_status in (None, "active", "deletion_requested"):
+        document = {
+            "_id": identifier, "participant_id": "participant-1",
+            "submission_point": "afterRound1", "source_type": "file", "raw_input": "",
+            "transcript": {"status": "placeholder", "parserVersion": "test", "messages": [], "plainText": "", "warnings": []},
+            "submitted_at": datetime.now(UTC),
+        }
+        if submission_status is not None:
+            document["status"] = submission_status
+        collection.find_one.reset_mock()
+        collection.find_one.return_value = document
+        record = asyncio.run(repository.get_by_id(str(identifier)))
+        assert record is not None and record.status == (submission_status or "active")
+        collection.find_one.assert_awaited_once_with({
+            "_id": identifier,
+            "$or": [{"status": {"$in": ["active", "deletion_requested"]}}, {"status": {"$exists": False}}],
+        })
+    collection.find_one.reset_mock()
+    assert asyncio.run(repository.get_by_id("invalid-id")) is None
+    collection.find_one.assert_not_awaited()
+    collection.find_one.return_value = None
+    assert asyncio.run(repository.get_by_id(str(identifier))) is None
 
 
 def test_bulk_chat_download_filename_uses_kst() -> None:

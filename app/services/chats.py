@@ -60,6 +60,8 @@ class ChatSubmissionRepository(Protocol):
         self, submission_point: str | None = None, status: str = "active"
     ) -> list[ChatSubmissionRecord]: ...
 
+    async def get_by_id(self, submission_id: str) -> ChatSubmissionRecord | None: ...
+
     async def list_for_participant(
         self, participant_id: str
     ) -> list[ChatSubmissionRecord]: ...
@@ -148,6 +150,21 @@ class MongoChatSubmissionRepository:
             filters["submission_point"] = submission_point
         cursor = self._collection.find(filters).sort("submitted_at", 1)
         return [_record_from_document(document) async for document in cursor]
+
+    async def get_by_id(self, submission_id: str) -> ChatSubmissionRecord | None:
+        identifier = _object_id_or_none(submission_id)
+        if identifier is None:
+            return None
+        document = await self._collection.find_one(
+            {
+                "_id": identifier,
+                "$or": [
+                    {"status": {"$in": ["active", "deletion_requested"]}},
+                    {"status": {"$exists": False}},
+                ],
+            }
+        )
+        return _record_from_document(document) if document else None
 
     async def list_for_participant(
         self, participant_id: str
