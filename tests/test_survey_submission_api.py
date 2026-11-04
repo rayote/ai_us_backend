@@ -14,6 +14,21 @@ from app.services.surveys import SurveyDefinitionRepository, SurveyResponseRepos
 from fastapi.testclient import TestClient
 
 
+@pytest.fixture
+def open_participation_policy(monkeypatch):
+    from app.api import applications, chats, survey
+
+    original = applications.participation_settings
+
+    async def policy(request):
+        if getattr(request.app.state, "application_settings_repository", None) is None:
+            return {"participation_paused": False}
+        return await original(request)
+
+    for module in (applications, chats, survey):
+        monkeypatch.setattr(module, "participation_settings", policy)
+
+
 class InMemoryParticipantAccounts(ParticipantAccountRepository):
     def __init__(self) -> None:
         self.account = ParticipantAccount(
@@ -150,7 +165,7 @@ class InMemorySurveySessions:
         self.heartbeats.append((participant_id, heartbeat))
 
 
-def test_submission_is_queued_then_completed_by_worker() -> None:
+def test_submission_is_queued_then_completed_by_worker(open_participation_policy) -> None:
     definitions = InMemoryDefinitions()
     responses = InMemoryResponses()
     jobs = InMemoryJobs()
@@ -250,7 +265,7 @@ def test_survey_heartbeat_is_saved_for_authenticated_participant() -> None:
     assert sessions.heartbeats[0][1].active_seconds == 30
 
 
-def test_submission_rejects_unknown_question_key() -> None:
+def test_submission_rejects_unknown_question_key(open_participation_policy) -> None:
     app = create_app(
         Settings(
             "test", None, "ai_us_test", (), "test-secret-at-least-thirty-two-bytes", 60
@@ -283,7 +298,7 @@ def test_submission_rejects_unknown_question_key() -> None:
     assert response.status_code == 422
 
 
-def test_submission_overwrites_profile_answers_from_participant_account() -> None:
+def test_submission_overwrites_profile_answers_from_participant_account(open_participation_policy) -> None:
     definitions = InMemoryDefinitions()
     definitions.definition = SurveyDefinition(
         surveyRound=1,
@@ -429,7 +444,7 @@ def test_common_t2_registration_does_not_append_t1_followup() -> None:
     )
 
 
-def test_partial_progress_revision_isolation_replacement_and_completion() -> None:
+def test_partial_progress_revision_isolation_replacement_and_completion(open_participation_policy) -> None:
     from app.schemas.survey import SurveyProgressRecord
     from app.services.survey_progress import ProgressConflictError
 
@@ -592,6 +607,9 @@ def test_round_admission_blocks_writes_preserves_reads_and_finishes_queued_jobs(
     from app.services.application_settings import default_survey_rounds
 
     class RoundSettings:
+        async def participation_settings(self):
+            return {"participation_paused": False}
+
         def __init__(self):
             self.records = {
                 "1": {
@@ -902,7 +920,7 @@ def test_round_admission_blocks_writes_preserves_reads_and_finishes_queued_jobs(
         )
 
 
-def test_t2_first_part_order_completion_and_chat_gate_without_t1() -> None:
+def test_t2_first_part_order_completion_and_chat_gate_without_t1(open_participation_policy) -> None:
     from dataclasses import replace
 
     class Definitions(InMemoryDefinitions):

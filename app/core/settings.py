@@ -42,7 +42,6 @@ class Settings:
     gemini_api_key: str | None = None
     gemini_screenshot_model: str = "gemini-3.8-flash"
     t1_submissions_open: bool = True
-    participation_paused: bool = False
 
     @classmethod
     def from_environment(cls) -> "Settings":
@@ -63,5 +62,4 @@ class Settings:
                 "GEMINI_SCREENSHOT_MODEL", "gemini-3.8-flash"
             ),
             t1_submissions_open=getenv("T1_SUBMISSIONS_OPEN", "true").lower() == "true",
-            participation_paused=getenv("PARTICIPATION_PAUSED", "false").lower() == "true",
         )

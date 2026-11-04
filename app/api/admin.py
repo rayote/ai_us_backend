@@ -4,6 +4,8 @@ from app.api.auth import require_admin
 from app.schemas.application import (
     ApplicationSettings,
     ApplicationSettingsUpdate,
+    ParticipationSettings,
+    ParticipationSettingsUpdate,
     SurveyRoundSetting,
     SurveyRoundSettingUpdate,
 )
@@ -132,6 +134,20 @@ async def update_application_settings(
         settings_update.auto_approval, admin_id
     )
     return ApplicationSettings(autoApproval=enabled)
+
+
+@router.put("/participation-settings", response_model=ParticipationSettings)
+async def update_participation_settings(
+    settings_update: ParticipationSettingsUpdate,
+    request: Request,
+    admin_id: str = Depends(require_admin),
+) -> ParticipationSettings:
+    repository = _application_settings_repository(request)
+    try:
+        record = await repository.set_participation_paused(settings_update.participation_paused, admin_id)
+    except Exception as error:
+        raise HTTPException(status_code=503, detail="접수 설정을 저장하지 못했습니다. 상태를 다시 확인해 주세요.") from error
+    return ParticipationSettings(**record)
 
 
 @router.put("/survey-round-settings/{survey_round}", response_model=SurveyRoundSetting)

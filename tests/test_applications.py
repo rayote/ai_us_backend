@@ -77,6 +77,9 @@ class InMemoryApplicationSettings(ApplicationSettingsRepository):
         self.auto_approval = auto_approval
         self.round_settings = {}
 
+    async def participation_settings(self) -> dict:
+        return {"participation_paused": False}
+
     async def auto_approval_enabled(self) -> bool:
         return self.auto_approval
 
@@ -102,7 +105,7 @@ class RoundSettingsCollection:
         self.document = {"auto_approval": True}
         self.updates = []
 
-    async def find_one(self, query):
+    async def find_one(self, query, **kwargs):
         return self.document
 
     async def update_one(self, query, update, upsert):

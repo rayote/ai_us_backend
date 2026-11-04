@@ -4,6 +4,7 @@ from collections.abc import AsyncIterator
 from uuid import uuid4
 
 from app.api.auth import _participant_id
+from app.api.applications import participation_settings
 from app.api.survey import _job_repository, _survey_status
 from app.schemas.chat import (
     ChatSubmissionAccepted,
@@ -60,7 +61,7 @@ async def _require_completed_survey(request: Request, participant_id: str) -> No
 async def _chat_submission_participant(
     request: Request, participant_id: str = Depends(_participant_id)
 ) -> AsyncIterator[str]:
-    if not request.app.state.settings.participation_paused:
+    if not (await participation_settings(request))["participation_paused"]:
         await _require_completed_survey(request, participant_id)
         yield participant_id
         return

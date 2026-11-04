@@ -12,6 +12,7 @@ from typing import Literal
 from zoneinfo import ZoneInfo
 
 from app.api.auth import require_researcher
+from app.api.applications import participation_settings
 from app.schemas.abuse_review import (
     AbuseReviewGroupStatusUpdate,
     AbuseReviewReport,
@@ -23,6 +24,7 @@ from app.schemas.application import (
     ApplicationApprovalCompleted,
     ApplicationRecord,
     ApplicationSettings,
+    ParticipationSettings,
     ChatConsentLookup,
     ChatConsentUpdate,
     SurveyRoundSetting,
@@ -710,6 +712,14 @@ async def get_application_settings(
             request
         ).auto_approval_enabled()
     )
+
+
+@router.get("/participation-settings", response_model=ParticipationSettings)
+async def get_participation_settings(
+    request: Request,
+    _: str = Depends(require_researcher),
+) -> ParticipationSettings:
+    return ParticipationSettings(**await participation_settings(request))
 
 
 @router.get("/survey-round-settings", response_model=list[SurveyRoundSetting])

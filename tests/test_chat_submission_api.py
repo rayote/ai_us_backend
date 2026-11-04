@@ -507,8 +507,21 @@ def _app(
     chat_imports: ChatImportRepository | None = None,
 ) -> tuple[object, InMemoryJobs, InMemoryChatSubmissions, InMemoryChatUploads]:
     from types import SimpleNamespace
+    from app.services.application_settings import default_survey_rounds
+
+    class AdmissionSettings:
+        paused = False
+
+        async def participation_settings(self):
+            return {"participation_paused": self.paused}
+
+        async def survey_rounds(self, t1_open):
+            return default_survey_rounds(t1_open)
 
     class CompletedSurveys:
+        async def list_definitions(self):
+            return []
+
         async def get(self, survey_round, survey_version):
             return SimpleNamespace(spec={"part": 2})
 
@@ -523,6 +536,7 @@ def _app(
             "test", None, "ai_us_test", (), "test-secret-at-least-thirty-two-bytes", 60
         ),
         participant_account_repository=InMemoryParticipants(chat_consent),
+        application_settings_repository=AdmissionSettings(),
         researcher_account_repository=InMemoryResearchers(),
         job_repository=jobs,
         chat_submission_repository=submissions,
@@ -800,7 +814,7 @@ def test_consented_participant_submission_is_parsed_and_saved() -> None:
 def test_paused_chat_lock_blocks_overlap_and_releases_after_invalid_upload():
     app, _, submissions, _ = _app(True)
     with TestClient(app) as client:
-        app.state.settings = replace(app.state.settings, participation_paused=True)
+        app.state.application_settings_repository.paused = True
         login = client.post("/api/v1/auth/participant/login", json={
             "phone": "01012345678", "password": "password-2026", "audience": "elementary",
         })
@@ -828,10 +842,33 @@ def test_paused_chat_lock_blocks_overlap_and_releases_after_invalid_upload():
         assert client.post("/api/v1/chat-submissions", headers=headers, json=payload).status_code == 403
 
 
+def test_unavailable_pause_policy_blocks_writes_but_preserves_login_and_history():
+    app, jobs, submissions, uploads = _app(True)
+    with TestClient(app) as client:
+        app.state.application_settings_repository.participation_settings = AsyncMock(side_effect=TimeoutError("settings unavailable"))
+        login = client.post("/api/v1/auth/participant/login", json={
+            "phone": "01012345678", "password": "password-2026", "audience": "elementary",
+        })
+        assert login.status_code == 200
+        headers = {"Authorization": f"Bearer {login.json()['accessToken']}"}
+        assert client.get("/api/v1/applications/status").status_code == 503
+        assert client.get("/api/v1/chat-submissions/mine", headers=headers).status_code == 200
+        assert client.post("/api/v1/chat-submissions", headers=headers, json={
+            "submissionPoint": "afterRound1", "sourceType": "text", "rawInput": "hello", "submissionId": "unavailable",
+        }).status_code == 503
+        assert client.post("/api/v1/chat-submissions/uploads", headers=headers,
+            data={"tool": "chatgpt", "submissionPoint": "afterRound1", "sourceType": "file", "submissionId": "unavailable-upload"},
+            files={"files": ("export.zip", b"not read", "application/zip")}).status_code == 503
+        assert client.post("/api/v1/survey-responses", headers=headers, json={
+            "surveyRound": 1, "surveyVersion": "part2", "answers": {}, "submissionId": "unavailable-survey",
+        }).status_code == 503
+        assert not jobs.jobs and not submissions.submissions and not uploads.files
+
+
 def test_paused_participation_keeps_login_and_only_first_chat_submission():
     app, jobs, submissions, uploads = _app(True)
     with TestClient(app) as client:
-        app.state.settings = replace(app.state.settings, participation_paused=True)
+        app.state.application_settings_repository.paused = True
         public = client.get("/api/v1/applications/status")
         assert public.json()["participationPaused"] is True
         rejected_signup = client.post("/api/v1/applications", json={
@@ -880,7 +917,7 @@ def test_paused_participation_keeps_login_and_only_first_chat_submission():
 def test_paused_participation_blocks_existing_chat_and_incomplete_survey():
     app, _, submissions, _ = _app(True)
     with TestClient(app) as client:
-        app.state.settings = replace(app.state.settings, participation_paused=True)
+        app.state.application_settings_repository.paused = True
         login = client.post("/api/v1/auth/participant/login", json={
             "phone": "01012345678", "password": "password-2026", "audience": "elementary",
         })

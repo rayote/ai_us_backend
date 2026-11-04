@@ -6,6 +6,10 @@ from typing import Any, Protocol
 
 
 class ApplicationSettingsRepository(Protocol):
+    async def participation_settings(self) -> dict[str, Any]: ...
+
+    async def set_participation_paused(self, paused: bool, updated_by: str) -> dict[str, Any]: ...
+
     async def auto_approval_enabled(self) -> bool: ...
 
     async def set_auto_approval(self, enabled: bool, updated_by: str) -> bool: ...
@@ -146,6 +150,37 @@ class MongoApplicationSettingsRepository:
 
     def __init__(self, collection: Any) -> None:
         self._collection = collection
+
+    async def participation_settings(self) -> dict[str, Any]:
+        document = await self._collection.find_one(
+            {"_id": self._DOCUMENT_ID},
+            projection={
+                "_id": 0, "participation_paused": 1,
+                "participation_paused_updated_at": 1, "participation_paused_updated_by": 1,
+            },
+        )
+        document = document or {}
+        paused = document.get("participation_paused", False)
+        if type(paused) is not bool:
+            raise ValueError("Invalid participation pause setting")
+        return {
+            "participation_paused": paused,
+            "updated_at": document.get("participation_paused_updated_at"),
+            "updated_by": document.get("participation_paused_updated_by"),
+        }
+
+    async def set_participation_paused(self, paused: bool, updated_by: str) -> dict[str, Any]:
+        updated_at = datetime.now(UTC)
+        await self._collection.update_one(
+            {"_id": self._DOCUMENT_ID},
+            {"$set": {
+                "participation_paused": paused,
+                "participation_paused_updated_at": updated_at,
+                "participation_paused_updated_by": updated_by,
+            }},
+            upsert=True,
+        )
+        return {"participation_paused": paused, "updated_at": updated_at, "updated_by": updated_by}
 
     async def auto_approval_enabled(self) -> bool:
         document = await self._collection.find_one({"_id": self._DOCUMENT_ID})

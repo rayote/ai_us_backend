@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from app.api.applications import PARTICIPATION_NOTICE, require_participation_open
+from app.api.applications import PARTICIPATION_NOTICE, participation_settings, require_participation_open
 from app.api.auth import _participant_id
 from app.schemas.survey import (
     ParticipantSurveyProgress,
@@ -66,7 +66,7 @@ def _session_repository(request: Request):
 async def _require_survey_access(
     request: Request, participant_id: str, survey_round: int, survey_version: str
 ):
-    require_participation_open(request)
+    await require_participation_open(request)
     rounds = await load_survey_rounds(
         getattr(request.app.state, "application_settings_repository", None),
         request.app.state.settings.t1_submissions_open,
@@ -143,7 +143,7 @@ async def _survey_status(request: Request, participant_id: str) -> dict[str, obj
         request.app.state.settings.t1_submissions_open,
         definitions,
     )
-    paused = request.app.state.settings.participation_paused
+    paused = (await participation_settings(request))["participation_paused"]
     chat_allowed = False
     chat_reason = "설문을 한 회차 이상 완료한 후 제출할 수 있습니다."
     if paused and completed_rounds:

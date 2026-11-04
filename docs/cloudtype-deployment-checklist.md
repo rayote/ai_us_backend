@@ -20,7 +20,11 @@ Backend startup ensures the non-unique `survey_responses_submitted_at` index on 
 
 ### Temporary Participation Pause
 
-This feature is local until an authorized deployment. Deploy the approved backend first with `PARTICIPATION_PAUSED=true` in the intended CloudType service, then deploy the participant frontend. The default is `false`; no real environment file or production setting is changed by this patch. Keep the existing per-round settings and `T1_SUBMISSIONS_OPEN` value unchanged.
+Deploy the approved backend first, then the frontend. The MongoDB `application_settings` document `_id: participant_application` is the sole source of truth: `participation_paused` is a boolean, with `participation_paused_updated_at` and `participation_paused_updated_by` audit fields. Missing document/field means `false` for compatibility; a missing repository, failed read or invalid value rejects admission with 503. Reads are reused only within the same request, never cached across requests or backend processes. No startup write, migration or new index is required. Existing auto-approval, round settings and `T1_SUBMISSIONS_OPEN` are preserved.
+
+`PARTICIPATION_PAUSED` is no longer read and should be removed from deployment configuration. If an environment is already paused with the old environment-variable release, an authorized operator must preserve that pause by setting the DB boolean to `true` before deploying this replacement; otherwise an unset DB value defaults to open. Do not initialize/overwrite live settings without separate approval. This patch changes neither live DB records nor real environment files.
+
+After the one-time deployment, an admin uses **관리하기 → 설문 접수 관리 → 전체 접수 일시 중단**. Turning the toggle on or off requires explicit confirmation. Researchers can inspect the status but cannot change it. The status/last-change metadata refresh on menu entry and the existing refresh button; ambiguous/failed saves disable changes until a fresh read. Future pause/resume changes need no backend redeploy or restart.
 
 The public `GET /api/v1/applications/status` must report `participationPaused: true`. Verify the exact notice on the home page, participant login and participant dashboard:
 
@@ -32,7 +36,7 @@ New signup, survey final submissions and server progress saves return 403. Exist
 
 Paused-period submissions use an atomic participant-document lock before rechecking eligibility. It is owner-released on success or error; another concurrent request receives 409. A process crash can leave `paused_chat_submission_lock` on the participant document. There is deliberately no timed unlock that could admit a second still-running upload. If a participant remains blocked, first verify no request is active and inspect their stored submissions and accepted jobs; only then may an authorized operator clear that participant's stale lock. No bulk lock reset or new index is required.
 
-Reopening is a separate explicit decision: set `PARTICIPATION_PAUSED=false` and redeploy/restart the backend with the approved configuration, then verify the public status and the retained round permissions. T3 registration or opening must not automatically clear this pause. No reopening date or automatic SMS sending is implemented. Changing configuration/restarting/deploying production still requires separate approval.
+Reopening is a separate explicit decision: turn off **전체 접수 일시 중단**, then verify public status and the retained round permissions. Every new admission request checks the DB policy; participant pages also refresh on focus/visibility return or dashboard entry. T3 registration or opening must not automatically clear this pause. No reopening date or automatic SMS sending is implemented. Existing accepted jobs finish normally; an already admitted request is not retroactively cancelled. Live configuration/DB changes and deployment still require separate approval.
 
 ### Round Admission Rollout
 

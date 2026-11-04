@@ -14,15 +14,32 @@ PARTICIPATION_NOTICE_TITLE = "[안내] 설문 접수 일시 중단"
 PARTICIPATION_NOTICE = "응답 자료 검수 중입니다. 현재는 설문을 이미 완료한 기존 참가자의 대화문 제출만 가능하며, 재개 시 문자로 안내드립니다."
 
 
-def require_participation_open(request: Request) -> None:
-    if request.app.state.settings.participation_paused:
+async def participation_settings(request: Request) -> dict:
+    cached = getattr(request.state, "participation_settings", None)
+    if cached is not None:
+        return cached
+    repository = _application_settings_repository(request)
+    try:
+        if repository is None:
+            raise ValueError("Missing application settings repository")
+        record = await repository.participation_settings()
+        if not isinstance(record, dict) or type(record.get("participation_paused")) is not bool:
+            raise ValueError("Invalid participation pause setting")
+    except Exception as error:
+        raise HTTPException(status_code=503, detail="접수 상태를 확인하지 못했습니다. 잠시 후 다시 확인해 주세요.") from error
+    request.state.participation_settings = record
+    return record
+
+
+async def require_participation_open(request: Request) -> None:
+    if (await participation_settings(request))["participation_paused"]:
         raise HTTPException(status_code=403, detail=PARTICIPATION_NOTICE)
 
 
 @router.get("/status")
 async def participation_admission_status(request: Request):
     return {
-        "participationPaused": request.app.state.settings.participation_paused,
+        "participationPaused": (await participation_settings(request))["participation_paused"],
         "noticeTitle": PARTICIPATION_NOTICE_TITLE,
         "notice": PARTICIPATION_NOTICE,
     }
@@ -56,7 +73,7 @@ def _participant_audience(school_level: str | None) -> str:
 async def create_application(
     application: ApplicationCreate, request: Request
 ) -> ApplicationCreated:
-    require_participation_open(request)
+    await require_participation_open(request)
     participant_repository = _participant_repository(request)
     if (
         participant_repository is not None

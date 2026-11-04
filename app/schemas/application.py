@@ -89,6 +89,18 @@ class ApplicationSettingsUpdate(ApplicationSettings):
     pass
 
 
+class ParticipationSettings(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+    participation_paused: StrictBool = Field(alias="participationPaused")
+    updated_at: datetime | None = Field(default=None, alias="updatedAt")
+    updated_by: str | None = Field(default=None, alias="updatedBy")
+
+
+class ParticipationSettingsUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    participation_paused: StrictBool = Field(alias="participationPaused")
+
+
 class SurveyConfiguration(BaseModel):
     id: str
     label: str
