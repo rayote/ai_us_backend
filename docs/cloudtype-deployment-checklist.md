@@ -12,6 +12,12 @@ The user confirmed that this project's CloudType services are deployed manually:
 
 The assistant may commit and push when requested; the user operates the CloudType manual build/deployment. Record the pushed commit IDs in the handoff so the user can identify the exact source to deploy.
 
+### Participation Status Rollout
+
+Backend startup ensures the non-unique `survey_responses_submitted_at` index on `submitted_at` ascending with `background=True` for MongoDB 4.0. Its first build still uses resources and startup waits for index creation; schedule the approved production backend deployment during the maintenance window. No manual index build or MongoDB restart is required for this change.
+
+`GET /api/v1/researcher/participation-status` now reads unsorted survey/chat metadata projections without answers, transcript bodies, raw input or attachments. Existing full-record export/download queries remain unchanged. Preserve Part 2 distinct-participant counts, legacy missing-status active submissions and deletion-requested submissions. Compare school-level/round/chat counts, response time and backend peak memory after deployment; verify existing exports still work. No frontend or memory-limit configuration change is required.
+
 ### Round Admission Rollout
 
 Deploy the approved backend before the frontend. Keep the development `T1_SUBMISSIONS_OPEN=false` setting during the first deployment so the existing T1 closure is preserved before a DB override exists. No startup migration or live DB write is required: missing rounds use T1's environment fallback, T2 open and T3/T4 closed. Production remains unchanged without separate approval.

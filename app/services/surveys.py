@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import csv
 import io
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any, Protocol
 from zoneinfo import ZoneInfo
@@ -17,6 +18,13 @@ from pymongo.errors import DuplicateKeyError
 
 class DuplicateSurveyDefinitionError(Exception):
     """Raised when a survey round and version already have a definition."""
+
+
+@dataclass(frozen=True)
+class SurveyResponseSummary:
+    participant_id: str
+    survey_round: int
+    survey_version: str
 
 
 class SurveyDefinitionRepository(Protocol):
@@ -43,6 +51,8 @@ class SurveyResponseRepository(Protocol):
     ) -> list[str]: ...
 
     async def list_all_responses(self) -> list[SurveyResponseRecord]: ...
+
+    async def list_response_summaries(self) -> list[SurveyResponseSummary]: ...
 
 
 class SurveySessionRepository(Protocol):
@@ -219,6 +229,25 @@ class MongoSurveyResponseRepository:
     async def list_all_responses(self) -> list[SurveyResponseRecord]:
         cursor = self._collection.find({}).sort("submitted_at", 1)
         return [_response_from_document(document) async for document in cursor]
+
+    async def list_response_summaries(self) -> list[SurveyResponseSummary]:
+        cursor = self._collection.find(
+            {},
+            projection={
+                "_id": 0,
+                "participant_id": 1,
+                "survey_round": 1,
+                "survey_version": 1,
+            },
+        )
+        return [
+            SurveyResponseSummary(
+                participant_id=str(document["participant_id"]),
+                survey_round=document["survey_round"],
+                survey_version=document["survey_version"],
+            )
+            async for document in cursor
+        ]
 
 
 class MongoSurveySessionRepository:

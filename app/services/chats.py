@@ -53,6 +53,13 @@ class InvalidChatUploadError(Exception):
 ChatParticipantProfile = tuple[str | None, str | None, int | None]
 
 
+@dataclass(frozen=True)
+class ChatSubmissionSummary:
+    participant_id: str
+    submission_point: str
+    status: str
+
+
 class ChatSubmissionRepository(Protocol):
     async def create_submission(self, submission: ChatSubmissionRecord) -> None: ...
 
@@ -61,6 +68,8 @@ class ChatSubmissionRepository(Protocol):
     ) -> list[ChatSubmissionRecord]: ...
 
     async def get_by_id(self, submission_id: str) -> ChatSubmissionRecord | None: ...
+
+    async def list_submission_summaries(self) -> list[ChatSubmissionSummary]: ...
 
     async def list_for_participant(
         self, participant_id: str
@@ -150,6 +159,30 @@ class MongoChatSubmissionRepository:
             filters["submission_point"] = submission_point
         cursor = self._collection.find(filters).sort("submitted_at", 1)
         return [_record_from_document(document) async for document in cursor]
+
+    async def list_submission_summaries(self) -> list[ChatSubmissionSummary]:
+        cursor = self._collection.find(
+            {
+                "$or": [
+                    {"status": {"$in": ["active", "deletion_requested"]}},
+                    {"status": {"$exists": False}},
+                ]
+            },
+            projection={
+                "_id": 0,
+                "participant_id": 1,
+                "submission_point": 1,
+                "status": 1,
+            },
+        )
+        return [
+            ChatSubmissionSummary(
+                participant_id=str(document["participant_id"]),
+                submission_point=document["submission_point"],
+                status=document.get("status", "active"),
+            )
+            async for document in cursor
+        ]
 
     async def get_by_id(self, submission_id: str) -> ChatSubmissionRecord | None:
         identifier = _object_id_or_none(submission_id)

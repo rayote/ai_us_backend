@@ -50,7 +50,7 @@ class ResearcherReportingService:
 
     async def participation_status(self) -> ParticipationStatus:
         participants = await self._participants.list_participants()
-        responses = await self._responses.list_all_responses()
+        responses = await self._responses.list_response_summaries()
         part_two_versions = await self._part_two_versions()
         participants_by_id = {
             participant.participant_id: participant for participant in participants
@@ -66,12 +66,7 @@ class ResearcherReportingService:
 
         chat_submissions = []
         if self._chat_submissions is not None:
-            chat_submissions = await self._chat_submissions.list_submissions()
-            chat_submissions.extend(
-                await self._chat_submissions.list_submissions(
-                    status="deletion_requested"
-                )
-            )
+            chat_submissions = await self._chat_submissions.list_submission_summaries()
         chat_statuses: dict[str, dict[str, str]] = {}
         for submission in chat_submissions:
             statuses = chat_statuses.setdefault(submission.participant_id, {})

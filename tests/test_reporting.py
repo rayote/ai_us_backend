@@ -1,11 +1,19 @@
 import asyncio
 from datetime import UTC, datetime
 from types import SimpleNamespace
+from unittest.mock import MagicMock
 
+from app.db.mongodb import AsyncCollection
 from app.schemas.survey import SurveyDefinitionSummary, SurveyResponseRecord
 from app.services.auth import ParticipantAccount, ParticipantAccountRepository
+from app.services.chats import ChatSubmissionSummary, MongoChatSubmissionRepository
 from app.services.reporting import ResearcherReportingService
-from app.services.surveys import SurveyDefinitionRepository, SurveyResponseRepository
+from app.services.surveys import (
+    MongoSurveyResponseRepository,
+    SurveyDefinitionRepository,
+    SurveyResponseRepository,
+    SurveyResponseSummary,
+)
 
 
 class InMemoryParticipants(ParticipantAccountRepository):
@@ -73,6 +81,14 @@ class InMemoryParticipants(ParticipantAccountRepository):
 
 
 class InMemoryResponses(SurveyResponseRepository):
+    async def list_response_summaries(self):
+        return [
+            SurveyResponseSummary(
+                response.participant_id, response.survey_round, response.survey_version
+            )
+            for response in await self.list_all_responses()
+        ]
+
     async def create_response(self, response: SurveyResponseRecord) -> None:
         return None
 
@@ -162,6 +178,15 @@ class InMemoryDefinitions(SurveyDefinitionRepository):
 
 
 class InMemoryChatSubmissions:
+    async def list_submission_summaries(self):
+        return [
+            ChatSubmissionSummary(
+                submission.participant_id, submission.submission_point, submission.status
+            )
+            for status in ("active", "deletion_requested")
+            for submission in await self.list_submissions(status=status)
+        ]
+
     async def list_submissions(self, submission_point=None, status="active"):
         submissions = [
             SimpleNamespace(
@@ -237,3 +262,55 @@ def test_reporting_counts_participants_and_nonparticipants() -> None:
         service.incomplete_participants("chat", "afterRound1", "초등")
     )
     assert elementary_chat_incomplete.counts.total == 0
+
+
+def test_participation_status_uses_unsorted_metadata_only_queries() -> None:
+    responses = MagicMock()
+    responses.find.return_value = iter([
+        {"participant_id": "1", "survey_round": 1, "survey_version": "part1"},
+        {"participant_id": "1", "survey_round": 1, "survey_version": "part2"},
+        {"participant_id": "1", "survey_round": 1, "survey_version": "part2"},
+        {"participant_id": "missing", "survey_round": 1, "survey_version": "part2"},
+        {"participant_id": "3", "survey_round": 2, "survey_version": "part2"},
+    ])
+    submissions = MagicMock()
+    submissions.find.return_value = iter([
+        {"participant_id": "1", "submission_point": "afterRound1"},
+        {"participant_id": "1", "submission_point": "afterRound1", "status": "active"},
+        {"participant_id": "2", "submission_point": "afterRound2", "status": "deletion_requested"},
+        {"participant_id": "2", "submission_point": "afterRound3", "status": "active"},
+        {"participant_id": "3", "submission_point": "afterRound4", "status": "active"},
+        {"participant_id": "missing", "submission_point": "afterRound4", "status": "active"},
+    ])
+    service = ResearcherReportingService(
+        InMemoryParticipants(),
+        MongoSurveyResponseRepository(AsyncCollection(responses)),
+        InMemoryDefinitions(),
+        MongoChatSubmissionRepository(AsyncCollection(submissions)),
+    )
+
+    status = asyncio.run(service.participation_status())
+
+    assert status.participants.total == 3
+    assert status.completed_by_round[0].completed_count == 2
+    assert status.completed_by_round[0].counts.elementary == 1
+    assert status.completed_by_round[0].counts.total == 1
+    assert status.completed_by_round[1].counts.high == 1
+    assert status.completed_by_round[2].completed_count == 0
+    assert status.chat.consented.total == 0
+    assert status.chat.submitted_after_round_1.total == 1
+    assert status.chat.submitted_after_round_2.middle == 1
+    assert status.chat.submitted_after_round_3.middle == 1
+    assert status.chat.submitted_after_round_4.high == 1
+    assert status.chat.submitted_after_round_4.total == 1
+    responses.find.assert_called_once_with(
+        {},
+        projection={"_id": 0, "participant_id": 1, "survey_round": 1, "survey_version": 1},
+    )
+    submissions.find.assert_called_once_with(
+        {"$or": [
+            {"status": {"$in": ["active", "deletion_requested"]}},
+            {"status": {"$exists": False}},
+        ]},
+        projection={"_id": 0, "participant_id": 1, "submission_point": 1, "status": 1},
+    )

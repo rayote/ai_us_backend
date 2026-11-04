@@ -49,8 +49,8 @@ class AsyncCollection:
     ) -> dict[str, Any] | None:
         return await asyncio.to_thread(self._collection.find_one, filters, **kwargs)
 
-    def find(self, filters: dict[str, Any]) -> AsyncCursor:
-        return AsyncCursor(self._collection.find(filters))
+    def find(self, filters: dict[str, Any], **kwargs: Any) -> AsyncCursor:
+        return AsyncCursor(self._collection.find(filters, **kwargs))
 
     async def update_one(
         self, filters: dict[str, Any], update: dict[str, Any], **kwargs: Any
@@ -189,6 +189,11 @@ class MongoDatabase:
             ],
             name="survey_responses_participant_round_version_unique",
             unique=True,
+        )
+        await self.database["survey_responses"].create_index(
+            [("submitted_at", ASCENDING)],
+            name="survey_responses_submitted_at",
+            background=True,
         )
         await self.database["survey_sessions"].create_index(
             [("session_id", ASCENDING)],

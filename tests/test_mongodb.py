@@ -29,7 +29,7 @@ def test_async_collection_find_one_forwards_query_options() -> None:
     assert collection.options == {"sort": [("created_at", -1)]}
 
 
-def test_database_connect_creates_global_chat_submission_sort_index() -> None:
+def test_database_connect_creates_global_submission_sort_indexes() -> None:
     collections = {}
     raw_database = MagicMock()
     raw_database.__getitem__.side_effect = lambda name: collections.setdefault(
@@ -46,3 +46,25 @@ def test_database_connect_creates_global_chat_submission_sort_index() -> None:
         name="chat_submissions_submitted_at",
         background=True,
     )
+    collections["survey_responses"].create_index.assert_any_call(
+        [("submitted_at", 1)],
+        name="survey_responses_submitted_at",
+        background=True,
+    )
+
+
+def test_async_collection_find_forwards_projection() -> None:
+    collection = MagicMock()
+    collection.find.return_value = iter([{"participant_id": "1"}])
+    projection = {"_id": 0, "participant_id": 1}
+
+    async def read_documents():
+        return [
+            document
+            async for document in AsyncCollection(collection).find(
+                {}, projection=projection
+            )
+        ]
+
+    assert asyncio.run(read_documents()) == [{"participant_id": "1"}]
+    collection.find.assert_called_once_with({}, projection=projection)
