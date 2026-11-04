@@ -494,6 +494,48 @@ def test_gemini_adapter_extracts_takeout_html_from_zip() -> None:
     ]
 
 
+@pytest.mark.parametrize("member", ["MyActivity.html", "내활동.html"])
+@pytest.mark.parametrize("product", ["Gemini", "Gemini 앱", "Bard"])
+def test_gemini_adapter_recognizes_product_marked_activity_without_gemini_in_path(member, product):
+    html = f"""
+    <div class="outer-cell">
+      <div class="header-cell"><p>{product}</p></div>
+      <div class="content-cell">A question<br><p>An answer</p></div>
+    </div>
+    """
+    archive = io.BytesIO()
+    with zipfile.ZipFile(archive, "w") as zipper:
+        zipper.writestr(member, html)
+        zipper.writestr("summary.html", "Gemini archive summary")
+    _, _, normalized, _ = normalize_export("gemini", "export.zip", archive.getvalue(), "participant-1")
+    assert normalized["summary"]["totalTurns"] == 2
+    assert normalized["sessions"][0]["turns"][0]["content"] == "A question"
+
+
+@pytest.mark.parametrize("product", ["Search", "", "Gemini was mentioned in a search"])
+def test_gemini_fallback_does_not_accept_other_activity_products(product):
+    archive = io.BytesIO()
+    with zipfile.ZipFile(archive, "w") as zipper:
+        zipper.writestr("MyActivity.html", f"""
+        <div class="outer-cell"><div class="header-cell">{product}</div>
+        <div class="content-cell">Gemini is in this prompt</div></div>
+        """)
+    with pytest.raises(ValueError, match="Gemini"):
+        normalize_export("gemini", "export.zip", archive.getvalue(), "participant-1")
+
+
+def test_gemini_fallback_rejects_multiple_matching_activity_files():
+    archive = io.BytesIO()
+    with zipfile.ZipFile(archive, "w") as zipper:
+        for folder in ["first", "second"]:
+            zipper.writestr(f"{folder}/MyActivity.html", """
+            <div class="outer-cell"><div class="header-cell">Gemini</div>
+            <div class="content-cell">A question</div></div>
+            """)
+    with pytest.raises(ValueError, match="Gemini"):
+        normalize_export("gemini", "export.zip", archive.getvalue(), "participant-1")
+
+
 def test_gemini_adapter_groups_activity_cards_by_conversation() -> None:
     def activity(
         conversation_id: str, timestamp: str, prompt: str, response: str

@@ -260,6 +260,20 @@ def find_gemini_export_member(archive: zipfile.ZipFile) -> str:
         next((name for name in candidates if "gemini" in name.lower()), None),
     )
     if source_name is None:
+        verified = []
+        for name in candidates:
+            if PurePosixPath(name).name.lower() not in {"myactivity.html", "내활동.html"}:
+                continue
+            parser = _GeminiTakeoutParser()
+            parser.feed(_decode_html(archive.read(name)))
+            if parser.activities and parser.products and all(
+                re.fullmatch(r"(?:Gemini|Bard)(?:\s+Apps?|\s+앱)?", product, re.IGNORECASE)
+                for product in parser.products
+            ):
+                verified.append(name)
+        if len(verified) == 1:
+            source_name = verified[0]
+    if source_name is None:
         raise ValueError("ZIP 파일 안에서 Gemini 내 활동 HTML 파일을 찾지 못했습니다.")
     return source_name
 
@@ -285,6 +299,8 @@ class _GeminiTakeoutParser(HTMLParser):
     def __init__(self) -> None:
         super().__init__(convert_charrefs=True)
         self.activities: list[tuple[list[str], list[str], list[str]]] = []
+        self.products: set[str] = set()
+        self._header_parts: list[str] | None = None
         self._stack: list[tuple[str, set[str]]] = []
         self._direct: list[str] | None = None
         self._blocks: list[str] | None = None
@@ -297,6 +313,8 @@ class _GeminiTakeoutParser(HTMLParser):
         self._stack.append((tag, classes))
         if "outer-cell" in classes:
             self._direct, self._blocks, self._links = [], [], []
+        elif "header-cell" in classes:
+            self._header_parts = []
         elif self._links is not None and tag == "a":
             href = dict(attrs).get("href")
             if href:
@@ -312,6 +330,9 @@ class _GeminiTakeoutParser(HTMLParser):
             self._stack.pop()
 
     def handle_endtag(self, tag: str) -> None:
+        if tag == "div" and self._stack and "header-cell" in self._stack[-1][1]:
+            self.products.add(" ".join(self._header_parts or []))
+            self._header_parts = None
         if self._block_parts is not None and tag in self._BLOCK_TAGS:
             text = " ".join(self._block_parts).strip()
             if text and self._blocks is not None:
@@ -336,6 +357,8 @@ class _GeminiTakeoutParser(HTMLParser):
 
     def handle_data(self, data: str) -> None:
         text = " ".join(data.split())
+        if text and self._header_parts is not None:
+            self._header_parts.append(text)
         if not text or self._direct is None or not self._in_body:
             return
         if self._block_parts is not None:
