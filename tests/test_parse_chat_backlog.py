@@ -106,42 +106,57 @@ def test_dry_run_does_not_create_runs_or_modify_database(monkeypatch):
     ("chatgpt", "conversations-0.json"),
 ])
 def test_file_uploads_stream_zip_and_keep_only_transcript_members(tool, member):
-    uploads = MagicMock()
-    temporary_paths = []
+    bucket = MagicMock()
+    original = io.BytesIO()
+    with zipfile.ZipFile(original, "w") as archive:
+        archive.writestr(member, b"[]" if tool == "chatgpt" else b"<html></html>")
+        archive.writestr("unrelated-image.png", b"not-transcript" * 10000)
+    reads = []
 
-    async def download(file_id, target):
-        assert file_id == "file-1"
-        temporary_paths.append(target)
-        with zipfile.ZipFile(target, "w") as archive:
-            archive.writestr(member, b"[]" if tool == "chatgpt" else b"<html></html>")
-            archive.writestr("unrelated-image.png", b"not-transcript" * 10000)
-        return {"filename": "original.zip", "metadata": {"original": True}}
+    class TrackedSource(io.BytesIO):
+        name = "original.zip"
+        metadata = {"original": True}
 
-    uploads.download_to_path = AsyncMock(side_effect=download)
-    filename, content, metadata = asyncio.run(FileTranscriptUploads(uploads, tool).read_bytes("file-1"))
+        def read(self, size=-1):
+            reads.append((self.tell(), size))
+            return super().read(size)
+
+    source = TrackedSource(original.getvalue())
+    bucket.open_download_stream.return_value = source
+    filename, content, metadata = asyncio.run(FileTranscriptUploads(bucket, tool).read_bytes(str(ObjectId())))
 
     assert filename == "original.zip"
     assert metadata == {"original": True}
     with zipfile.ZipFile(io.BytesIO(content)) as archive:
         assert archive.namelist() == [member]
-    assert all(not path.exists() for path in temporary_paths)
-    uploads.read_bytes.assert_not_called()
+    assert source.closed
+    assert not any(offset == 0 and size == -1 for offset, size in reads)
+    assert len(content) < len(original.getvalue()) / 10
 
 
-def test_file_uploads_remove_temporary_archive_on_selection_failure():
-    uploads = MagicMock()
-    temporary_paths = []
-
-    async def download(file_id, target):
-        temporary_paths.append(target)
-        with zipfile.ZipFile(target, "w") as archive:
-            archive.writestr("summary.html", b"not a transcript")
-        return {"filename": "original.zip", "metadata": {}}
-
-    uploads.download_to_path = AsyncMock(side_effect=download)
+def test_file_uploads_close_gridfs_stream_on_selection_failure():
+    bucket = MagicMock()
+    original = io.BytesIO()
+    with zipfile.ZipFile(original, "w") as archive:
+        archive.writestr("summary.html", b"not a transcript")
+    source = io.BytesIO(original.getvalue())
+    bucket.open_download_stream.return_value = source
     with pytest.raises(ValueError, match="Gemini"):
-        asyncio.run(FileTranscriptUploads(uploads, "gemini").read_bytes("file-1"))
-    assert all(not path.exists() for path in temporary_paths)
+        asyncio.run(FileTranscriptUploads(bucket, "gemini").read_bytes(str(ObjectId())))
+    assert source.closed
+
+
+def test_file_uploads_preserve_non_zip_contents():
+    class Source(io.BytesIO):
+        name = "conversations.json"
+        metadata = {"original": True}
+
+    source = Source(b"[]")
+    bucket = MagicMock()
+    bucket.open_download_stream.return_value = source
+    result = asyncio.run(FileTranscriptUploads(bucket, "chatgpt").read_bytes(str(ObjectId())))
+    assert result == ("conversations.json", b"[]", {"original": True})
+    assert source.closed
 
 
 def test_operator_marks_interrupted_run_failed_when_parser_failure_save_did_not_finish(monkeypatch):

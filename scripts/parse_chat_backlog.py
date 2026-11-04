@@ -7,7 +7,6 @@ import io
 import json
 import os
 import sys
-import tempfile
 import zipfile
 from collections import Counter
 from datetime import UTC, datetime, timedelta
@@ -75,14 +74,15 @@ class TargetSubmissions(MongoChatSubmissionRepository):
 
 
 class FileTranscriptUploads:
-    def __init__(self, uploads: Any, tool: str | None) -> None:
-        self.uploads = uploads
+    def __init__(self, bucket: Any, tool: str | None) -> None:
+        self.bucket = bucket
         self.tool = (tool or "").lower()
 
     async def read_bytes(self, file_id: str) -> tuple[str, bytes, dict[str, Any]]:
-        with tempfile.TemporaryDirectory(prefix="platform-transcript-") as directory:
-            source = Path(directory) / "upload"
-            details = await self.uploads.download_to_path(file_id, source)
+        return await asyncio.to_thread(self._read, file_id)
+
+    def _read(self, file_id: str) -> tuple[str, bytes, dict[str, Any]]:
+        with self.bucket.open_download_stream(ObjectId(file_id)) as source:
             selectors = {
                 "claude": find_claude_export_member,
                 "gemini": find_gemini_export_member,
@@ -100,8 +100,9 @@ class FileTranscriptUploads:
                             reduced.writestr(name, archive.read(name))
                     content = buffer.getvalue()
             else:
-                content = source.read_bytes()
-            return details["filename"], content, details.get("metadata", {})
+                source.seek(0)
+                content = source.read()
+            return source.name, content, source.metadata or {}
 
 
 def account_from_metadata(document: dict[str, Any] | None) -> ParticipantAccount | None:
@@ -204,7 +205,7 @@ async def execute(args: argparse.Namespace, database: Any, report: Any) -> dict[
                     await process_transcript_parse(
                         {"submissionId": submission_id, "runId": run.run_id},
                         TargetSubmissions(AsyncCollection(database.chat_submissions), submission),
-                        FileTranscriptUploads(uploads, submission.tool) if submission.source_type == "file" else uploads,
+                        FileTranscriptUploads(uploads._bucket, submission.tool) if submission.source_type == "file" else uploads,
                         runs_repository, extractor, accounts,
                     )
                 except Exception as error:
