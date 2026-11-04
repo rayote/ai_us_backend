@@ -70,6 +70,22 @@ CloudType Secret의 bootstrap 계정은 최초 backend 실행 시 `admin`으로 
 - 인증된 `/api/v1/researcher/system-health`의 `analysisWorker`는 별도 생존 신호입니다. 긴 계산 중에도 갱신되며 5초 주기, 60초 초과 시 `stale`입니다. 계산 상태는 메뉴 안에서 별도로 표시합니다.
 - backend를 새 시작 스크립트로 재배포한 후 frontend를 반영하고 세 상태등과 분석 완료를 확인합니다. 공개 `/health`만으로 분석 워커 실행을 확인할 수는 없습니다. 로컬 실행에는 운영 설정이 아닌 개발 전용 DB를 사용합니다.
 
+## 운영자 대화문 일괄 파싱
+
+운영 재배포 없이 개발 서버의 `scripts/parse_chat_backlog.py`로 순차 파싱할 수 있습니다. 운영 제출 큐에는 작업을 넣지 않으며 완료 결과는 보존합니다. 동의 제한·실행 중 자료는 제외하고 기본값은 한 번도 요청하지 않은 자료의 dry-run입니다.
+
+```bash
+python scripts/parse_chat_backlog.py \
+  --env-file .env.production.local \
+  --report ../research_data/operational_analysis/parse-plan.jsonl
+```
+
+- 실제 저장은 `--apply --confirm PARSE-CHAT-BACKLOG`를 함께 지정합니다. 먼저 `--max-items 5` 등으로 소량 검증할 수 있습니다.
+- 실패·보류 자료까지 재시도하려면 `--retry-incomplete`를 지정합니다. `--recover-stale`은 이 옵션과 함께 사용하며, 1시간 이상 지난 대기 기록 중 실제 진행 중인 파싱 큐 작업이 없는 기록만 실패로 종료하고 새 실행을 만듭니다.
+- 이미지는 기본 제외입니다. 기존 Gemini 이미지 추출을 명시적으로 실행할 때만 `--include-images --image-env-file .env`를 지정합니다. 외부 모델 호출 비용과 자료 처리 승인을 확인해야 합니다.
+- 보고서는 앱 저장소 밖에 0600 권한으로 생성되며 연락처·대화 본문은 기록하지 않습니다. 같은 보고서 디렉터리의 프로세스 잠금으로 로컬 중복 실행을 막습니다. 배치 중 콘솔에서 같은 자료를 재파싱하지 마세요.
+- 이 도구는 플랫폼 운영용이며 연구용 read-only reader와 별개입니다. 서비스 재시작·재배포를 수행하지 않습니다.
+
 ## CloudType 배포
 
 개발과 운영 모두 아래 3개 서비스를 사용합니다.
