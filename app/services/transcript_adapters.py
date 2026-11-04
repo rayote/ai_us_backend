@@ -242,26 +242,26 @@ def _gemini_payload(content: bytes) -> tuple[bytes, str | None]:
     if not zipfile.is_zipfile(io.BytesIO(content)):
         return content, None
     with zipfile.ZipFile(io.BytesIO(content)) as archive:
-        candidates = [
-            name
-            for name in archive.namelist()
-            if name.lower().endswith((".html", ".htm"))
-        ]
-        source_name = next(
-            (
-                name
-                for name in candidates
-                if "gemini" in name.lower()
-                and PurePosixPath(name).name.lower()
-                in {"myactivity.html", "내활동.html"}
-            ),
-            next((name for name in candidates if "gemini" in name.lower()), None),
-        )
-        if source_name is None:
-            raise ValueError(
-                "ZIP 파일 안에서 Gemini 내 활동 HTML 파일을 찾지 못했습니다."
-            )
+        source_name = find_gemini_export_member(archive)
         return archive.read(source_name), source_name
+
+
+def find_gemini_export_member(archive: zipfile.ZipFile) -> str:
+    candidates = [
+        name for name in archive.namelist()
+        if name.lower().endswith((".html", ".htm"))
+    ]
+    source_name = next(
+        (
+            name for name in candidates
+            if "gemini" in name.lower()
+            and PurePosixPath(name).name.lower() in {"myactivity.html", "내활동.html"}
+        ),
+        next((name for name in candidates if "gemini" in name.lower()), None),
+    )
+    if source_name is None:
+        raise ValueError("ZIP 파일 안에서 Gemini 내 활동 HTML 파일을 찾지 못했습니다.")
+    return source_name
 
 
 class _GeminiTakeoutParser(HTMLParser):

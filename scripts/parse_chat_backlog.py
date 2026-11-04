@@ -3,9 +3,12 @@ from __future__ import annotations
 import argparse
 import asyncio
 import fcntl
+import io
 import json
 import os
 import sys
+import tempfile
+import zipfile
 from collections import Counter
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -23,6 +26,12 @@ from app.db.mongodb import AsyncCollection, AsyncGridFSBucket
 from app.services.auth import MongoParticipantAccountRepository, ParticipantAccount
 from app.services.chats import MongoChatSubmissionRepository
 from app.services.gemini_screenshot_extractor import GeminiScreenshotTranscriptExtractor
+from app.services.transcript_adapters import (
+    find_chatgpt_export_members,
+    find_claude_export_member,
+    find_gemini_export_member,
+    find_grok_export_member,
+)
 from app.services.transcript_runs import (
     MongoTranscriptParseRunRepository,
     process_transcript_parse,
@@ -63,6 +72,36 @@ class TargetSubmissions(MongoChatSubmissionRepository):
 
     async def list_submissions(self, *args: Any, **kwargs: Any) -> list[Any]:
         return [self.submission]
+
+
+class FileTranscriptUploads:
+    def __init__(self, uploads: Any, tool: str | None) -> None:
+        self.uploads = uploads
+        self.tool = (tool or "").lower()
+
+    async def read_bytes(self, file_id: str) -> tuple[str, bytes, dict[str, Any]]:
+        with tempfile.TemporaryDirectory(prefix="platform-transcript-") as directory:
+            source = Path(directory) / "upload"
+            details = await self.uploads.download_to_path(file_id, source)
+            selectors = {
+                "claude": find_claude_export_member,
+                "gemini": find_gemini_export_member,
+                "grok": find_grok_export_member,
+            }
+            if zipfile.is_zipfile(source) and self.tool in {*selectors, "chatgpt"}:
+                with zipfile.ZipFile(source) as archive:
+                    names = (
+                        find_chatgpt_export_members(archive) if self.tool == "chatgpt"
+                        else [selectors[self.tool](archive)]
+                    )
+                    buffer = io.BytesIO()
+                    with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as reduced:
+                        for name in names:
+                            reduced.writestr(name, archive.read(name))
+                    content = buffer.getvalue()
+            else:
+                content = source.read_bytes()
+            return details["filename"], content, details.get("metadata", {})
 
 
 def account_from_metadata(document: dict[str, Any] | None) -> ParticipantAccount | None:
@@ -165,7 +204,8 @@ async def execute(args: argparse.Namespace, database: Any, report: Any) -> dict[
                     await process_transcript_parse(
                         {"submissionId": submission_id, "runId": run.run_id},
                         TargetSubmissions(AsyncCollection(database.chat_submissions), submission),
-                        uploads, runs_repository, extractor, accounts,
+                        FileTranscriptUploads(uploads, submission.tool) if submission.source_type == "file" else uploads,
+                        runs_repository, extractor, accounts,
                     )
                 except Exception as error:
                     event["exceptionType"] = type(error).__name__
@@ -173,6 +213,13 @@ async def execute(args: argparse.Namespace, database: Any, report: Any) -> dict[
                     {"_id": ObjectId(run.run_id)},
                     {"status": 1, "normalized_json.summary": 1, "parser_name": 1},
                 )
+                if saved["status"] in {"queued", "processing"}:
+                    await runs_repository.fail(
+                        run.run_id,
+                        "Operator parsing did not reach a terminal state: "
+                        + event.get("exceptionType", "unknown"), [],
+                    )
+                    saved["status"] = "failed"
                 event.update(
                     status=saved["status"], runId=run.run_id,
                     parser=saved.get("parser_name"),

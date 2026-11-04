@@ -1,13 +1,15 @@
 import asyncio
 import io
 import json
+import zipfile
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from bson import ObjectId
 from scripts.parse_chat_backlog import (
+    FileTranscriptUploads,
     account_from_metadata,
     execute,
     skip_reason,
@@ -97,3 +99,87 @@ def test_dry_run_does_not_create_runs_or_modify_database(monkeypatch):
     run_repository.create.assert_not_called()
     database.chat_submissions.update_one.assert_not_called()
     database.transcript_parse_runs.update_one.assert_not_called()
+
+
+@pytest.mark.parametrize("tool,member", [
+    ("gemini", "Takeout/Gemini/MyActivity.html"),
+    ("chatgpt", "conversations-0.json"),
+])
+def test_file_uploads_stream_zip_and_keep_only_transcript_members(tool, member):
+    uploads = MagicMock()
+    temporary_paths = []
+
+    async def download(file_id, target):
+        assert file_id == "file-1"
+        temporary_paths.append(target)
+        with zipfile.ZipFile(target, "w") as archive:
+            archive.writestr(member, b"[]" if tool == "chatgpt" else b"<html></html>")
+            archive.writestr("unrelated-image.png", b"not-transcript" * 10000)
+        return {"filename": "original.zip", "metadata": {"original": True}}
+
+    uploads.download_to_path = AsyncMock(side_effect=download)
+    filename, content, metadata = asyncio.run(FileTranscriptUploads(uploads, tool).read_bytes("file-1"))
+
+    assert filename == "original.zip"
+    assert metadata == {"original": True}
+    with zipfile.ZipFile(io.BytesIO(content)) as archive:
+        assert archive.namelist() == [member]
+    assert all(not path.exists() for path in temporary_paths)
+    uploads.read_bytes.assert_not_called()
+
+
+def test_file_uploads_remove_temporary_archive_on_selection_failure():
+    uploads = MagicMock()
+    temporary_paths = []
+
+    async def download(file_id, target):
+        temporary_paths.append(target)
+        with zipfile.ZipFile(target, "w") as archive:
+            archive.writestr("summary.html", b"not a transcript")
+        return {"filename": "original.zip", "metadata": {}}
+
+    uploads.download_to_path = AsyncMock(side_effect=download)
+    with pytest.raises(ValueError, match="Gemini"):
+        asyncio.run(FileTranscriptUploads(uploads, "gemini").read_bytes("file-1"))
+    assert all(not path.exists() for path in temporary_paths)
+
+
+def test_operator_marks_interrupted_run_failed_when_parser_failure_save_did_not_finish(monkeypatch):
+    import scripts.parse_chat_backlog as script
+
+    participant_id, submission_id, run_id = ObjectId(), ObjectId(), ObjectId()
+    metadata = {
+        "_id": submission_id, "participant_id": str(participant_id),
+        "submitted_at": datetime.now(UTC), "source_type": "file", "tool": "gemini",
+    }
+    submission = SimpleNamespace(submission_id=str(submission_id), source_type="file", tool="gemini")
+    repository = MagicMock()
+    repository.list_for_participant = AsyncMock(return_value=[submission])
+    runs = MagicMock()
+    runs.create = AsyncMock(return_value=SimpleNamespace(run_id=str(run_id)))
+    runs.fail = AsyncMock()
+    monkeypatch.setattr(script, "MongoChatSubmissionRepository", lambda _: repository)
+    monkeypatch.setattr(script, "MongoTranscriptParseRunRepository", lambda _: runs)
+    monkeypatch.setattr(script, "AsyncGridFSBucket", lambda *args: MagicMock())
+    monkeypatch.setattr(script, "process_transcript_parse", AsyncMock(side_effect=TimeoutError))
+    database = SimpleNamespace(
+        participants=MagicMock(), chat_submissions=MagicMock(),
+        transcript_parse_runs=MagicMock(), submission_jobs=MagicMock(),
+    )
+    database.participants.find_one.return_value = {"_id": participant_id, "chat_consent": True}
+    database.chat_submissions.find.return_value.sort.return_value = [metadata]
+    database.transcript_parse_runs.find.return_value = []
+    database.transcript_parse_runs.find_one.return_value = {"status": "queued"}
+    database.submission_jobs.find_one.return_value = None
+    args = SimpleNamespace(
+        include_images=False, submission_id=None, recover_stale=False,
+        retry_incomplete=False, max_items=1, apply=True,
+    )
+    report = io.StringIO()
+    counts = asyncio.run(execute(args, database, report))
+
+    assert counts == {"attempted": 1, "failed": 1}
+    assert json.loads(report.getvalue())["status"] == "failed"
+    runs.fail.assert_awaited_once_with(
+        str(run_id), "Operator parsing did not reach a terminal state: TimeoutError", [],
+    )
