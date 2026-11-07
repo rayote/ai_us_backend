@@ -163,6 +163,26 @@ class MongoChatSubmissionRepository:
         cursor = self._collection.find(filters).sort("submitted_at", 1)
         return [_record_from_document(document) async for document in cursor]
 
+    async def list_preview_submissions(self, submission_point: str | None = None) -> list[ChatSubmissionRecord]:
+        filters: dict[str, Any] = {"$or": [{"status": "active"}, {"status": {"$exists": False}}]}
+        if submission_point:
+            filters["submission_point"] = submission_point
+        projection = dict.fromkeys(("_id", "participant_id", "submission_point", "source_type", "tool",
+                                    "submitted_at", "attachments", "status", "review", "transcript.status",
+                                    "transcript.parser_version", "transcript.source_error_code"), 1)
+        cursor = self._collection.find(filters, projection=projection).sort("submitted_at", 1)
+        records = []
+        async for document in cursor:
+            header = document.get("transcript", {})
+            document = {**document, "raw_input": "", "transcript": {
+                "status": header.get("status", "placeholder"),
+                "parser_version": header.get("parser_version", "attachment-v1"),
+                "source_error_code": header.get("source_error_code"),
+                "messages": [], "plain_text": "", "warnings": [],
+            }}
+            records.append(_record_from_document(document))
+        return records
+
     async def list_submission_summaries(self) -> list[ChatSubmissionSummary]:
         cursor = self._collection.find(
             {

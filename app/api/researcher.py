@@ -1138,20 +1138,22 @@ async def chat_submission_previews(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="참여자 정보를 준비 중입니다.",
         )
+    repository = _chat_submission_repository(request)
+    preview_reader = getattr(repository, "list_preview_submissions", repository.list_submissions)
+    submissions = await preview_reader(submission_point)
+    listed_participants = await participants.list_participants()
     profiles = {
         participant.participant_id: (
             participant.phone,
             participant.school_level,
             participant.grade,
         )
-        for participant in await participants.list_participants()
+        for participant in listed_participants
     }
-    submissions = await _chat_submission_repository(request).list_submissions(
-        submission_point
-    )
+    accounts = {participant.participant_id: participant for participant in listed_participants}
     available_ids = {
-        item.submission_id
-        for item in await available_chat_submissions(submissions, participants)
+        item.submission_id for item in submissions
+        if item.participant_id in accounts and accounts[item.participant_id].allows_chat_material(item.submitted_at)
     }
     rows: list[ChatSubmissionPreview] = []
     for submission in reversed(submissions):

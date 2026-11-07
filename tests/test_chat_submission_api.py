@@ -1030,6 +1030,39 @@ def test_original_download_uses_target_lookup_and_rechecks_consent() -> None:
             submissions.list_submissions.assert_not_awaited()
 
 
+def test_mongo_preview_reader_uses_metadata_only_and_preserves_parse_headers() -> None:
+    from types import SimpleNamespace
+    from bson import ObjectId
+
+    document = {"_id": ObjectId(), "participant_id": "participant-1", "submission_point": "afterRound2",
+                "source_type": "file", "tool": "gemini", "submitted_at": datetime.now(UTC),
+                "transcript": {"status": "invalid_source", "parser_version": "source-validation-v1",
+                               "source_error_code": "wrong_service_export"}, "attachments": []}
+
+    class Cursor:
+        def sort(self, key, direction):
+            assert (key, direction) == ("submitted_at", 1)
+            return self
+
+        def __aiter__(self):
+            async def values():
+                yield document
+            return values()
+
+    calls = []
+    def find(filters, *, projection):
+        calls.append((filters, projection))
+        assert not any(key in projection for key in ("raw_input", "transcript", "transcript.messages",
+                                                     "transcript.plain_text", "transcript.compressedJson"))
+        return Cursor()
+
+    records = asyncio.run(MongoChatSubmissionRepository(SimpleNamespace(find=find)).list_preview_submissions("afterRound2"))
+    assert calls[0][0]["submission_point"] == "afterRound2"
+    assert records[0].transcript.status == "invalid_source"
+    assert records[0].transcript.source_error_code == "wrong_service_export"
+    assert records[0].transcript.messages == [] and records[0].raw_input == ""
+
+
 def test_mongo_submission_lookup_uses_id_and_preserves_legacy_and_deletion_statuses() -> None:
     from types import SimpleNamespace
     from bson import ObjectId
