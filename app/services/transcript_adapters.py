@@ -8,11 +8,15 @@ from datetime import UTC, datetime
 from html.parser import HTMLParser
 from pathlib import PurePosixPath
 from typing import Any, NoReturn
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, urlparse
 from zoneinfo import ZoneInfo
+
+from bs4 import BeautifulSoup, NavigableString, Tag
 
 KST = ZoneInfo("Asia/Seoul")
 SCHEMA_VERSION = "transcript-v1"
+AI_MODE_PRODUCTS = {"AI 모드", "AI Mode"}
+SEARCH_PRODUCTS = {"Search", "Google 검색", "검색"}
 
 
 class UnsupportedTranscriptError(ValueError):
@@ -71,11 +75,20 @@ def normalize_export(
         )
     if "gemini" in selected_tool or (not selected_tool and "takeout" in name):
         payload, source_name = _gemini_payload(content)
+        normalized = _parse_gemini(payload, participant_id)
+        warnings = [f"ZIP 내부의 {source_name} 파일을 파싱했습니다."] if source_name else []
+        if normalized["platform"] == "google_ai_mode":
+            warnings.append("Google 검색 AI 모드 자료입니다. Gemini 앱 대화와 구분해 보존합니다.")
+            uncertain = sum(any(turn["role"] == "unknown" for turn in session["turns"])
+                            for session in normalized["sessions"])
+            if uncertain:
+                warnings.append(f"입력 유형을 확인하지 못한 활동 {uncertain}건은 unknown 역할로 보존했습니다.")
+            return "google-ai-mode-takeout-html", "google-ai-mode-takeout-html-v1", normalized, warnings
         return (
             "gemini-takeout-html",
             "gemini-takeout-html-v2",
-            _parse_gemini(payload, participant_id),
-            [f"ZIP 내부의 {source_name} 파일을 파싱했습니다."] if source_name else [],
+            normalized,
+            warnings,
         )
     raise UnsupportedTranscriptError(
         f"{filename} 파일 형식에 대한 parser adapter가 아직 없습니다."
@@ -278,7 +291,7 @@ def find_gemini_export_member(archive: zipfile.ZipFile) -> str:
         (
             name for name in candidates
             if "gemini" in name.lower()
-            and PurePosixPath(name).name.lower() in {"myactivity.html", "내활동.html"}
+            and PurePosixPath(name).name.lower().replace(" ", "") in {"myactivity.html", "내활동.html"}
         ),
         next((name for name in candidates if "gemini" in name.lower()), None),
     )
@@ -286,15 +299,19 @@ def find_gemini_export_member(archive: zipfile.ZipFile) -> str:
         verified = []
         other_products = set()
         for name in candidates:
-            if PurePosixPath(name).name.lower() not in {"myactivity.html", "내활동.html"}:
+            if PurePosixPath(name).name.lower().replace(" ", "") not in {"myactivity.html", "내활동.html"}:
                 continue
             parser = _GeminiTakeoutParser()
             parser.feed(_decode_html(archive.read(name)))
             other_products.update(parser.products)
-            if parser.activities and parser.products and all(
+            gemini_products = parser.products and all(
                 re.fullmatch(r"(?:Gemini|Bard)(?:\s+Apps?|\s+앱)?", product, re.IGNORECASE)
                 for product in parser.products
-            ):
+            )
+            ai_mode_products = bool(parser.products & AI_MODE_PRODUCTS) and parser.products <= (
+                AI_MODE_PRODUCTS | SEARCH_PRODUCTS
+            )
+            if parser.activities and (gemini_products or ai_mode_products):
                 verified.append(name)
         if len(verified) == 1:
             source_name = verified[0]
@@ -306,7 +323,7 @@ def find_gemini_export_member(archive: zipfile.ZipFile) -> str:
     if source_name is None:
         if any(name.lower().endswith(".json") for name in archive.namelist()):
             raise UnsupportedTranscriptError("Gemini 대화 HTML이 없어 ZIP의 JSON 형식을 확인해야 합니다.")
-        if not any(PurePosixPath(name).name.lower() in {"myactivity.html", "내활동.html"} for name in candidates):
+        if not any(PurePosixPath(name).name.lower().replace(" ", "") in {"myactivity.html", "내활동.html"} for name in candidates):
             _missing_export_source(archive, "ZIP 파일 안에 필수 Gemini 대화 파일이 없습니다.")
         raise ValueError("ZIP 파일 안에서 Gemini 내 활동 HTML 파일을 찾지 못했습니다.")
     return source_name
@@ -439,6 +456,10 @@ def _gemini_conversation_id(links: list[str]) -> str | None:
 def _parse_gemini(content: bytes, participant_id: str) -> dict[str, Any]:
     parser = _GeminiTakeoutParser()
     parser.feed(_decode_html(content))
+    if parser.products & AI_MODE_PRODUCTS:
+        if not parser.products <= AI_MODE_PRODUCTS | SEARCH_PRODUCTS:
+            raise UnsupportedTranscriptError("AI 모드와 다른 제품의 활동이 섞여 있어 파일을 분리해야 합니다.")
+        return _parse_google_ai_mode(content, participant_id)
     grouped: dict[str, list[tuple[int, str | None, str, str]]] = {}
     for index, (direct, blocks, links) in enumerate(parser.activities, start=1):
         timestamps = [_gemini_timestamp(value) for value in direct]
@@ -488,6 +509,95 @@ def _parse_gemini(content: bytes, participant_id: str) -> dict[str, Any]:
     if not sessions:
         raise ValueError("Gemini 내 활동 HTML에서 대화 내역을 찾지 못했습니다.")
     return _summary(participant_id, "gemini", "gemini_takeout_html", sessions)
+
+
+def _parse_google_ai_mode(content: bytes, participant_id: str) -> dict[str, Any]:
+    document = BeautifulSoup(_decode_html(content), "html.parser")
+    sessions = []
+    for index, card in enumerate(document.select(".outer-cell"), start=1):
+        header = card.select_one(".header-cell")
+        if header is None or header.get_text(" ", strip=True) not in AI_MODE_PRODUCTS:
+            continue
+        body = next((cell for cell in card.select(".content-cell")
+                     if not {"mdl-typography--caption", "mdl-typography--text-right"}
+                     .intersection(cell.get("class", []))), None)
+        if body is None:
+            continue
+        for hidden in body.select("script, style"):
+            hidden.decompose()
+        leading, response_nodes = [], []
+        prompt = ""
+        prompt_evidence = "none"
+        in_response = False
+        for child in body.children:
+            if isinstance(child, Tag) and child.name in {
+                "p", "div", "ul", "ol", "pre", "table", "blockquote",
+                "h1", "h2", "h3", "h4", "h5", "h6", "hr",
+            }:
+                in_response = True
+            if in_response:
+                response_nodes.append(child)
+            elif isinstance(child, Tag):
+                if child.name == "br":
+                    leading.append("\n")
+                else:
+                    text = child.get_text(" ", strip=True)
+                    leading.append(text)
+                    if child.name == "a" and not prompt:
+                        link = urlparse(child.get("href", ""))
+                        if link.hostname in {"google.com", "www.google.com", "www.google.co.kr"} and parse_qs(link.query).get("q"):
+                            prompt = text
+                            prompt_evidence = "linked_query"
+            elif isinstance(child, NavigableString):
+                leading.append(str(child))
+        lines = [" ".join(line.split()) for line in "".join(leading).splitlines() if line.strip()]
+        timestamp = next((value for line in lines if (value := _gemini_timestamp(line))), None)
+        if not prompt:
+            prompt = next((line for line in lines if _gemini_timestamp(line) is None), "")
+            if prompt:
+                prompt_evidence = "search_action" if re.search(r"(?:항목을 검색함|검색함)\s*$", prompt) else "unverified_activity_text"
+            prompt = re.sub(r"\s*(?:항목을 검색함|검색함)\s*$", "", prompt).strip()
+        response_parts = []
+        for child in response_nodes:
+            if isinstance(child, Tag):
+                text = child.get_text(" " if child.name != "pre" else "", strip=child.name != "pre").strip()
+                label = child.find(["strong", "b"], recursive=False)
+                if child.name == "p" and label is not None and re.fullmatch(
+                    r"(?:Prompt|프롬프트|질문)\s*[:：]?", label.get_text(" ", strip=True), re.IGNORECASE,
+                ):
+                    remainder = text.removeprefix(label.get_text(" ", strip=True)).strip()
+                    if prompt and remainder == prompt:
+                        prompt_evidence = "explicit_prompt_label"
+                        continue
+                    if not prompt and remainder:
+                        prompt = remainder
+                        prompt_evidence = "explicit_prompt_label"
+                        continue
+            else:
+                text = str(child).strip()
+            if text:
+                response_parts.append(text)
+        response = "\n".join(response_parts)
+        turns = []
+        if not response and card.find("img") is not None and prompt_evidence == "search_action":
+            prompt_evidence = "unverified_image_activity"
+        prompt_role = "unknown" if prompt_evidence.startswith("unverified_") else "user"
+        for role, text in [(prompt_role, prompt), ("assistant", response)]:
+            if text:
+                turns.append({"turnId": len(turns) + 1, "role": role,
+                              "content": text, "timestamp": timestamp})
+        if turns:
+            session = _session("google_ai_mode", f"takeout-{index}", prompt[:80], turns)
+            session["sessionMetadata"]["sourceProduct"] = "google_ai_mode"
+            session["sessionMetadata"]["groupingBasis"] = "activity_card"
+            session["sessionMetadata"]["promptEvidence"] = prompt_evidence
+            session["sessionMetadata"]["responseMissing"] = not bool(response)
+            sessions.append(session)
+    sessions.sort(key=lambda session: (session["sessionMetadata"].get("startTime") is None,
+                                       session["sessionMetadata"].get("startTime") or ""))
+    if not sessions:
+        raise UnsupportedTranscriptError("AI 모드 활동 HTML에서 대화 본문을 확인하지 못했습니다.")
+    return _summary(participant_id, "google_ai_mode", "google_ai_mode_takeout_html", sessions)
 
 
 def _iso(value: object) -> str | None:

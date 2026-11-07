@@ -1316,6 +1316,32 @@ def test_researcher_can_export_completed_chat_submission() -> None:
     )
 
 
+def test_chat_preview_pages_reach_old_submissions_and_keep_legacy_response() -> None:
+    app, _, submissions, _ = _app(True)
+    for index in range(205):
+        asyncio.run(submissions.create_submission(ChatSubmissionRecord(
+            submissionId=f"page-{index}", participantId="participant-1", submissionPoint="afterRound1",
+            sourceType="text", rawInput="synthetic", submittedAt=datetime.now(UTC),
+            transcript=ParsedTranscript(status="placeholder", parserVersion="v1", messages=[], plainText="", warnings=[]),
+        )))
+    with TestClient(app) as client:
+        login = client.post("/api/v1/auth/researcher/login", json={"username": "researcher", "password": "researcher-password"})
+        headers = {"Authorization": f"Bearer {login.json()['accessToken']}"}
+        path = "/api/v1/researcher/chat-submission-previews"
+        legacy = client.get(path, headers=headers).json()
+        pages = [client.get(path, headers=headers, params={"page": page}).json() for page in (1, 2, 3)]
+        assert len(legacy) == 100
+        assert [len(page["items"]) for page in pages] == [100, 100, 5]
+        assert all(page["total"] == 205 and page["pageSize"] == 100 for page in pages)
+        identifiers = [item["submissionId"] for page in pages for item in page["items"]]
+        assert len(set(identifiers)) == 205
+        assert identifiers[0] == "page-204" and identifiers[-1] == "page-0"
+        assert client.get(path, headers=headers, params={"page": 0}).status_code == 422
+        assert client.get(path, headers=headers, params={"page": 999}).json()["page"] == 3
+        empty = client.get(path, headers=headers, params={"page": 2, "submission_point": "afterRound4"}).json()
+        assert empty["items"] == [] and empty["total"] == 0 and empty["page"] == 1
+
+
 def test_researcher_can_review_submission_and_filter_preview() -> None:
     app, _, submissions, _ = _app(True)
     asyncio.run(

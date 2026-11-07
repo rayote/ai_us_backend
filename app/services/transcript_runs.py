@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any, Protocol
 from zoneinfo import ZoneInfo
 
+from app.db.json_storage import decode_json_storage, encode_json_storage
 from app.schemas.chat import ChatSubmissionRecord, ParsedTranscript, TranscriptMessage, TranscriptParseRun
 from app.services.auth import ParticipantAccountRepository
 from app.services.chats import ChatSubmissionRepository, ChatUploadRepository
@@ -59,7 +60,7 @@ def _run(document: dict[str, Any]) -> TranscriptParseRun:
         parserName=document["parser_name"],
         parserVersion=document["parser_version"],
         schemaVersion=document["schema_version"],
-        normalizedJson=document.get("normalized_json"),
+        normalizedJson=decode_json_storage(document.get("normalized_json")),
         warnings=document.get("warnings", []),
         createdAt=document["created_at"],
         completedAt=document.get("completed_at"),
@@ -120,7 +121,7 @@ class MongoTranscriptParseRunRepository:
                     "status": status,
                     "parser_name": parser_name,
                     "parser_version": parser_version,
-                    "normalized_json": normalized_json,
+                    "normalized_json": encode_json_storage(normalized_json),
                     "warnings": warnings,
                     "completed_at": datetime.now(UTC),
                     "error": None,

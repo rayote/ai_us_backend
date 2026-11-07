@@ -9,6 +9,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Protocol
 
+from app.db.json_storage import decode_json_storage, encode_json_storage
 from app.schemas.chat import (
     ChatAttachment,
     ChatSubmissionCreate,
@@ -135,7 +136,7 @@ class MongoChatSubmissionRepository:
             "submission_point": submission.submission_point,
             "source_type": submission.source_type,
             "raw_input": submission.raw_input,
-            "transcript": submission.transcript.model_dump(),
+            "transcript": encode_json_storage(submission.transcript.model_dump()),
             "submitted_at": submission.submitted_at,
             "attachments": [
                 attachment.model_dump(by_alias=True)
@@ -258,7 +259,7 @@ class MongoChatSubmissionRepository:
     ) -> bool:
         result = await self._collection.update_one(
             {"_id": _object_id_or_none(submission_id)},
-            {"$set": {"transcript": transcript.model_dump()}},
+            {"$set": {"transcript": encode_json_storage(transcript.model_dump())}},
         )
         return result.matched_count == 1
 
@@ -299,7 +300,7 @@ def _record_from_document(document: dict[str, Any]) -> ChatSubmissionRecord:
         sourceType=document["source_type"],
         tool=document.get("tool"),
         rawInput=document["raw_input"],
-        transcript=document["transcript"],
+        transcript=decode_json_storage(document["transcript"]),
         submittedAt=document["submitted_at"],
         attachments=document.get("attachments", []),
         status=document.get("status", "active"),

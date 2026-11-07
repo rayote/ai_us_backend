@@ -10,6 +10,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Literal
 from zoneinfo import ZoneInfo
+from fastapi import Query as PageQuery
+from pydantic import BaseModel, Field
 
 from app.api.auth import require_researcher
 from app.api.applications import participation_settings
@@ -1101,9 +1103,17 @@ def _chat_submission_status_export_filename(
     return f"{point}_{audience}_status_{_kst_filename_timestamp(exported_at)}.csv"
 
 
-@router.get("/chat-submission-previews", response_model=list[ChatSubmissionPreview])
+class ChatSubmissionPreviewPage(BaseModel):
+    items: list[ChatSubmissionPreview]
+    total: int
+    page: int
+    page_size: int = Field(default=100, alias="pageSize")
+
+
+@router.get("/chat-submission-previews", response_model=list[ChatSubmissionPreview] | ChatSubmissionPreviewPage)
 async def chat_submission_previews(
     request: Request,
+    page: int | None = PageQuery(default=None, ge=1),
     submission_point: (
         Literal["afterRound1", "afterRound2", "afterRound3", "afterRound4"] | None
     ) = None,
@@ -1119,7 +1129,7 @@ async def chat_submission_previews(
         "consent_restricted",
     ] = "unreviewed",
     _: str = Depends(require_researcher),
-) -> list[ChatSubmissionPreview]:
+) -> list[ChatSubmissionPreview] | ChatSubmissionPreviewPage:
     participants: ParticipantAccountRepository | None = getattr(
         request.app.state, "participant_account_repository", None
     )
@@ -1180,7 +1190,11 @@ async def chat_submission_previews(
                 consentRestricted=restricted,
             )
         )
-    return rows[:100]
+    if page is None:
+        return rows[:100]
+    resolved_page = min(page, max(1, (len(rows) + 99) // 100))
+    start = (resolved_page - 1) * 100
+    return ChatSubmissionPreviewPage(items=rows[start:start + 100], total=len(rows), page=resolved_page)
 
 
 @router.patch(

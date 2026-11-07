@@ -494,7 +494,7 @@ def test_gemini_adapter_extracts_takeout_html_from_zip() -> None:
     ]
 
 
-@pytest.mark.parametrize("member", ["MyActivity.html", "내활동.html"])
+@pytest.mark.parametrize("member", ["MyActivity.html", "내활동.html", "내 활동.html"])
 @pytest.mark.parametrize("product", ["Gemini", "Gemini 앱", "Bard"])
 def test_gemini_adapter_recognizes_product_marked_activity_without_gemini_in_path(member, product):
     html = f"""
@@ -534,6 +534,92 @@ def test_gemini_fallback_rejects_multiple_matching_activity_files():
             """)
     with pytest.raises(ValueError, match="Gemini"):
         normalize_export("gemini", "export.zip", archive.getvalue(), "participant-1")
+
+
+@pytest.mark.parametrize("product", ["AI 모드", "AI Mode"])
+def test_ai_mode_preserves_linked_prompt_nested_answer_and_distinct_source(product):
+        html = f"""
+        <div class="outer-cell"><div class="header-cell">{product}</div>
+            <div class="content-cell">
+                <a href="https://www.google.com/?q=test&amp;udm=50">A synthetic question</a> 항목을 검색함<br>
+                2026. 11. 2. 오후 1:02:03 KST<br>
+                <p><strong>Prompt:</strong><br>A synthetic question</p>
+                <p>Opening <strong>important</strong> answer.</p>
+                <ul><li>Outer <strong>point</strong><ul><li>Nested detail</li></ul> Tail</li></ul>
+                <pre><code>print("test")\n  indented</code></pre>
+            </div>
+            <div class="content-cell mdl-typography--caption">Products: {product}</div>
+        </div>
+        <div class="outer-cell"><div class="header-cell">Search</div>
+            <div class="content-cell">Ordinary search must not become dialogue</div></div>
+        """
+        archive = io.BytesIO()
+        with zipfile.ZipFile(archive, "w") as zipper:
+                zipper.writestr("Takeout/My Activity/AI Mode/내 활동.html", html)
+        name, version, normalized, warnings = normalize_export("gemini", "takeout.zip", archive.getvalue(), "participant-1")
+        assert (name, version) == ("google-ai-mode-takeout-html", "google-ai-mode-takeout-html-v1")
+        assert normalized["platform"] == "google_ai_mode"
+        assert normalized["summary"]["totalSessions"] == 1
+        assert normalized["summary"]["totalTurns"] == 2
+        session = normalized["sessions"][0]
+        assert session["sessionMetadata"]["sourceProduct"] == "google_ai_mode"
+        assert session["sessionMetadata"]["groupingBasis"] == "activity_card"
+        assert session["turns"][0]["content"] == "A synthetic question"
+        assert session["turns"][0]["timestamp"] == "2026-11-02T13:02:03+09:00"
+        assert session["turns"][1]["content"] == 'Opening important answer.\nOuter point Nested detail Tail\nprint("test")\n  indented'
+        assert any("Gemini" in warning for warning in warnings)
+
+
+def test_ai_mode_missing_answers_stay_user_only_and_cards_are_not_merged():
+        html = "".join(f"""
+            <div class="outer-cell"><div class="header-cell">AI Mode</div>
+                <div class="content-cell">Question {index} 항목을 검색함<br>
+                    2026. 11. 2. 오후 1:02:03 KST</div></div>
+        """ for index in range(2))
+        _, _, normalized, _ = normalize_export("gemini", "MyActivity.html", html.encode(), "participant-1")
+        assert normalized["summary"]["totalSessions"] == 2
+        assert normalized["summary"]["totalTurns"] == 2
+        assert len({session["sessionId"] for session in normalized["sessions"]}) == 2
+        assert all(session["turns"][0]["role"] == "user" for session in normalized["sessions"])
+
+
+def test_ai_mode_unverified_image_activity_is_not_invented_as_a_user_question():
+        html = """
+        <div class="outer-cell"><div class="header-cell">AI Mode</div>
+            <div class="content-cell">Unverified activity label<br>
+                2026. 11. 2. 오후 1:02:03 KST<img src="images/local.jpg"></div></div>
+        """
+        _, _, normalized, warnings = normalize_export("gemini", "MyActivity.html", html.encode(), "participant-1")
+        session = normalized["sessions"][0]
+        assert session["turns"][0]["role"] == "unknown"
+        assert session["turns"][0]["content"] == "Unverified activity label"
+        assert session["sessionMetadata"]["promptEvidence"] == "unverified_activity_text"
+        assert session["sessionMetadata"]["responseMissing"] is True
+        assert any("unknown" in warning for warning in warnings)
+
+
+def test_ai_mode_mixed_with_gemini_is_not_silently_relabelled():
+    html = """
+    <div class="outer-cell"><div class="header-cell">AI Mode</div><div class="content-cell">AI text</div></div>
+    <div class="outer-cell"><div class="header-cell">Gemini</div><div class="content-cell">Gemini text</div></div>
+    """
+    from app.services.transcript_adapters import UnsupportedTranscriptError
+    with pytest.raises(UnsupportedTranscriptError, match="분리"):
+        normalize_export("gemini", "MyActivity.html", html.encode(), "participant-1")
+
+
+def test_ai_mode_image_search_action_does_not_confirm_a_text_question():
+        html = """
+        <div class="outer-cell"><div class="header-cell">AI Mode</div>
+            <div class="content-cell">Attached input 항목을 검색함<br>
+                2026. 11. 2. 오후 1:02:03 KST</div>
+            <div class="content-cell mdl-typography--text-right"><img src="images/local.jpg"></div></div>
+        """
+        _, _, normalized, _ = normalize_export("gemini", "MyActivity.html", html.encode(), "participant-1")
+        session = normalized["sessions"][0]
+        assert session["turns"][0]["role"] == "unknown"
+        assert session["sessionMetadata"]["promptEvidence"] == "unverified_image_activity"
+        assert session["sessionMetadata"]["responseMissing"] is True
 
 
 def test_wrong_product_and_missing_activity_are_terminal_source_errors() -> None:

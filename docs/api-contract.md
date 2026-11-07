@@ -295,6 +295,8 @@ This endpoint accepts an `admin` or `researcher` bearer token. It returns a UTF-
 
 `GET /api/v1/researcher/chat-submission-previews` returns up to 100 active chat submissions for the researcher preview table, newest first, filtered by optional `submission_point`, `school_level`, and `review_filter` parameters. `review_filter` defaults to `unreviewed`; it also accepts `all`, `reviewed`, `incentive_paid`, `excluded`, `duplicate`, `other`, and `consent_restricted`. Normal filters, including `all`, exclude consent-restricted material. The special `consent_restricted` view returns only restricted management rows with `consentRestricted: true`, no filenames and zero attachment count; it does not expose transcript content. Each row includes its embedded `review` object when reviewed.
 
+Add `page=1` (positive integer) to receive `{items, total, page, pageSize}` with 100 rows per page and the total after applying access restrictions and filters. Requests beyond the last page resolve to the last available page; empty results resolve to page 1. Omitting `page` preserves the legacy list response. The console provides matching controls above and below the table, resets to page 1 on filter changes, retains individual selections across pages, and keeps whole-filter downloads independent of pagination. Deploy both the compatible API and console; an older API produces a visible upgrade notice rather than silently claiming to show every record.
+
 `PATCH /api/v1/researcher/chat-submissions/{submissionId}/review` records one review result (`incentive_paid`, `excluded`, `duplicate`, or `other`) in the existing `chat_submissions` document. Every result can retain an optional `note`; `other` requires a non-empty note. `DELETE` on the same URL removes the embedded review and returns the submission to the unreviewed state. Review updates record the timestamp and authenticated researcher ID.
 
 ```json
@@ -375,6 +377,12 @@ The phone must match `^01[0-9]{9}$`. The response is the current account snapsho
 
 - Text submissions are normalized from the stored speaker-labelled text.
 - Supported ZIP exports are routed through the matching service adapter.
+- Gemini-labelled submissions also accept Takeout activity HTML explicitly marked `AI Mode` or `AI 모드`. These use `google-ai-mode-takeout-html` / `google-ai-mode-takeout-html-v1`, normalized `platform=google_ai_mode`, and `sourceType=google_ai_mode_takeout_html`; they are not relabelled as Gemini app conversations. `MyActivity.html`, `내활동.html`, and `내 활동.html` names are supported.
+  Administrator ZIP import validation uses the same product-verified activity selector as parsing, rather than requiring `gemini` in the archive member path.
+
+Large transcript persistence uses lossless `gzip-json-v1` storage when the BSON payload exceeds 8 MiB. Stored objects keep status/summary fields and a SHA-256-verified compressed JSON payload; repositories restore the original API objects and JSON/CSV downloads without truncation. Compressed payloads are limited to 14 MiB and decoded JSON to 128 MiB. Smaller existing documents are unchanged. Deploy the compatible backend readers and update raw-database research collectors before writing this format to production. Frozen research snapshots are not rewritten.
+- AI Mode extraction preserves linked questions, nested response blocks and code, timestamps, and one session per activity card without inferring a conversation ID. Ordinary Search cards and caption/preview metadata are excluded from response text. Mixed Gemini-app/AI-Mode files remain unsupported rather than being silently merged or relabelled.
+- AI Mode session metadata includes `sourceProduct`, `groupingBasis=activity_card`, `promptEvidence`, and `responseMissing`. Unverified activity text, including image-only search actions without confirmed question text, is retained with role `unknown` and a warning. Missing answers are not fabricated; this HTML adapter does not invoke an external image model or inspect referenced images.
 - Image submissions are ordered and sent to the configured Gemini screenshot extractor. The production default model is `gemini-3.8-flash`.
 - Unsupported formats finish with `warning`; processing failures finish with `failed`. Both retain diagnostic text instead of fabricating transcript turns.
 

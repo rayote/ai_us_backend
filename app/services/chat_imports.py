@@ -5,12 +5,13 @@ import hashlib
 import zipfile
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from pathlib import Path, PurePosixPath
+from pathlib import Path
 from typing import Any, Protocol
 
 from app.services.transcript_adapters import (
     find_chatgpt_export_members,
     find_claude_export_member,
+    find_gemini_export_member,
     find_grok_export_member,
 )
 from bson import Binary, ObjectId
@@ -300,24 +301,10 @@ def inspect_gemini_zip(
             raise ValueError("ZIP 압축 해제 크기가 허용 범위를 초과했습니다.")
         if size and expanded_bytes / size > 100:
             raise ValueError("ZIP 압축률이 비정상적으로 높습니다.")
-        candidates = [
-            member
-            for member in archive.infolist()
-            if not member.is_dir()
-            if member.filename.lower().endswith((".html", ".htm"))
-            if "gemini" in member.filename.lower()
-        ]
-        preferred = next(
-            (
-                member
-                for member in candidates
-                if PurePosixPath(member.filename).name.lower()
-                in {"myactivity.html", "내활동.html"}
-            ),
-            candidates[0] if candidates else None,
-        )
-        if preferred is None:
-            raise ValueError("ZIP에서 Gemini 내 활동 HTML 파일을 찾지 못했습니다.")
+        try:
+            preferred = archive.getinfo(find_gemini_export_member(archive))
+        except ValueError as error:
+            raise ValueError("ZIP에서 Gemini 내 활동 HTML 또는 AI 모드 활동 파일을 찾지 못했습니다.") from error
 
     digest = hashlib.sha256()
     with source.open("rb") as input_file:
