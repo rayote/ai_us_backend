@@ -15,6 +15,8 @@ from app.services.screenshot_transcripts import (
     normalize_screenshot_extraction,
     order_screenshot_images,
 )
+import pytest
+
 from app.services.transcript_runs import build_transcript_archive, normalized_to_csv, process_transcript_parse
 
 
@@ -226,11 +228,16 @@ class FakeExtractor:
 class FakeSubmissions:
     def __init__(self, submission: ChatSubmissionRecord) -> None:
         self.submission = submission
+        self.target_reads = 0
+
+    async def get_by_id(self, submission_id: str) -> ChatSubmissionRecord | None:
+        self.target_reads += 1
+        return self.submission if self.submission.submission_id == submission_id else None
 
     async def list_submissions(
         self, submission_point: str | None = None, status: str = "active"
     ) -> list[ChatSubmissionRecord]:
-        return [self.submission]
+        raise AssertionError("Parsing must not load all submissions")
 
     async def update_transcript(self, submission_id: str, transcript: ParsedTranscript) -> bool:
         self.submission = self.submission.model_copy(update={"transcript": transcript})
@@ -287,7 +294,18 @@ class FakeRuns:
         )
 
 
-def test_processes_all_image_attachments_through_extractor() -> None:
+@pytest.mark.parametrize("through_worker", [False, True])
+def test_processes_all_image_attachments_through_extractor(through_worker) -> None:
+    from app.worker import parse_available_transcript
+
+    class Participants:
+        async def find_by_id(self, participant_id):
+            assert participant_id == "participant-1"
+            return SimpleNamespace(allows_chat_material=lambda submitted_at: True)
+
+        async def list_participants(self):
+            raise AssertionError("Parsing must not load all participants")
+
     submission = ChatSubmissionRecord(
         submissionId="submission-1",
         participantId="participant-1",
@@ -309,12 +327,13 @@ def test_processes_all_image_attachments_through_extractor() -> None:
     extractor = FakeExtractor()
 
     asyncio.run(
-        process_transcript_parse(
+        (parse_available_transcript if through_worker else process_transcript_parse)(
             {"submissionId": "submission-1", "runId": "run-1"},
             submissions,
             FakeUploads(),
             runs,
             extractor,
+            participants=Participants(),
         )
     )
 
@@ -323,10 +342,37 @@ def test_processes_all_image_attachments_through_extractor() -> None:
         "Screenshot_20260921_205413.jpg",
     ]
     assert extractor.platform == "other"
+    assert submissions.target_reads == (2 if through_worker else 1)
     assert submissions.submission.transcript.status == "parsed"
     assert runs.completed is not None
     assert runs.completed["parser_version"] == "screenshot-vlm-v3"
     assert runs.completed["normalized_json"]["summary"]["totalTurns"] == 2
+
+
+@pytest.mark.parametrize("condition", ["missing", "inactive", "withdrawn"])
+def test_worker_rejects_unavailable_target_before_parsing(condition) -> None:
+    from app.worker import parse_available_transcript
+    submission = SimpleNamespace(submission_id="submission-1", participant_id="participant-1", submitted_at=datetime.now(UTC), status="deletion_requested" if condition == "inactive" else "active")
+    submissions = FakeSubmissions(submission)
+    participant_reads = []
+    failures = []
+
+    class Participants:
+        async def find_by_id(self, identifier):
+            participant_reads.append(identifier)
+            return SimpleNamespace(allows_chat_material=lambda timestamp: condition != "withdrawn")
+
+    async def fail(*arguments):
+        failures.append(arguments)
+
+    payload = {"submissionId": "missing" if condition == "missing" else "submission-1", "runId": "run-1"}
+    with pytest.raises(ValueError, match="자료 이용이 제한"):
+        asyncio.run(parse_available_transcript(payload, submissions, FakeUploads(), SimpleNamespace(fail=fail), None, Participants()))
+    assert submissions.target_reads == 1
+    assert len(failures) == 1
+    assert len(participant_reads) == (1 if condition == "withdrawn" else 0)
+
+
 
 
 def test_transcript_archive_uses_screenshot_extractor() -> None:

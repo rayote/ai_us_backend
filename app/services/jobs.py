@@ -19,7 +19,7 @@ class JobRepository(Protocol):
 
     async def get(self, job_id: str) -> Job | None: ...
 
-    async def recover_interrupted(self) -> int: ...
+    async def recover_interrupted(self, max_attempts: int = 3) -> int: ...
 
     async def claim_next(self) -> Job | None: ...
 
@@ -98,9 +98,20 @@ class MongoJobRepository:
         )
         return _job_from_document(document) if document else None
 
-    async def recover_interrupted(self) -> int:
+    async def recover_interrupted(self, max_attempts: int = 3) -> int:
+        await self._collection.update_many(
+            {"status": {"$in": ["processing", "queued"]}, "attempts": {"$gte": max_attempts}},
+            {"$set": {
+                "status": "failed",
+                "processed_at": datetime.now(UTC),
+                "error": "Worker restart recovery stopped after maximum job attempts.",
+            }},
+        )
         result = await self._collection.update_many(
-            {"status": "processing"},
+            {"status": "processing", "$or": [
+                {"attempts": {"$lt": max_attempts}},
+                {"attempts": {"$exists": False}},
+            ]},
             {
                 "$set": {
                     "status": "queued",
@@ -147,12 +158,16 @@ class QueueWorker:
         self._max_attempts = max_attempts
 
     async def recover(self) -> int:
-        return await self._repository.recover_interrupted()
+        return await self._repository.recover_interrupted(self._max_attempts)
 
     async def process_one(self) -> bool:
         job = await self._repository.claim_next()
         if job is None:
             return False
+
+        if job.attempts > self._max_attempts:
+            await self._repository.fail(job.id, "Maximum job attempts exceeded.")
+            return True
 
         handler = self._handlers.get(job.job_type)
         if handler is None:

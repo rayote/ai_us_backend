@@ -162,10 +162,8 @@ async def process_transcript_parse(
     participants: ParticipantAccountRepository | None = None,
 ) -> None:
     submission_id, run_id = str(payload["submissionId"]), str(payload["runId"])
-    submission = next(
-        (item for item in await submissions.list_submissions() if item.submission_id == submission_id), None
-    )
-    if submission is None:
+    submission = await submissions.get_by_id(submission_id)
+    if submission is None or submission.status != "active":
         raise ValueError("대화문 제출을 찾을 수 없습니다.")
     try:
         await _check_material_consent(submission, participants)

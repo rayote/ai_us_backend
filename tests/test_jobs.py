@@ -74,9 +74,15 @@ class InMemoryJobRepository(JobRepository):
                 return processing_job
         return None
 
-    async def recover_interrupted(self) -> int:
+    async def recover_interrupted(self, max_attempts: int = 3) -> int:
         recovered = 0
         for index, job in enumerate(self.jobs):
+            if job.status in {"processing", "queued"} and job.attempts >= max_attempts:
+                self.jobs[index] = job.model_copy(update={
+                    "status": "failed", "processed_at": datetime.now(UTC),
+                    "error": "Worker restart recovery stopped after maximum job attempts.",
+                })
+                continue
             if job.status == "processing":
                 self.jobs[index] = job.model_copy(
                     update={
@@ -258,3 +264,57 @@ async def _worker_recovers_interrupted_processing_job() -> None:
 
     assert await worker.recover() == 1
     assert repository.jobs[0].status == "queued"
+
+
+def test_worker_stops_repeated_interruptions_at_attempt_limit() -> None:
+    async def check():
+        repository = InMemoryJobRepository()
+        await repository.enqueue(JobCreate(job_type="transcript_parse", idempotency_key="interrupted", payload={}))
+        worker = QueueWorker(repository, {}, max_attempts=2)
+        await repository.claim_next()
+        assert await worker.recover() == 1
+        await repository.claim_next()
+        assert await worker.recover() == 0
+        assert repository.jobs[0].status == "failed"
+        assert repository.jobs[0].attempts == 2
+        assert repository.jobs[0].processed_at is not None
+        assert await worker.process_one() is False
+
+    asyncio.run(check())
+
+
+def test_worker_does_not_execute_already_exhausted_queued_job() -> None:
+    async def check():
+        repository = InMemoryJobRepository()
+        await repository.enqueue(JobCreate(job_type="transcript_parse", idempotency_key="legacy-loop", payload={}))
+        repository.jobs[0] = repository.jobs[0].model_copy(update={"attempts": 59})
+        received_payloads = []
+
+        async def forbidden(payload):
+            received_payloads.append(payload)
+            raise AssertionError("Exhausted task must not execute")
+
+        worker = QueueWorker(repository, {"transcript_parse": forbidden})
+        assert await worker.process_one() is True
+        assert repository.jobs[0].status == "failed"
+        assert received_payloads == []
+
+    asyncio.run(check())
+
+
+def test_mongo_recovery_limits_attempts_without_touching_terminal_jobs() -> None:
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+    from app.services.jobs import MongoJobRepository
+
+    async def check():
+        collection = SimpleNamespace(update_many=AsyncMock(side_effect=[SimpleNamespace(modified_count=1), SimpleNamespace(modified_count=2)]))
+        assert await MongoJobRepository(collection).recover_interrupted(2) == 2
+        failed, recovered = collection.update_many.call_args_list
+        assert failed.args[0] == {"status": {"$in": ["processing", "queued"]}, "attempts": {"$gte": 2}}
+        assert failed.args[1]["$set"]["status"] == "failed"
+        assert isinstance(failed.args[1]["$set"]["processed_at"], datetime)
+        assert recovered.args[0] == {"status": "processing", "$or": [{"attempts": {"$lt": 2}}, {"attempts": {"$exists": False}}]}
+        assert recovered.args[1]["$set"]["status"] == "queued"
+
+    asyncio.run(check())

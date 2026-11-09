@@ -22,12 +22,14 @@ from app.services.chat_downloads import (
 from app.services.chats import (
     MongoChatSubmissionRepository,
     ChatSubmissionRepository,
+    ChatUploadRepository,
     available_chat_submissions,
     build_chat_archive,
     store_chat_submission,
 )
 from app.services.gemini_screenshot_extractor import GeminiScreenshotTranscriptExtractor
 from app.services.jobs import MongoJobRepository, QueueWorker
+from app.services.screenshot_transcripts import ScreenshotTranscriptExtractor
 from app.services.submissions import store_survey_response
 from app.services.surveys import (
     MongoSurveyDefinitionRepository,
@@ -35,6 +37,7 @@ from app.services.surveys import (
 )
 from app.services.transcript_runs import (
     MongoTranscriptParseRunRepository,
+    TranscriptParseRunRepository,
     build_transcript_archive,
     process_transcript_parse,
 )
@@ -73,6 +76,26 @@ async def select_download_submissions(
         profiles = {item.participant_id: item.school_level for item in await participants.list_participants()}
         submissions = [item for item in submissions if profiles.get(item.participant_id) == school_level]
     return await available_chat_submissions(submissions, participants)
+
+
+async def parse_available_transcript(
+    payload: dict[str, object], chat_submissions: ChatSubmissionRepository,
+    uploads: ChatUploadRepository, transcript_runs: TranscriptParseRunRepository,
+    screenshot_extractor: ScreenshotTranscriptExtractor | None,
+    participants: ParticipantAccountRepository,
+) -> None:
+    submission = await chat_submissions.get_by_id(str(payload["submissionId"]))
+    account = (
+        await participants.find_by_id(submission.participant_id)
+        if submission is not None and submission.status == "active" else None
+    )
+    if submission is None or account is None or not account.allows_chat_material(submission.submitted_at):
+        await transcript_runs.fail(str(payload["runId"]), "동의 철회 등으로 자료 이용이 제한되었습니다.", [])
+        raise ValueError("자료 이용이 제한되었습니다.")
+    await process_transcript_parse(
+        payload, chat_submissions, uploads, transcript_runs, screenshot_extractor,
+        participants,
+    )
 
 
 def acquire_worker_process_lock(
@@ -201,18 +224,6 @@ async def run_worker() -> None:
         finally:
             archive_path.unlink(missing_ok=True)
 
-    async def parse_available_transcript(payload: dict[str, object]) -> None:
-        submissions = await chat_submissions.list_submissions()
-        available = await available_chat_submissions(submissions, participants)
-        if not any(item.submission_id == payload.get("submissionId") for item in available):
-            await transcript_runs.fail(str(payload["runId"]), "동의 철회 등으로 자료 이용이 제한되었습니다.", [])
-            raise ValueError("자료 이용이 제한되었습니다.")
-        await process_transcript_parse(
-            payload, chat_submissions, database.gridfs_bucket("chat_uploads"),
-            transcript_runs, screenshot_extractor,
-            participants,
-        )
-
     worker = QueueWorker(
         MongoJobRepository(database.database["submission_jobs"]),
         {
@@ -224,7 +235,10 @@ async def run_worker() -> None:
             ),
             "chat_download": build_chat_download,
             "transcript_download": build_transcript_download,
-            "transcript_parse": parse_available_transcript,
+            "transcript_parse": lambda payload: parse_available_transcript(
+                payload, chat_submissions, database.gridfs_bucket("chat_uploads"),
+                transcript_runs, screenshot_extractor, participants,
+            ),
         },
     )
     await worker.recover()

@@ -29,9 +29,14 @@ class InvalidTranscriptSourceError(ValueError):
         self.code = code
 
 
+def _is_macos_metadata(name: str) -> bool:
+    path = PurePosixPath(name)
+    return '__macosx' in {part.lower() for part in path.parts} or path.name.startswith('._')
+
+
 def _missing_export_source(archive: zipfile.ZipFile, message: str) -> NoReturn:
     metadata_names = {"archive_browser.html", "summary.html", "readme.txt", ".ds_store"}
-    if any(not member.is_dir() and PurePosixPath(member.filename).name.lower() not in metadata_names for member in archive.infolist()):
+    if any(not member.is_dir() and not _is_macos_metadata(member.filename) and PurePosixPath(member.filename).name.lower() not in metadata_names for member in archive.infolist()):
         raise UnsupportedTranscriptError("필수 대화 파일이 없어 ZIP의 다른 자료 형식을 확인해야 합니다.")
     raise InvalidTranscriptSourceError("missing_required_files", message)
 
@@ -130,7 +135,7 @@ def _is_grok_export(payload: Any) -> bool:
 
 
 def find_grok_export_member(archive: zipfile.ZipFile) -> str:
-    candidates = [name for name in archive.namelist() if name.lower().endswith(".json")]
+    candidates = [name for name in archive.namelist() if not _is_macos_metadata(name) and name.lower().endswith(".json")]
     if not candidates:
         _missing_export_source(archive, "ZIP 파일 안에 필수 Grok 대화 JSON이 없습니다.")
     candidates.sort(
@@ -171,7 +176,7 @@ def _is_claude_export(payload: Any) -> bool:
 
 
 def find_claude_export_member(archive: zipfile.ZipFile) -> str:
-    candidates = [name for name in archive.namelist() if name.lower().endswith(".json")]
+    candidates = [name for name in archive.namelist() if not _is_macos_metadata(name) and name.lower().endswith(".json")]
     if not candidates:
         _missing_export_source(archive, "ZIP 파일 안에 필수 Claude 대화 JSON이 없습니다.")
     candidates.sort(
@@ -196,7 +201,7 @@ def find_chatgpt_export_members(archive: zipfile.ZipFile) -> list[str]:
     legacy: list[str] = []
     shards: list[tuple[int, str]] = []
     for member in archive.infolist():
-        if member.is_dir():
+        if member.is_dir() or _is_macos_metadata(member.filename):
             continue
         name = PurePosixPath(member.filename).name.lower()
         if name == "conversations.json":
@@ -285,7 +290,7 @@ def _gemini_payload(content: bytes) -> tuple[bytes, str | None]:
 def find_gemini_export_member(archive: zipfile.ZipFile) -> str:
     candidates = [
         name for name in archive.namelist()
-        if name.lower().endswith((".html", ".htm"))
+        if not _is_macos_metadata(name) and name.lower().endswith((".html", ".htm"))
     ]
     source_name = next(
         (
@@ -295,6 +300,35 @@ def find_gemini_export_member(archive: zipfile.ZipFile) -> str:
         ),
         next((name for name in candidates if "gemini" in name.lower()), None),
     )
+    if source_name is not None:
+        preferred = _GeminiTakeoutParser()
+        preferred.feed(_decode_html(archive.read(source_name)))
+        if not preferred.activities:
+            alternatives = []
+            unknown_content = False
+            for name in candidates:
+                if name == source_name:
+                    continue
+                html = _decode_html(archive.read(name))
+                parser = _GeminiTakeoutParser()
+                parser.feed(html)
+                gemini_products = bool(parser.products) and all(
+                    re.fullmatch(r"(?:Gemini|Bard)(?:\s+Apps?|\s+앱)?", product, re.IGNORECASE)
+                    for product in parser.products
+                )
+                ai_mode_products = bool(parser.products & AI_MODE_PRODUCTS) and parser.products <= (
+                    AI_MODE_PRODUCTS | SEARCH_PRODUCTS
+                )
+                if parser.activities and (gemini_products or ai_mode_products):
+                    alternatives.append(name)
+                else:
+                    document = BeautifulSoup(html, "html.parser")
+                    body = document.find("body") or document
+                    unknown_content = unknown_content or bool(body.get_text().strip()) or bool(body.find(["img", "script", "iframe", "object"]))
+            if len(alternatives) == 1:
+                source_name = alternatives[0]
+            elif len(alternatives) > 1 or unknown_content:
+                raise UnsupportedTranscriptError("Gemini 안내 HTML 외의 자료 구조를 확인해야 합니다.")
     if source_name is None:
         verified = []
         other_products = set()
@@ -321,7 +355,7 @@ def find_gemini_export_member(archive: zipfile.ZipFile) -> str:
         ):
             raise InvalidTranscriptSourceError("wrong_service_export", "Gemini 대화가 없는 다른 서비스 내보내기입니다.")
     if source_name is None:
-        if any(name.lower().endswith(".json") for name in archive.namelist()):
+        if any(not _is_macos_metadata(name) and name.lower().endswith(".json") for name in archive.namelist()):
             raise UnsupportedTranscriptError("Gemini 대화 HTML이 없어 ZIP의 JSON 형식을 확인해야 합니다.")
         if not any(PurePosixPath(name).name.lower().replace(" ", "") in {"myactivity.html", "내활동.html"} for name in candidates):
             _missing_export_source(archive, "ZIP 파일 안에 필수 Gemini 대화 파일이 없습니다.")

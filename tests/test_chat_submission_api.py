@@ -137,7 +137,7 @@ class InMemoryJobs(JobRepository):
     async def get(self, job_id: str) -> Job | None:
         return next((job for job in self.jobs if job.id == job_id), None)
 
-    async def recover_interrupted(self) -> int:
+    async def recover_interrupted(self, max_attempts: int = 3) -> int:
         return 0
 
     async def claim_next(self) -> Job | None:
