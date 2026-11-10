@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import datetime
+
 from typing import Literal
 
 from pydantic import BaseModel, Field
@@ -62,3 +64,31 @@ class IncompleteParticipantReport(BaseModel):
     criterion: str
     counts: SchoolLevelCount
     participants: list[NonparticipantRecord]
+
+
+class SurveyAllowlistGroup(BaseModel):
+    id: str
+    label: str
+    survey_round: int = Field(alias="surveyRound")
+    total: int
+
+
+class SurveyAllowlistParticipant(BaseModel):
+    participant_id: str = Field(alias="participantId")
+    name: str | None = None
+    phone: str | None = None
+    school_level: str | None = Field(default=None, alias="schoolLevel")
+    grade: int | None = None
+    status: Literal["completed", "partial", "notSubmitted", "accountMissing"]
+    part1_submitted_at: datetime | None = Field(alias="part1SubmittedAt")
+    part2_submitted_at: datetime | None = Field(alias="part2SubmittedAt")
+    submitted_at: datetime | None = Field(alias="submittedAt")
+
+
+class SurveyAllowlistReport(BaseModel):
+    id: str
+    label: str
+    survey_round: int = Field(alias="surveyRound")
+    deadline: datetime | None
+    counts: dict[str, int]
+    participants: list[SurveyAllowlistParticipant]

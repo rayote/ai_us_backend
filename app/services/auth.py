@@ -91,10 +91,19 @@ class ParticipantAccountRepository(Protocol):
 
     async def list_participants(self) -> list[ParticipantAccount]: ...
 
+    async def list_allowlist_accounts(self, participant_ids: list[str]) -> list[dict[str, Any]]: ...
+
 
 class MongoParticipantAccountRepository:
     def __init__(self, collection: Any) -> None:
         self._collection = collection
+
+    async def list_allowlist_accounts(self, participant_ids: list[str]) -> list[dict[str, Any]]:
+        identities = [ObjectId(identifier) for identifier in participant_ids if ObjectId.is_valid(identifier)]
+        return [document async for document in self._collection.find(
+            {"_id": {"$in": identities}, "role": "participant"},
+            projection={"_id": 1, "name": 1, "phone_normalized": 1, "school_level": 1, "grade": 1},
+        )]
 
     async def find_by_phone(self, phone: str) -> ParticipantAccount | None:
         document = await self._collection.find_one(

@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+from datetime import UTC
+import re
+
 from app.schemas.reporting import (
     ChatParticipationStatus,
     IncompleteParticipantReport,
@@ -26,6 +29,32 @@ def _school_level_counts(participants: list[object]) -> SchoolLevelCount:
     )
 
 
+def survey_allowlist_groups(records):
+    result = []
+    for round_number in (2, 3):
+        record = records.get(str(round_number), {})
+        allowed = list(dict.fromkeys(record.get("followup_participant_ids", [])))
+        if not allowed:
+            continue
+        assigned = set()
+        identifiers = set()
+        for group in record.get("followup_groups", []):
+            identifier = group.get("id", "")
+            if not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", identifier) or identifier in identifiers or identifier == "ungrouped":
+                raise ValueError("Invalid follow-up group identifier")
+            identifiers.add(identifier)
+            allowed_ids = set(allowed)
+            members = [member for member in dict.fromkeys(group.get("participant_ids", [])) if member in allowed_ids]
+            assigned.update(members)
+            result.append({"id": f"t{round_number}-{identifier}", "label": str(group.get("label") or identifier),
+                           "surveyRound": round_number, "participant_ids": members})
+        remaining = [member for member in allowed if member not in assigned]
+        if remaining:
+            result.append({"id": f"t{round_number}-ungrouped", "label": f"T{round_number} 후속 참여 대상자",
+                           "surveyRound": round_number, "participant_ids": remaining})
+    return result
+
+
 class ResearcherReportingService:
     def __init__(
         self,
@@ -38,6 +67,43 @@ class ResearcherReportingService:
         self._responses = responses
         self._definitions = definitions
         self._chat_submissions = chat_submissions
+
+    async def survey_allowlist(self, group):
+        from app.services.application_settings import T2_FOLLOWUP_DEADLINE
+
+        identities = group["participant_ids"]
+        accounts = {str(account["_id"]): account for account in await self._participants.list_allowlist_accounts(identities)}
+        definitions = {definition.survey_version: definition.part for definition in await self._definitions.list_definitions()
+                       if definition.survey_round == group["surveyRound"] and definition.part in (1, 2)}
+        submissions = {}
+        submitted_parts = set()
+        for response in await self._responses.list_allowlist_responses(identities, group["surveyRound"]):
+            part = definitions.get(response.survey_version)
+            if part is None:
+                continue
+            submitted_parts.add((response.participant_id, part))
+            if response.submitted_at is None:
+                continue
+            instant = response.submitted_at
+            if instant.tzinfo is None:
+                instant = instant.replace(tzinfo=UTC)
+            key = (response.participant_id, part)
+            if key not in submissions or instant > submissions[key]:
+                submissions[key] = instant
+        participants = []
+        for identifier in identities:
+            account = accounts.get(identifier)
+            first = submissions.get((identifier, 1))
+            second = submissions.get((identifier, 2))
+            state = "accountMissing" if account is None else "completed" if (identifier, 2) in submitted_parts else "partial" if (identifier, 1) in submitted_parts else "notSubmitted"
+            participants.append({"participantId": identifier, "name": (account or {}).get("name"),
+                "phone": (account or {}).get("phone_normalized"), "schoolLevel": (account or {}).get("school_level"),
+                "grade": (account or {}).get("grade"), "status": state,
+                "part1SubmittedAt": first, "part2SubmittedAt": second, "submittedAt": second})
+        return {"id": group["id"], "label": group["label"], "surveyRound": group["surveyRound"],
+                "deadline": T2_FOLLOWUP_DEADLINE if group["surveyRound"] == 2 else None,
+                "counts": {"total": len(participants), **{state: sum(row["status"] == state for row in participants)
+                    for state in ("completed", "partial", "notSubmitted", "accountMissing")}}, "participants": participants}
 
     async def _part_two_versions(self) -> dict[int, set[str]]:
         versions: dict[int, set[str]] = {}

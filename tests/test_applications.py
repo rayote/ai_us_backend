@@ -169,6 +169,37 @@ class RoundDefinitions:
         ]
 
 
+def test_participant_followup_round_access_and_exact_deadline():
+    from copy import deepcopy
+    from app.services.application_settings import participant_survey_rounds, T2_FOLLOWUP_DEADLINE
+
+    records = {
+        "1": {"is_open": False, "state": "closed"},
+        "2": {"is_open": False, "state": "closed", "selected_configuration": {"versions": []}, "followup_participant_ids": ["listed"]},
+        "3": {"is_open": True, "state": "open", "followup_participant_ids": ["listed"]},
+        "4": {"is_open": False, "state": "preparing"},
+    }
+    original = deepcopy(records)
+    before = T2_FOLLOWUP_DEADLINE - timedelta(microseconds=1)
+    listed = participant_survey_rounds(records, "listed", False, True, before)
+    assert listed["2"]["is_open"] and listed["3"]["is_open"]
+    existing = participant_survey_rounds(records, "existing", True, True, before)
+    assert not existing["2"]["is_open"] and existing["3"]["is_open"]
+    unknown = participant_survey_rounds(records, "unknown", False, True, before)
+    assert not unknown["2"]["is_open"] and not unknown["3"]["is_open"]
+    for instant in [T2_FOLLOWUP_DEADLINE, T2_FOLLOWUP_DEADLINE + timedelta(seconds=1)]:
+        assert not participant_survey_rounds(records, "listed", True, True, instant)["2"]["is_open"]
+    records["3"] = {**records["3"], "is_open": False, "state": "closed"}
+    assert not participant_survey_rounds(records, "listed", True, True, before)["3"]["is_open"]
+    records["2"]["selected_configuration"] = None
+    assert not participant_survey_rounds(records, "listed", True, True, before)["2"]["is_open"]
+    assert original["2"]["is_open"] is False
+    assert records["1"] == original["1"] and records["4"] == original["4"]
+    records["2"] = {**original["2"], "is_open": True, "state": "open"}
+    assert not participant_survey_rounds(records, "existing", True, False, before)["2"]["is_open"]
+    assert not participant_survey_rounds(records, "listed", True, False, T2_FOLLOWUP_DEADLINE)["2"]["is_open"]
+
+
 def test_survey_round_settings_defaults_permissions_upsert_and_validation():
     secret = "test-secret-at-least-thirty-two-bytes"
     admin_id = "507f1f77bcf86cd799439011"

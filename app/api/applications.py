@@ -11,7 +11,7 @@ from fastapi import APIRouter, HTTPException, Request, status
 router = APIRouter(prefix="/api/v1/applications", tags=["applications"])
 
 PARTICIPATION_NOTICE_TITLE = "[안내] 설문 접수 일시 중단"
-PARTICIPATION_NOTICE = "응답 자료 검수 중입니다. 현재는 설문을 이미 완료한 기존 참가자의 대화문 제출만 가능하며, 재개 시 문자로 안내드립니다."
+PARTICIPATION_NOTICE = "신규 참여 신청은 중단되었습니다. 기존 참가자는 로그인 후 허용된 후속 설문에 참여할 수 있으며, 설문을 한 회차 이상 완료하고 동의한 경우 대화문을 추가 제출할 수 있습니다."
 
 
 async def participation_settings(request: Request) -> dict:

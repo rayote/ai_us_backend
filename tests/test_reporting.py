@@ -16,6 +16,104 @@ from app.services.surveys import (
 )
 
 
+def test_allowlist_groups_only_include_authorized_members_and_keep_unassigned():
+    from app.services.reporting import survey_allowlist_groups
+
+    records = {"2": {"followup_participant_ids": ["one", "two", "one", "three"]},
+               "3": {"followup_participant_ids": ["school-a", "school-b"], "followup_groups": [
+                   {"id": "school-a", "label": "학교 A", "participant_ids": ["school-a", "outsider", "school-a"]},
+                   {"id": "school-b", "label": "학교 B", "participant_ids": ["school-b"]},
+               ]}}
+    groups = survey_allowlist_groups(records)
+    assert groups[0]["participant_ids"] == ["one", "two", "three"]
+    assert [group["id"] for group in groups] == ["t2-ungrouped", "t3-school-a", "t3-school-b"]
+    assert groups[1]["participant_ids"] == ["school-a"]
+    assert survey_allowlist_groups({}) == []
+
+
+def test_allowlist_report_is_read_only_complete_and_role_protected():
+    from fastapi.testclient import TestClient
+    from app.main import create_app
+    from app.core.settings import Settings
+    from app.core.security import create_access_token
+
+    first = datetime(2026, 11, 10, 1, tzinfo=UTC)
+    second = datetime(2026, 11, 10, 2, tzinfo=UTC)
+
+    class Accounts:
+        async def list_allowlist_accounts(self, identities):
+            assert identities == ["one", "two", "three", "missing"]
+            return [{"_id": identifier, "name": identifier, "phone_normalized": "01000000000", "school_level": "초등", "grade": 5}
+                    for identifier in identities if identifier != "missing"]
+
+    class Responses:
+        async def list_allowlist_responses(self, identities, survey_round):
+            assert identities == ["one", "two", "three", "missing"] and survey_round == 2
+            return [SurveyResponseSummary("one", 2, "part1", first), SurveyResponseSummary("one", 2, "part2", second.replace(tzinfo=None)),
+                    SurveyResponseSummary("two", 2, "part1", first), SurveyResponseSummary("three", 2, "unknown", second)]
+
+    class Definitions:
+        async def list_definitions(self):
+            return [SimpleNamespace(survey_round=2, survey_version=f"part{part}", part=part) for part in (1, 2)]
+
+    class SettingsRepository:
+        async def survey_rounds(self, t1_open):
+            return {"2": {"followup_participant_ids": ["one", "two", "three", "missing"]}}
+
+    secret = "test-secret-at-least-thirty-two-bytes"
+    app = create_app(Settings("test", None, "ai_us_test", (), secret), participant_account_repository=Accounts(),
+        survey_response_repository=Responses(), survey_definition_repository=Definitions(), application_settings_repository=SettingsRepository())
+    def headers(role):
+        return {"Authorization": "Bearer " + create_access_token(role + "-test", role, secret, 60)}
+    with TestClient(app) as client:
+        path = "/api/v1/researcher/survey-allowlists"
+        assert client.get(path).status_code == 401
+        assert client.get(path, headers=headers("participant")).status_code == 403
+        for role in ("admin", "researcher"):
+            groups = client.get(path, headers=headers(role)).json()
+            assert groups == [{"id": "t2-ungrouped", "label": "T2 후속 참여 대상자", "surveyRound": 2, "total": 4}]
+            report = client.get(path + "/t2-ungrouped", headers=headers(role))
+            assert report.status_code == 200
+            result = report.json()
+            assert result["counts"] == {"total": 4, "completed": 1, "partial": 1, "notSubmitted": 1, "accountMissing": 1}
+            assert [row["status"] for row in result["participants"]] == ["completed", "partial", "notSubmitted", "accountMissing"]
+            assert result["participants"][0]["submittedAt"] == "2026-11-10T02:00:00Z"
+            assert result["participants"][2]["submittedAt"] is None
+            assert result["deadline"] == "2026-11-15T15:00:00Z"
+            assert client.get(path + "/missing", headers=headers(role)).status_code == 404
+            assert client.post(path, headers=headers(role), json={}).status_code == 405
+
+
+def test_allowlist_completion_preserves_legacy_missing_submission_time():
+    from unittest.mock import AsyncMock
+
+    service = ResearcherReportingService(
+        SimpleNamespace(list_allowlist_accounts=AsyncMock(return_value=[{"_id": "one"}])),
+        SimpleNamespace(list_allowlist_responses=AsyncMock(return_value=[SurveyResponseSummary("one", 2, "part2")])),
+        SimpleNamespace(list_definitions=AsyncMock(return_value=[SimpleNamespace(survey_round=2, survey_version="part2", part=2)])),
+    )
+    result = asyncio.run(service.survey_allowlist({"id": "t2-test", "label": "test", "surveyRound": 2, "participant_ids": ["one"]}))
+    assert result["counts"]["completed"] == 1
+    assert result["participants"][0]["submittedAt"] is None
+
+
+def test_allowlist_queries_are_member_scoped_metadata_projections():
+    from bson import ObjectId
+    from app.services.auth import MongoParticipantAccountRepository
+
+    identifier = "507f1f77bcf86cd799439011"
+    participants, responses = MagicMock(), MagicMock()
+    participants.find.return_value = iter([{"_id": ObjectId(identifier), "name": "synthetic"}])
+    responses.find.return_value = iter([{"participant_id": identifier, "survey_round": 2, "survey_version": "part2", "submitted_at": datetime.now(UTC)}])
+    accounts = asyncio.run(MongoParticipantAccountRepository(AsyncCollection(participants)).list_allowlist_accounts([identifier]))
+    summaries = asyncio.run(MongoSurveyResponseRepository(AsyncCollection(responses)).list_allowlist_responses([identifier], 2))
+    assert len(accounts) == len(summaries) == 1
+    participants.find.assert_called_once_with({"_id": {"$in": [ObjectId(identifier)]}, "role": "participant"},
+        projection={"_id": 1, "name": 1, "phone_normalized": 1, "school_level": 1, "grade": 1})
+    responses.find.assert_called_once_with({"participant_id": {"$in": [identifier]}, "survey_round": 2},
+        projection={"_id": 0, "participant_id": 1, "survey_round": 1, "survey_version": 1, "submitted_at": 1})
+
+
 class InMemoryParticipants(ParticipantAccountRepository):
     def __init__(self) -> None:
         self.participants = [

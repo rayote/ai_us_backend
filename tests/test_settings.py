@@ -104,7 +104,7 @@ def test_settings_loads_gemini_screenshot_configuration(monkeypatch) -> None:
     assert settings.gemini_screenshot_model == "gemini-test-model"
 
 
-def test_participation_pause_blocks_new_admission_before_repository_access(monkeypatch):
+def test_participation_pause_blocks_public_admission_and_unlisted_survey(monkeypatch):
     import asyncio
     from types import SimpleNamespace
     from unittest.mock import AsyncMock
@@ -124,14 +124,16 @@ def test_participation_pause_blocks_new_admission_before_repository_access(monke
     result = asyncio.run(participation_admission_status(request))
     assert result["participationPaused"] is True
     assert result["noticeTitle"] == "[안내] 설문 접수 일시 중단"
-    for action in (
-        create_application(None, request),
-        _require_survey_access(request, "existing", 2, "part2"),
-    ):
-        with pytest.raises(HTTPException) as error:
-            asyncio.run(action)
-        assert error.value.status_code == 403
-        assert error.value.detail == result["notice"]
+    with pytest.raises(HTTPException) as error:
+        asyncio.run(create_application(None, request))
+    assert error.value.status_code == 403
+    assert error.value.detail == result["notice"]
+    repository.survey_rounds.assert_not_awaited()
+    repository.survey_rounds.return_value = {"2": {"is_open": False, "state": "closed"}}
+    with pytest.raises(HTTPException) as error:
+        asyncio.run(_require_survey_access(request, "existing", 2, "part2"))
+    assert error.value.status_code == 403
+    assert error.value.detail == "참여 기간이 끝났어요"
 
     repository.participation_settings.return_value = {"participation_paused": False}
     result = asyncio.run(participation_admission_status(Request({"type": "http", "app": app})))

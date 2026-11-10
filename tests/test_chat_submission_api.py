@@ -839,7 +839,8 @@ def test_paused_chat_lock_blocks_overlap_and_releases_after_invalid_upload():
         assert uploaded.status_code == 202, uploaded.json()
         assert len(submissions.submissions) == 1
         assert participants.chat_lock is None
-        assert client.post("/api/v1/chat-submissions", headers=headers, json=payload).status_code == 403
+        assert client.post("/api/v1/chat-submissions", headers=headers, json=payload).status_code == 202
+        assert participants.chat_lock is None
 
 
 def test_unavailable_pause_policy_blocks_writes_but_preserves_login_and_history():
@@ -865,7 +866,7 @@ def test_unavailable_pause_policy_blocks_writes_but_preserves_login_and_history(
         assert not jobs.jobs and not submissions.submissions and not uploads.files
 
 
-def test_paused_participation_keeps_login_and_only_first_chat_submission():
+def test_paused_participation_keeps_login_and_allows_additional_chat_submission():
     app, jobs, submissions, uploads = _app(True)
     with TestClient(app) as client:
         app.state.application_settings_repository.paused = True
@@ -902,19 +903,15 @@ def test_paused_participation_keeps_login_and_only_first_chat_submission():
         }
         assert client.post("/api/v1/chat-submissions", headers=headers, json=payload).status_code == 202
         status = client.get("/api/v1/participant/survey-status", headers=headers).json()
-        assert status["chatSubmissionAllowed"] is False
+        assert status["chatSubmissionAllowed"] is True
         payload["submissionId"] = "pause-second"
-        assert client.post("/api/v1/chat-submissions", headers=headers, json=payload).status_code == 403
-        rejected = client.post("/api/v1/chat-submissions/uploads", headers=headers,
-            data={"tool": "chatgpt", "submissionPoint": "afterRound1", "sourceType": "file", "submissionId": "pause-upload"},
-            files={"files": ("export.zip", b"not read", "application/zip")})
-        assert rejected.status_code == 403
-        assert len(jobs.jobs) == 1
+        assert client.post("/api/v1/chat-submissions", headers=headers, json=payload).status_code == 202
+        assert len(jobs.jobs) == 2
         assert submissions.submissions == []
         assert not uploads.files
 
 
-def test_paused_participation_blocks_existing_chat_and_incomplete_survey():
+def test_paused_participation_allows_existing_chat_but_blocks_incomplete_survey():
     app, _, submissions, _ = _app(True)
     with TestClient(app) as client:
         app.state.application_settings_repository.paused = True
@@ -929,8 +926,8 @@ def test_paused_participation_blocks_existing_chat_and_incomplete_survey():
             submittedAt=datetime.now(UTC), status="deletion_requested",
         ))
         status = client.get("/api/v1/participant/survey-status", headers=headers).json()
-        assert status["chatSubmissionAllowed"] is False
-        assert "이미" in status["chatSubmissionUnavailableReason"]
+        assert status["chatSubmissionAllowed"] is True
+        assert status["chatSubmissionUnavailableReason"] == ""
         app.state.survey_response_repository.list_versions_for_participant = AsyncMock(return_value=[])
         response = client.post("/api/v1/chat-submissions", headers=headers, json={
             "submissionPoint": "afterRound1", "sourceType": "text",

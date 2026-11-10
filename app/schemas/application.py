@@ -115,11 +115,15 @@ class SurveyRoundSetting(BaseModel):
     period_ended: bool = Field(alias="periodEnded")
     state: Literal["preparing", "open", "closed"]
     configurations: list[SurveyConfiguration]
+    followup_participant_count: int = Field(default=0, alias="followupParticipantCount")
+    followup_deadline: datetime | None = Field(default=None, alias="followupDeadline")
     updated_at: datetime | None = Field(default=None, alias="updatedAt")
     updated_by: str | None = Field(default=None, alias="updatedBy")
 
     @classmethod
     def from_record(cls, survey_round: int, record: dict) -> "SurveyRoundSetting":
+        from app.services.application_settings import T2_FOLLOWUP_DEADLINE
+
         return cls(
             surveyRound=survey_round,
             isOpen=record["is_open"],
@@ -128,6 +132,8 @@ class SurveyRoundSetting(BaseModel):
             periodEnded=record["period_ended"],
             state=record["state"],
             configurations=record["configurations"],
+            followupParticipantCount=len(record.get("followup_participant_ids", [])),
+            followupDeadline=T2_FOLLOWUP_DEADLINE if survey_round == 2 else None,
             updatedAt=record.get("updated_at"),
             updatedBy=record.get("updated_by"),
         )
@@ -140,6 +146,9 @@ class SurveyRoundSettingUpdate(BaseModel):
         default=None, alias="configurationId", min_length=1
     )
     period_ended: StrictBool | None = Field(default=None, alias="periodEnded")
+    followup_participant_ids: list[str] | None = Field(
+        default=None, alias="followupParticipantIds", max_length=5000
+    )
 
     @model_validator(mode="after")
     def require_one_change(self) -> "SurveyRoundSettingUpdate":
@@ -151,6 +160,10 @@ class SurveyRoundSettingUpdate(BaseModel):
             if key != "configuration_id"
         ):
             raise ValueError("토글 값은 true 또는 false여야 합니다.")
+        if self.followup_participant_ids is not None:
+            if any(not identifier.strip() or len(identifier) > 128 for identifier in self.followup_participant_ids):
+                raise ValueError("참가자 ID가 올바르지 않습니다.")
+            self.followup_participant_ids = list(dict.fromkeys(identifier.strip() for identifier in self.followup_participant_ids))
         return self
 
 

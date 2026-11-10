@@ -109,6 +109,33 @@ def resolve_survey_rounds(
     return result
 
 
+T2_FOLLOWUP_DEADLINE = datetime(2026, 11, 15, 15, tzinfo=UTC)
+
+
+def participant_survey_rounds(
+    records: dict[str, dict[str, Any]],
+    participant_id: str,
+    existing_participant: bool,
+    paused: bool,
+    now: datetime | None = None,
+) -> dict[str, dict[str, Any]]:
+    current_time = now or datetime.now(UTC)
+    result = {}
+    for key, record in records.items():
+        allowed = not paused and record["is_open"]
+        state = "paused" if paused else record.get("state", "open" if allowed else "preparing")
+        listed = participant_id in record.get("followup_participant_ids", [])
+        configured = record.get("selected_configuration") is not None
+        if key == "2" and "followup_participant_ids" in record:
+            allowed = listed and configured and current_time < T2_FOLLOWUP_DEADLINE
+            state = "open" if allowed else "closed"
+        if key == "3":
+            allowed = bool(record["is_open"] and (existing_participant or listed))
+            state = "open" if allowed else "closed" if record["is_open"] else state
+        result[key] = {**record, "is_open": allowed, "state": state}
+    return result
+
+
 def default_survey_rounds(t1_open: bool) -> dict[str, dict[str, Any]]:
     return {
         str(survey_round): {"is_open": enabled}
@@ -228,6 +255,7 @@ class MongoApplicationSettingsRepository:
             "is_open",
             "configuration_id",
             "period_ended",
+            "followup_participant_ids",
         }:
             raise ValueError("설문 설정 항목이 올바르지 않습니다.")
         prefix = f"survey_rounds.{survey_round}"

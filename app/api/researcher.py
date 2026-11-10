@@ -55,6 +55,8 @@ from app.schemas.reporting import (
     IncompleteParticipantReport,
     NonparticipantReport,
     ParticipationStatus,
+    SurveyAllowlistGroup,
+    SurveyAllowlistReport,
 )
 from app.schemas.survey import (
     SurveyDefinitionSummary,
@@ -722,6 +724,30 @@ async def get_participation_settings(
     _: str = Depends(require_researcher),
 ) -> ParticipationSettings:
     return ParticipationSettings(**await participation_settings(request))
+
+
+async def _survey_allowlist_groups(request: Request):
+    from app.services.reporting import survey_allowlist_groups
+
+    records = await _application_settings_repository(request).survey_rounds(request.app.state.settings.t1_submissions_open)
+    try:
+        return survey_allowlist_groups(records)
+    except (TypeError, ValueError, AttributeError):
+        raise HTTPException(status_code=503, detail="허용 명단 설정을 확인하지 못했습니다.") from None
+
+
+@router.get("/survey-allowlists", response_model=list[SurveyAllowlistGroup])
+async def list_survey_allowlists(request: Request, _: str = Depends(require_researcher)):
+    return [{"id": group["id"], "label": group["label"], "surveyRound": group["surveyRound"],
+             "total": len(group["participant_ids"])} for group in await _survey_allowlist_groups(request)]
+
+
+@router.get("/survey-allowlists/{group_id}", response_model=SurveyAllowlistReport)
+async def get_survey_allowlist(group_id: str, request: Request, _: str = Depends(require_researcher)):
+    group = next((record for record in await _survey_allowlist_groups(request) if record["id"] == group_id), None)
+    if group is None:
+        raise HTTPException(status_code=404, detail="허용 명단을 찾을 수 없습니다. 목록을 새로고침해 주세요.")
+    return await _reporting_service(request).survey_allowlist(group)
 
 
 @router.get("/survey-round-settings", response_model=list[SurveyRoundSetting])

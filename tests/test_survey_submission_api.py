@@ -599,6 +599,130 @@ def test_final_response_retry_repairs_progress_without_replacing_answers() -> No
     assert responses.document["answers"] == {"q1": "original"}
 
 
+def test_followup_allowlist_deadline_and_t3_without_t2(monkeypatch):
+    import csv
+    import io
+    from datetime import timedelta
+    import app.services.application_settings as policy
+    from app.schemas.survey import SurveyDefinitionSummary, SurveyProgressRecord
+
+    class SettingsRepository:
+        records = {
+            "1": {"configuration_id": "parts", "is_open": False, "period_ended": True},
+            "2": {"configuration_id": "parts", "is_open": False, "period_ended": True},
+            "3": {"configuration_id": "parts", "is_open": True, "period_ended": False},
+            "4": {"is_open": False},
+        }
+
+        async def participation_settings(self):
+            return {"participation_paused": True}
+
+        async def survey_rounds(self, t1_open):
+            return self.records
+
+        async def update_survey_round(self, survey_round, changes, updated_by):
+            self.records[str(survey_round)].update(changes)
+
+    class Definitions(InMemoryDefinitions):
+        async def list_definitions(self):
+            return [SurveyDefinitionSummary(
+                surveyRound=round_number, surveyVersion=f"part{part}", audience="all",
+                part=part, questionCount=1, createdAt=datetime.now(UTC),
+            ) for round_number in range(1, 5) for part in [1, 2]]
+
+        async def get(self, survey_round, survey_version):
+            if survey_version not in {"part1", "part2"}:
+                return None
+            return self.definition.model_copy(update={
+                "survey_round": survey_round, "survey_version": survey_version,
+                "spec": {"part": int(survey_version[-1])},
+            })
+
+    class Progress:
+        async def get(self, participant_id, survey_round, survey_version):
+            return None
+
+        async def save(self, participant_id, progress):
+            return SurveyProgressRecord(**progress.model_dump(exclude={"revision"}), revision=1, updatedAt=datetime.now(UTC))
+
+    class Accounts(InMemoryParticipantAccounts):
+        async def list_participants(self):
+            return [self.account]
+
+    class Responses(InMemoryResponses):
+        async def list_responses(self, survey_round, survey_version):
+            return [response for response in self.responses
+                    if response.survey_round == survey_round and response.survey_version == survey_version]
+
+    instant = policy.T2_FOLLOWUP_DEADLINE - timedelta(microseconds=1)
+
+    class Clock(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return instant
+
+    monkeypatch.setattr(policy, "datetime", Clock)
+    settings_repository, responses, jobs = SettingsRepository(), Responses(), InMemoryJobs()
+    secret = "test-secret-at-least-thirty-two-bytes"
+    app = create_app(
+        Settings("test", None, "ai_us_test", (), secret),
+        application_settings_repository=settings_repository,
+        participant_account_repository=Accounts(),
+        survey_definition_repository=Definitions(), survey_response_repository=responses,
+        survey_progress_repository=Progress(), job_repository=jobs,
+    )
+    headers = {"Authorization": "Bearer " + create_access_token("participant-1", "participant", secret, 60)}
+    admin = {"Authorization": "Bearer " + create_access_token("admin-1", "admin", secret, 60)}
+    status_path = "/api/v1/participant/survey-status"
+    payload = {"surveyRound": 2, "surveyVersion": "part1", "answers": {"q1": "answer"}, "submissionId": "followup"}
+    draft = {"surveyRound": 2, "surveyVersion": "part1", "answers": {"q1": "answer"}, "revision": 0,
+             "completedPage": 0, "nextPage": 1, "totalPages": 2, "clientSavedAt": datetime.now(UTC).isoformat()}
+    with TestClient(app) as client:
+        initial = client.get(status_path, headers=headers).json()
+        assert initial["completedRounds"] == []
+        assert initial["surveyRoundsOpen"] == {"1": False, "2": False, "3": True, "4": False}
+        assert client.get("/api/v1/participant/survey-configurations/2", headers=headers).json() == []
+        assert client.post("/api/v1/survey-responses", headers=headers, json=payload).status_code == 403
+        assert client.put("/api/v1/survey-progress", headers=headers, json=draft).status_code == 403
+        assert client.post("/api/v1/survey-responses", headers=headers, json={**payload, "surveyRound": 3, "surveyVersion": "part2"}).status_code == 403
+        assert client.post("/api/v1/survey-responses", headers=headers, json={**payload, "surveyRound": 3, "submissionId": "t3-no-t2"}).status_code == 202
+        route = "/api/v1/admin/survey-round-settings/2"
+        assert client.put(route, headers=headers, json={"followupParticipantIds": ["participant-1"]}).status_code == 403
+        updated = client.put(route, headers=admin, json={"followupParticipantIds": ["participant-1", "participant-1"]})
+        assert updated.status_code == 200
+        assert updated.json()["followupParticipantCount"] == 1
+        assert updated.json()["periodEnded"] is True and updated.json()["isOpen"] is False
+        assert client.get(status_path, headers=headers).json()["surveyRoundsOpen"]["2"] is True
+        assert len(client.get("/api/v1/participant/survey-configurations/2", headers=headers).json()) == 2
+        assert client.put("/api/v1/survey-progress", headers=headers, json=draft).status_code == 200
+        assert client.post("/api/v1/survey-responses", headers=headers, json=payload).status_code == 202
+        worker = QueueWorker(jobs, {"survey_response": lambda queued: store_survey_response(
+            queued, app.state.survey_definition_repository, responses)})
+        assert asyncio.run(worker.process_one())
+        assert asyncio.run(worker.process_one())
+        assert client.post("/api/v1/survey-responses", headers=headers, json={
+            **payload, "surveyVersion": "part2", "answers": {"q1": "allowlisted-answer"},
+            "submissionId": "followup-part2",
+        }).status_code == 202
+        assert asyncio.run(worker.process_one())
+        export_path = "/api/v1/researcher/exports/survey-responses?survey_round=2&survey_version=part2"
+        for suffix, expected_rows in [("", 1), ("&school_level=초등", 1), ("&school_level=중등", 0)]:
+            exported = client.get(export_path + suffix, headers=admin)
+            assert exported.status_code == 200
+            rows = list(csv.reader(io.StringIO(exported.text.lstrip("\ufeff"))))
+            assert len(rows) == expected_rows + 1
+            if expected_rows:
+                assert rows[1][rows[0].index("첫 번째 문항")] == "allowlisted-answer"
+        assert client.get(export_path, headers=headers).status_code == 403
+        for instant in [policy.T2_FOLLOWUP_DEADLINE, policy.T2_FOLLOWUP_DEADLINE + timedelta(seconds=1)]:
+            assert client.get(status_path, headers=headers).json()["surveyRoundsOpen"]["2"] is False
+            assert client.get("/api/v1/participant/survey-configurations/2", headers=headers).json() == []
+            assert client.put("/api/v1/survey-progress", headers=headers, json=draft).status_code == 403
+            assert client.post("/api/v1/survey-responses", headers=headers, json={**payload, "submissionId": "late"}).status_code == 403
+        assert settings_repository.records["2"]["period_ended"] is True
+        assert settings_repository.records["4"]["is_open"] is False
+
+
 @pytest.mark.parametrize("t1_fallback", [False, True])
 def test_round_admission_blocks_writes_preserves_reads_and_finishes_queued_jobs(
     t1_fallback,

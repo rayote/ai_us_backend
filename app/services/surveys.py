@@ -25,6 +25,7 @@ class SurveyResponseSummary:
     participant_id: str
     survey_round: int
     survey_version: str
+    submitted_at: datetime | None = None
 
 
 class SurveyDefinitionRepository(Protocol):
@@ -53,6 +54,8 @@ class SurveyResponseRepository(Protocol):
     async def list_all_responses(self) -> list[SurveyResponseRecord]: ...
 
     async def list_response_summaries(self) -> list[SurveyResponseSummary]: ...
+
+    async def list_allowlist_responses(self, participant_ids: list[str], survey_round: int) -> list[SurveyResponseSummary]: ...
 
 
 class SurveySessionRepository(Protocol):
@@ -165,6 +168,13 @@ class MongoSurveyDefinitionRepository:
 
 
 class MongoSurveyResponseRepository:
+    async def list_allowlist_responses(self, participant_ids: list[str], survey_round: int) -> list[SurveyResponseSummary]:
+        cursor = self._collection.find(
+            {"participant_id": {"$in": participant_ids}, "survey_round": survey_round},
+            projection={"_id": 0, "participant_id": 1, "survey_round": 1, "survey_version": 1, "submitted_at": 1},
+        )
+        return [SurveyResponseSummary(str(document["participant_id"]), document["survey_round"],
+            document["survey_version"], document.get("submitted_at")) async for document in cursor]
     def __init__(self, collection: Any, progress_collection: Any = None) -> None:
         self._collection = collection
         self._progress_collection = progress_collection
