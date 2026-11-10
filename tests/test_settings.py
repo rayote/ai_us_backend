@@ -1,6 +1,23 @@
 from app.core.settings import Settings
 
 
+def test_retired_t4_never_reopens_or_changes_stored_settings():
+    from app.services.application_settings import participant_survey_rounds, resolve_survey_rounds
+
+    stored = {"4": {"is_open": True, "configuration_id": "legacy", "period_ended": False,
+                    "followup_participant_ids": ["synthetic"]}}
+    resolved = resolve_survey_rounds(stored, {"4": [{"id": "legacy"}]})
+    assert resolved["4"]["state"] == "closed"
+    assert resolved["4"]["is_open"] is False
+    assert resolved["4"]["submission_allowed"] is False
+    for paused in [False, True]:
+        effective = participant_survey_rounds(resolved, "synthetic", True, paused)
+        assert effective["4"]["state"] == "closed"
+        assert effective["4"]["is_open"] is False
+    assert stored["4"]["is_open"] is True
+    assert stored["4"]["period_ended"] is False
+
+
 def test_mongo_participation_pause_preserves_other_application_settings():
     import asyncio
     from unittest.mock import AsyncMock

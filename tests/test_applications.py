@@ -382,7 +382,7 @@ def test_round_configuration_and_period_end_are_reversible_and_independent():
             "closed",
             "open",
             "preparing",
-            "preparing",
+            "closed",
         ]
         assert (
             initial[2]["configurations"] == [] and initial[3]["configurationId"] is None

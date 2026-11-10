@@ -106,6 +106,8 @@ def resolve_survey_rounds(
             "configurations": available,
             "selected_configuration": selected,
         }
+        if key == "4":
+            result[key].update(is_open=False, submission_allowed=False, state="closed")
     return result
 
 
@@ -132,6 +134,8 @@ def participant_survey_rounds(
         if key == "3":
             allowed = bool(record["is_open"] and (existing_participant or listed))
             state = "open" if allowed else "closed" if record["is_open"] else state
+        if key == "4":
+            allowed, state = False, "closed"
         result[key] = {**record, "is_open": allowed, "state": state}
     return result
 

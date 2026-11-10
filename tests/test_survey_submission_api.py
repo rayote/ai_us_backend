@@ -599,6 +599,66 @@ def test_final_response_retry_repairs_progress_without_replacing_answers() -> No
     assert responses.document["answers"] == {"q1": "original"}
 
 
+def test_retired_t4_blocks_new_writes_preserves_existing_exports():
+    import csv
+    import io
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+    from app.schemas.survey import SurveyDefinitionSummary
+    from app.services.application_settings import default_survey_rounds
+
+    class Definitions(InMemoryDefinitions):
+        async def list_definitions(self):
+            return [SurveyDefinitionSummary(surveyRound=4, surveyVersion=f"legacy-part{part}",
+                audience="all", part=part, questionCount=1, createdAt=datetime.now(UTC)) for part in [1, 2]]
+
+        async def get(self, survey_round, survey_version):
+            if survey_round == 4 and survey_version in {"legacy-part1", "legacy-part2"}:
+                return self.definition.model_copy(update={"survey_round": 4, "survey_version": survey_version,
+                    "spec": {"part": int(survey_version[-1])}})
+            return None
+
+    records = default_survey_rounds(True)
+    records["4"].update(is_open=True, configuration_id="legacy-parts", period_ended=False)
+    settings = SimpleNamespace(participation_settings=AsyncMock(return_value={"participation_paused": False}),
+        survey_rounds=AsyncMock(return_value=records), update_survey_round=AsyncMock())
+    accounts, responses, jobs = InMemoryParticipantAccounts(), InMemoryResponses(), InMemoryJobs()
+    accounts.list_participants = AsyncMock(return_value=[accounts.account])
+    responses.responses.append(SurveyResponseRecord(participantId="participant-1", surveyRound=4,
+        surveyVersion="legacy-part2", answers={"q1": "legacy-answer"}, submittedAt=datetime.now(UTC)))
+    progress = SimpleNamespace(get=AsyncMock(return_value=None), save=AsyncMock())
+    secret = "test-secret-at-least-thirty-two-bytes"
+    app = create_app(Settings("test", None, "ai_us_test", (), secret),
+        application_settings_repository=settings, participant_account_repository=accounts,
+        survey_definition_repository=Definitions(), survey_response_repository=responses,
+        survey_progress_repository=progress, job_repository=jobs)
+    participant = {"Authorization": "Bearer " + create_access_token("participant-1", "participant", secret, 60)}
+    admin = {"Authorization": "Bearer " + create_access_token("admin-1", "admin", secret, 60)}
+    with TestClient(app) as client:
+        status = client.get("/api/v1/participant/survey-status", headers=participant).json()
+        assert status["surveyRoundsOpen"]["4"] is False
+        assert status["surveyRoundStates"]["4"] == "closed"
+        assert 4 in status["completedRounds"]
+        assert client.get("/api/v1/participant/survey-configurations/4", headers=participant).json() == []
+        assert client.post("/api/v1/survey-responses", headers=participant, json={"surveyRound": 4,
+            "surveyVersion": "legacy-part1", "answers": {"q1": "new"}, "submissionId": "retired"}).status_code == 403
+        assert client.put("/api/v1/survey-progress", headers=participant, json={"surveyRound": 4,
+            "surveyVersion": "legacy-part1", "answers": {"q1": "new"}, "revision": 0,
+            "completedPage": 0, "nextPage": 1, "totalPages": 2,
+            "clientSavedAt": datetime.now(UTC).isoformat()}).status_code == 403
+        assert client.put("/api/v1/admin/survey-round-settings/4", headers=admin, json={"isOpen": True}).status_code == 410
+        exported = client.get("/api/v1/researcher/exports/survey-responses?survey_round=4&survey_version=legacy-part2", headers=admin)
+        assert exported.status_code == 200
+        rows = list(csv.reader(io.StringIO(exported.text.lstrip("\ufeff"))))
+        assert len(rows) == 2
+        assert rows[1][rows[0].index("첫 번째 문항")] == "legacy-answer"
+    settings.update_survey_round.assert_not_called()
+    progress.save.assert_not_called()
+    assert not jobs.jobs
+    assert records["4"]["is_open"] is True
+    assert len(responses.responses) == 1
+
+
 def test_followup_allowlist_deadline_and_t3_without_t2(monkeypatch):
     import csv
     import io

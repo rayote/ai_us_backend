@@ -157,6 +157,8 @@ async def update_survey_round_settings(
     survey_round: int = Path(ge=1, le=4),
     admin_id: str = Depends(require_admin),
 ) -> SurveyRoundSetting:
+    if survey_round == 4:
+        raise HTTPException(status_code=410, detail="4회차 설문은 종료되어 접수 설정을 변경할 수 없습니다.")
     repository = _application_settings_repository(request)
     definitions = _survey_definition_repository(request)
     records = await load_survey_rounds(

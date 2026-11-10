@@ -895,7 +895,8 @@ def test_paused_participation_keeps_login_and_allows_additional_chat_submission(
         status = client.get("/api/v1/participant/survey-status", headers=headers).json()
         assert status["completedRounds"] == [1]
         assert not any(status["surveyRoundsOpen"].values())
-        assert set(status["surveyRoundStates"].values()) == {"paused"}
+        assert {status["surveyRoundStates"][str(round_number)] for round_number in [1, 2, 3]} == {"paused"}
+        assert status["surveyRoundStates"]["4"] == "closed"
         assert status["chatSubmissionAllowed"] is True
         payload = {
             "submissionPoint": "afterRound1", "sourceType": "text",
