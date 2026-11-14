@@ -114,6 +114,13 @@ def resolve_survey_rounds(
 T2_FOLLOWUP_DEADLINE = datetime(2026, 11, 15, 15, tzinfo=UTC)
 
 
+def t1_followup_deadline(record: dict[str, Any]) -> datetime | None:
+    deadline = record.get("followup_deadline")
+    if not isinstance(deadline, datetime):
+        return None
+    return deadline.replace(tzinfo=UTC) if deadline.tzinfo is None else deadline
+
+
 def participant_survey_rounds(
     records: dict[str, dict[str, Any]],
     participant_id: str,
@@ -122,18 +129,27 @@ def participant_survey_rounds(
     now: datetime | None = None,
 ) -> dict[str, dict[str, Any]]:
     current_time = now or datetime.now(UTC)
+    t1_members = records.get("1", {}).get("followup_participant_ids", [])
     result = {}
     for key, record in records.items():
         allowed = not paused and record["is_open"]
         state = "paused" if paused else record.get("state", "open" if allowed else "preparing")
         listed = participant_id in record.get("followup_participant_ids", [])
         configured = record.get("selected_configuration") is not None
+        if key == "1" and "followup_participant_ids" in record:
+            deadline = t1_followup_deadline(record)
+            unlimited = "followup_deadline" in record and record["followup_deadline"] is None
+            allowed = bool(listed and configured and (unlimited or
+                           (deadline is not None and current_time < deadline)))
+            state = "open" if allowed else "closed"
         if key == "2" and "followup_participant_ids" in record:
             allowed = listed and configured and current_time < T2_FOLLOWUP_DEADLINE
             state = "open" if allowed else "closed"
         if key == "3":
             allowed = bool(record["is_open"] and (existing_participant or listed))
             state = "open" if allowed else "closed" if record["is_open"] else state
+        if key in {"2", "3"} and participant_id in t1_members and not listed:
+            allowed, state = False, "closed"
         if key == "4":
             allowed, state = False, "closed"
         result[key] = {**record, "is_open": allowed, "state": state}
@@ -260,6 +276,8 @@ class MongoApplicationSettingsRepository:
             "configuration_id",
             "period_ended",
             "followup_participant_ids",
+            "followup_deadline",
+            "followup_groups",
         }:
             raise ValueError("설문 설정 항목이 올바르지 않습니다.")
         prefix = f"survey_rounds.{survey_round}"

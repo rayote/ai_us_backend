@@ -5,6 +5,7 @@ from datetime import datetime
 from typing import Literal
 
 from pydantic import (
+    AwareDatetime,
     BaseModel,
     ConfigDict,
     Field,
@@ -122,7 +123,7 @@ class SurveyRoundSetting(BaseModel):
 
     @classmethod
     def from_record(cls, survey_round: int, record: dict) -> "SurveyRoundSetting":
-        from app.services.application_settings import T2_FOLLOWUP_DEADLINE
+        from app.services.application_settings import T2_FOLLOWUP_DEADLINE, t1_followup_deadline
 
         return cls(
             surveyRound=survey_round,
@@ -133,10 +134,36 @@ class SurveyRoundSetting(BaseModel):
             state=record["state"],
             configurations=record["configurations"],
             followupParticipantCount=len(record.get("followup_participant_ids", [])),
-            followupDeadline=T2_FOLLOWUP_DEADLINE if survey_round == 2 else None,
+            followupDeadline=T2_FOLLOWUP_DEADLINE if survey_round == 2 else t1_followup_deadline(record) if survey_round == 1 else None,
             updatedAt=record.get("updated_at"),
             updatedBy=record.get("updated_by"),
         )
+
+
+def _normalize_participant_ids(identifiers: list[str]) -> list[str]:
+    if any(not identifier.strip() or len(identifier) > 128 for identifier in identifiers):
+        raise ValueError("참가자 ID가 올바르지 않습니다.")
+    return list(dict.fromkeys(identifier.strip() for identifier in identifiers))
+
+
+class SurveyAllowlistGroupSetting(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: str = Field(pattern=r"^[A-Za-z0-9_-]{1,64}$")
+    label: str = Field(min_length=1, max_length=200)
+    participant_ids: list[str] = Field(alias="participantIds", max_length=5000)
+
+    @field_validator("participant_ids")
+    @classmethod
+    def normalize_members(cls, value: list[str]) -> list[str]:
+        return _normalize_participant_ids(value)
+
+    @model_validator(mode="after")
+    def validate_group(self) -> "SurveyAllowlistGroupSetting":
+        self.label = self.label.strip()
+        if self.id == "ungrouped" or not self.label:
+            raise ValueError("학교 그룹 ID와 이름을 확인해 주세요.")
+        return self
 
 
 class SurveyRoundSettingUpdate(BaseModel):
@@ -149,6 +176,10 @@ class SurveyRoundSettingUpdate(BaseModel):
     followup_participant_ids: list[str] | None = Field(
         default=None, alias="followupParticipantIds", max_length=5000
     )
+    followup_deadline: AwareDatetime | None = Field(default=None, alias="followupDeadline")
+    followup_groups: list[SurveyAllowlistGroupSetting] | None = Field(
+        default=None, alias="followupGroups", max_length=1000
+    )
 
     @model_validator(mode="after")
     def require_one_change(self) -> "SurveyRoundSettingUpdate":
@@ -157,13 +188,15 @@ class SurveyRoundSettingUpdate(BaseModel):
         if any(
             getattr(self, key) is None
             for key in self.model_fields_set
-            if key != "configuration_id"
+            if key not in {"configuration_id", "followup_deadline"}
         ):
             raise ValueError("토글 값은 true 또는 false여야 합니다.")
         if self.followup_participant_ids is not None:
-            if any(not identifier.strip() or len(identifier) > 128 for identifier in self.followup_participant_ids):
-                raise ValueError("참가자 ID가 올바르지 않습니다.")
-            self.followup_participant_ids = list(dict.fromkeys(identifier.strip() for identifier in self.followup_participant_ids))
+            self.followup_participant_ids = _normalize_participant_ids(self.followup_participant_ids)
+        if self.followup_groups is not None:
+            identifiers = [group.id for group in self.followup_groups]
+            if len(set(identifiers)) != len(identifiers):
+                raise ValueError("학교 그룹 ID는 중복될 수 없습니다.")
         return self
 
 

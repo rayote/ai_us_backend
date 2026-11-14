@@ -30,9 +30,12 @@ def _school_level_counts(participants: list[object]) -> SchoolLevelCount:
 
 
 def survey_allowlist_groups(records):
+    from app.services.application_settings import t1_followup_deadline
+
     result = []
-    for round_number in (2, 3):
+    for round_number in (1, 2, 3):
         record = records.get(str(round_number), {})
+        deadline = t1_followup_deadline(record) if round_number == 1 else None
         allowed = list(dict.fromkeys(record.get("followup_participant_ids", [])))
         if not allowed:
             continue
@@ -47,11 +50,12 @@ def survey_allowlist_groups(records):
             members = [member for member in dict.fromkeys(group.get("participant_ids", [])) if member in allowed_ids]
             assigned.update(members)
             result.append({"id": f"t{round_number}-{identifier}", "label": str(group.get("label") or identifier),
-                           "surveyRound": round_number, "participant_ids": members})
+                           "surveyRound": round_number, "participant_ids": members, "deadline": deadline})
         remaining = [member for member in allowed if member not in assigned]
         if remaining:
-            result.append({"id": f"t{round_number}-ungrouped", "label": f"T{round_number} 후속 참여 대상자",
-                           "surveyRound": round_number, "participant_ids": remaining})
+            label = "T1 추가 참여 대상자" if round_number == 1 else f"T{round_number} 후속 참여 대상자"
+            result.append({"id": f"t{round_number}-ungrouped", "label": label,
+                           "surveyRound": round_number, "participant_ids": remaining, "deadline": deadline})
     return result
 
 
@@ -101,7 +105,7 @@ class ResearcherReportingService:
                 "grade": (account or {}).get("grade"), "status": state,
                 "part1SubmittedAt": first, "part2SubmittedAt": second, "submittedAt": second})
         return {"id": group["id"], "label": group["label"], "surveyRound": group["surveyRound"],
-                "deadline": T2_FOLLOWUP_DEADLINE if group["surveyRound"] == 2 else None,
+                "deadline": T2_FOLLOWUP_DEADLINE if group["surveyRound"] == 2 else group.get("deadline") if group["surveyRound"] == 1 else None,
                 "counts": {"total": len(participants), **{state: sum(row["status"] == state for row in participants)
                     for state in ("completed", "partial", "notSubmitted", "accountMissing")}}, "participants": participants}
 

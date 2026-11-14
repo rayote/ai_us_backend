@@ -31,6 +31,34 @@ def test_allowlist_groups_only_include_authorized_members_and_keep_unassigned():
     assert survey_allowlist_groups({}) == []
 
 
+def test_t1_school_groups_report_only_t1_progress_and_normalize_mongo_deadline():
+    from unittest.mock import AsyncMock
+    from app.services.reporting import survey_allowlist_groups
+
+    deadline = datetime(2040, 1, 1)
+    records = {"1": {"followup_participant_ids": ["one", "two"], "followup_deadline": deadline,
+                     "followup_groups": [
+                         {"id": "school-a", "label": "School A", "participant_ids": ["one", "outsider"]},
+                         {"id": "school-b", "label": "School B", "participant_ids": ["two"]},
+                     ]}}
+    groups = survey_allowlist_groups(records)
+    assert [group["id"] for group in groups] == ["t1-school-a", "t1-school-b"]
+    assert groups[0]["participant_ids"] == ["one"]
+    assert groups[0]["deadline"] == deadline.replace(tzinfo=UTC)
+    service = ResearcherReportingService(
+        SimpleNamespace(list_allowlist_accounts=AsyncMock(return_value=[{"_id": "one"}])),
+        SimpleNamespace(list_allowlist_responses=AsyncMock(return_value=[SurveyResponseSummary("one", 1, "t1-part1")])),
+        SimpleNamespace(list_definitions=AsyncMock(return_value=[
+            SimpleNamespace(survey_round=1, survey_version="t1-part1", part=1),
+            SimpleNamespace(survey_round=2, survey_version="t2-part2", part=2),
+        ])),
+    )
+    result = asyncio.run(service.survey_allowlist(groups[0]))
+    assert result["surveyRound"] == 1 and result["deadline"].tzinfo == UTC
+    assert result["counts"]["partial"] == 1 and result["counts"]["completed"] == 0
+    service._responses.list_allowlist_responses.assert_awaited_once_with(["one"], 1)
+
+
 def test_allowlist_report_is_read_only_complete_and_role_protected():
     from fastapi.testclient import TestClient
     from app.main import create_app

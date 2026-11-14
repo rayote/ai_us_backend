@@ -200,6 +200,49 @@ def test_participant_followup_round_access_and_exact_deadline():
     assert not participant_survey_rounds(records, "listed", True, False, T2_FOLLOWUP_DEADLINE)["2"]["is_open"]
 
 
+def test_t1_allowlist_requires_explicit_deadline_policy_and_later_round_membership():
+    from copy import deepcopy
+    from app.services.application_settings import participant_survey_rounds
+
+    deadline = datetime(2026, 12, 1, tzinfo=UTC)
+    records = {
+        "1": {"is_open": False, "state": "closed", "selected_configuration": {"versions": []},
+              "followup_participant_ids": ["new-school"], "followup_deadline": deadline},
+        "2": {"is_open": True, "state": "open"},
+        "3": {"is_open": True, "state": "open"},
+        "4": {"is_open": True, "state": "open"},
+    }
+    original = deepcopy(records)
+    before = deadline - timedelta(microseconds=1)
+    for paused in (False, True):
+        rounds = participant_survey_rounds(records, "new-school", True, paused, before)
+        assert rounds["1"]["is_open"]
+        assert all(not rounds[key]["is_open"] for key in ("2", "3", "4"))
+        assert not participant_survey_rounds(records, "unlisted", True, paused, before)["1"]["is_open"]
+    assert participant_survey_rounds(records, "existing", True, True, before)["3"]["is_open"]
+    for instant in (deadline, deadline + timedelta(seconds=1)):
+        assert not participant_survey_rounds(records, "new-school", True, False, instant)["1"]["is_open"]
+    for invalid in ("2026-12-01T00:00:00Z", False):
+        records["1"]["followup_deadline"] = invalid
+        assert not participant_survey_rounds(records, "new-school", True, False, before)["1"]["is_open"]
+    records["1"].pop("followup_deadline")
+    assert not participant_survey_rounds(records, "new-school", True, False, before)["1"]["is_open"]
+    records["1"]["followup_deadline"] = None
+    for instant in (before, datetime(2040, 1, 1, tzinfo=UTC)):
+        rounds = participant_survey_rounds(records, "new-school", True, True, instant)
+        assert rounds["1"]["is_open"]
+        assert all(not rounds[key]["is_open"] for key in ("2", "3", "4"))
+    records["1"]["followup_deadline"] = deadline.replace(tzinfo=None)
+    assert participant_survey_rounds(records, "new-school", True, True, before)["1"]["is_open"]
+    records["1"]["selected_configuration"] = None
+    assert not participant_survey_rounds(records, "new-school", True, False, before)["1"]["is_open"]
+    records["2"]["followup_participant_ids"] = ["new-school"]
+    records["3"]["followup_participant_ids"] = ["new-school"]
+    rounds = participant_survey_rounds(records, "new-school", True, True, before)
+    assert rounds["3"]["is_open"]
+    assert records["1"]["is_open"] == original["1"]["is_open"]
+
+
 def test_survey_round_settings_defaults_permissions_upsert_and_validation():
     secret = "test-secret-at-least-thirty-two-bytes"
     admin_id = "507f1f77bcf86cd799439011"
@@ -351,6 +394,52 @@ def test_survey_round_settings_defaults_permissions_upsert_and_validation():
             or all(key.startswith("survey_rounds.") for key in update["$set"])
             for update in collection.updates
         )
+
+
+def test_t1_allowlist_admin_settings_support_school_groups_and_aware_deadline():
+    collection = RoundSettingsCollection()
+    secret = "test-secret-at-least-thirty-two-bytes"
+    app = create_app(
+        Settings("test", None, "ai_us_test", (), secret, t1_submissions_open=False),
+        application_settings_repository=MongoApplicationSettingsRepository(collection),
+        survey_definition_repository=RoundDefinitions(),
+    )
+    admin = {"Authorization": "Bearer " + jwt.encode(
+        {"sub": "admin", "role": "admin", "exp": datetime.now(UTC) + timedelta(minutes=10)},
+        secret, algorithm="HS256",
+    )}
+    path = "/api/v1/admin/survey-round-settings/1"
+    with TestClient(app) as client:
+        result = client.put(path, json={"followupParticipantIds": [" member-one ", "member-one"]}, headers=admin)
+        assert result.status_code == 200 and result.json()["followupParticipantCount"] == 1
+        assert not result.json()["isOpen"]
+        result = client.put(path, json={"followupDeadline": "2040-01-01T00:00:00+09:00"}, headers=admin)
+        assert result.status_code == 200 and result.json()["followupDeadline"] is not None
+        groups = [
+            {"id": "school-a", "label": "School A", "participantIds": ["member-one", "outsider"]},
+            {"id": "school-b", "label": "School B", "participantIds": []},
+        ]
+        result = client.put(path, json={"followupGroups": groups}, headers=admin)
+        assert result.status_code == 200
+        listing = client.get("/api/v1/researcher/survey-allowlists", headers=admin)
+        assert listing.json() == [
+            {"id": "t1-school-a", "label": "School A", "surveyRound": 1, "total": 1},
+            {"id": "t1-school-b", "label": "School B", "surveyRound": 1, "total": 0},
+        ]
+        for invalid in [
+            {"followupDeadline": "2040-01-01T00:00:00"},
+            {"followupGroups": [groups[0], groups[0]]},
+            {"followupGroups": [{**groups[0], "id": "ungrouped"}]},
+            {"followupGroups": [{**groups[0], "label": "  "}]},
+            {"followupGroups": [{**groups[0], "id": "school/a"}]},
+            {"followupGroups": [{**groups[0], "participantIds": ["  "]}]},
+        ]:
+            assert client.put(path, json=invalid, headers=admin).status_code == 422
+        assert client.put(path.replace("/1", "/2"), json={"followupDeadline": None}, headers=admin).status_code == 422
+        result = client.put(path, json={"followupDeadline": None}, headers=admin)
+        assert result.status_code == 200 and result.json()["followupDeadline"] is None
+        assert collection.document["survey_rounds"]["1"]["followup_participant_ids"] == ["member-one"]
+        assert collection.document["survey_rounds"]["1"]["followup_groups"][0]["participant_ids"] == ["member-one", "outsider"]
 
 
 def test_round_configuration_and_period_end_are_reversible_and_independent():

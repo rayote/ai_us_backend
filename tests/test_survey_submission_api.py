@@ -659,6 +659,103 @@ def test_retired_t4_blocks_new_writes_preserves_existing_exports():
     assert len(responses.responses) == 1
 
 
+@pytest.mark.parametrize("unlimited", [False, True])
+@pytest.mark.parametrize("chat_consent", [False, True])
+def test_t1_school_allowlist_allows_submission_without_reopening_signup_or_t3(unlimited, chat_consent):
+    from dataclasses import replace
+    from datetime import timedelta
+    from app.schemas.survey import SurveyDefinitionSummary, SurveyProgressRecord
+
+    class SettingsRepository:
+        records = {
+            "1": {"configuration_id": "parts", "is_open": False, "period_ended": True,
+                  "followup_participant_ids": ["participant-1"],
+                  "followup_deadline": None if unlimited else (datetime.now(UTC) + timedelta(days=1)).replace(tzinfo=None)},
+            "2": {"configuration_id": "parts", "is_open": True, "period_ended": False},
+            "3": {"configuration_id": "parts", "is_open": True, "period_ended": False},
+            "4": {"is_open": False},
+        }
+
+        async def participation_settings(self):
+            return {"participation_paused": True}
+
+        async def survey_rounds(self, t1_open):
+            return self.records
+
+    class Definitions(InMemoryDefinitions):
+        async def list_definitions(self):
+            return [SurveyDefinitionSummary(
+                surveyRound=round_number, surveyVersion=f"part{part}", audience="all",
+                part=part, questionCount=1, createdAt=datetime.now(UTC),
+            ) for round_number in (1, 2, 3) for part in (1, 2)]
+
+        async def get(self, survey_round, survey_version):
+            if survey_version not in {"part1", "part2"}:
+                return None
+            return self.definition.model_copy(update={
+                "survey_round": survey_round, "survey_version": survey_version,
+                "spec": {"part": int(survey_version[-1])},
+            })
+
+    class Progress:
+        async def get(self, participant_id, survey_round, survey_version):
+            return None
+
+        async def save(self, participant_id, progress):
+            return SurveyProgressRecord(**progress.model_dump(exclude={"revision"}), revision=1, updatedAt=datetime.now(UTC))
+
+    settings_repository, responses, jobs = SettingsRepository(), InMemoryResponses(), InMemoryJobs()
+    accounts = InMemoryParticipantAccounts()
+    accounts.account = replace(accounts.account, chat_consent=chat_consent)
+    secret = "test-secret-at-least-thirty-two-bytes"
+    app = create_app(
+        Settings("test", None, "ai_us_test", (), secret),
+        application_settings_repository=settings_repository,
+        participant_account_repository=accounts,
+        survey_definition_repository=Definitions(), survey_response_repository=responses,
+        survey_progress_repository=Progress(), job_repository=jobs,
+    )
+    headers = {"Authorization": "Bearer " + create_access_token("participant-1", "participant", secret, 60)}
+    payload = {"surveyRound": 1, "surveyVersion": "part1", "answers": {"q1": "answer"}, "submissionId": "school-t1-part1"}
+    draft = {"surveyRound": 1, "surveyVersion": "part1", "answers": {"q1": "answer"}, "revision": 0,
+             "completedPage": 0, "nextPage": 1, "totalPages": 2, "clientSavedAt": datetime.now(UTC).isoformat()}
+    status_path = "/api/v1/participant/survey-status"
+    with TestClient(app) as client:
+        assert client.get("/api/v1/applications/status").json()["participationPaused"]
+        assert not client.get(status_path, headers=headers).json()["chatSubmissionAllowed"]
+        assert client.get(status_path, headers=headers).json()["surveyRoundsOpen"] == {
+            "1": True, "2": False, "3": False, "4": False,
+        }
+        assert len(client.get("/api/v1/participant/survey-configurations/1", headers=headers).json()) == 2
+        assert client.put("/api/v1/survey-progress", headers=headers, json=draft).status_code == 200
+        for round_number in (2, 3):
+            assert client.get(f"/api/v1/participant/survey-configurations/{round_number}", headers=headers).json() == []
+            assert client.put("/api/v1/survey-progress", headers=headers, json={**draft, "surveyRound": round_number}).status_code == 403
+            assert client.post("/api/v1/survey-responses", headers=headers, json={**payload, "surveyRound": round_number}).status_code == 403
+        worker = QueueWorker(jobs, {"survey_response": lambda queued: store_survey_response(
+            queued, app.state.survey_definition_repository, responses)})
+        for part in (1, 2):
+            assert client.post("/api/v1/survey-responses", headers=headers, json={
+                **payload, "surveyVersion": f"part{part}", "submissionId": f"school-t1-part{part}",
+            }).status_code == 202
+            assert not client.get(status_path, headers=headers).json()["chatSubmissionAllowed"]
+            assert asyncio.run(worker.process_one())
+        assert client.get(status_path, headers=headers).json()["completedRounds"] == [1]
+        assert client.get(status_path, headers=headers).json()["chatSubmissionAllowed"] is chat_consent
+        if unlimited:
+            assert settings_repository.records["1"]["followup_deadline"] is None
+            assert client.get(status_path, headers=headers).json()["surveyRoundsOpen"]["1"]
+        else:
+            settings_repository.records["1"]["followup_deadline"] = datetime.now(UTC) - timedelta(seconds=1)
+            assert not client.get(status_path, headers=headers).json()["surveyRoundsOpen"]["1"]
+            assert client.get("/api/v1/participant/survey-configurations/1", headers=headers).json() == []
+            assert client.put("/api/v1/survey-progress", headers=headers, json=draft).status_code == 403
+            assert client.post("/api/v1/survey-responses", headers=headers, json={**payload, "submissionId": "expired"}).status_code == 403
+        assert client.get(status_path, headers=headers).json()["completedRounds"] == [1]
+        assert settings_repository.records["1"]["period_ended"] and not settings_repository.records["1"]["is_open"]
+        assert len(responses.responses) == 2
+
+
 def test_followup_allowlist_deadline_and_t3_without_t2(monkeypatch):
     import csv
     import io
