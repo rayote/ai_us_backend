@@ -165,6 +165,11 @@ async def _survey_status(request: Request, participant_id: str) -> dict[str, obj
         "completedRounds": completed_rounds,
         "t1SubmissionsOpen": rounds["1"]["is_open"],
         "surveyRoundsOpen": {key: record["is_open"] for key, record in rounds.items()},
+        "surveyAllowlistMember": any(
+            participant_id in record.get("followup_participant_ids", [])
+            for key, record in rounds.items()
+            if key in {"1", "2", "3"}
+        ),
         "surveyRoundStates": {
             key: record.get(
                 "state",

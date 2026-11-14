@@ -620,6 +620,7 @@ def test_retired_t4_blocks_new_writes_preserves_existing_exports():
 
     records = default_survey_rounds(True)
     records["4"].update(is_open=True, configuration_id="legacy-parts", period_ended=False)
+    records["4"]["followup_participant_ids"] = ["participant-1"]
     settings = SimpleNamespace(participation_settings=AsyncMock(return_value={"participation_paused": False}),
         survey_rounds=AsyncMock(return_value=records), update_survey_round=AsyncMock())
     accounts, responses, jobs = InMemoryParticipantAccounts(), InMemoryResponses(), InMemoryJobs()
@@ -637,6 +638,7 @@ def test_retired_t4_blocks_new_writes_preserves_existing_exports():
     with TestClient(app) as client:
         status = client.get("/api/v1/participant/survey-status", headers=participant).json()
         assert status["surveyRoundsOpen"]["4"] is False
+        assert status["surveyAllowlistMember"] is False
         assert status["surveyRoundStates"]["4"] == "closed"
         assert 4 in status["completedRounds"]
         assert client.get("/api/v1/participant/survey-configurations/4", headers=participant).json() == []
@@ -723,6 +725,7 @@ def test_t1_school_allowlist_allows_submission_without_reopening_signup_or_t3(un
     with TestClient(app) as client:
         assert client.get("/api/v1/applications/status").json()["participationPaused"]
         assert not client.get(status_path, headers=headers).json()["chatSubmissionAllowed"]
+        assert client.get(status_path, headers=headers).json()["surveyAllowlistMember"] is True
         assert client.get(status_path, headers=headers).json()["surveyRoundsOpen"] == {
             "1": True, "2": False, "3": False, "4": False,
         }
@@ -837,6 +840,7 @@ def test_followup_allowlist_deadline_and_t3_without_t2(monkeypatch):
     with TestClient(app) as client:
         initial = client.get(status_path, headers=headers).json()
         assert initial["completedRounds"] == []
+        assert initial["surveyAllowlistMember"] is False
         assert initial["surveyRoundsOpen"] == {"1": False, "2": False, "3": True, "4": False}
         assert client.get("/api/v1/participant/survey-configurations/2", headers=headers).json() == []
         assert client.post("/api/v1/survey-responses", headers=headers, json=payload).status_code == 403
@@ -849,6 +853,7 @@ def test_followup_allowlist_deadline_and_t3_without_t2(monkeypatch):
         assert updated.status_code == 200
         assert updated.json()["followupParticipantCount"] == 1
         assert updated.json()["periodEnded"] is True and updated.json()["isOpen"] is False
+        assert client.get(status_path, headers=headers).json()["surveyAllowlistMember"] is True
         assert client.get(status_path, headers=headers).json()["surveyRoundsOpen"]["2"] is True
         assert len(client.get("/api/v1/participant/survey-configurations/2", headers=headers).json()) == 2
         assert client.put("/api/v1/survey-progress", headers=headers, json=draft).status_code == 200
@@ -872,12 +877,15 @@ def test_followup_allowlist_deadline_and_t3_without_t2(monkeypatch):
                 assert rows[1][rows[0].index("첫 번째 문항")] == "allowlisted-answer"
         assert client.get(export_path, headers=headers).status_code == 403
         for instant in [policy.T2_FOLLOWUP_DEADLINE, policy.T2_FOLLOWUP_DEADLINE + timedelta(seconds=1)]:
+            assert client.get(status_path, headers=headers).json()["surveyAllowlistMember"] is True
             assert client.get(status_path, headers=headers).json()["surveyRoundsOpen"]["2"] is False
             assert client.get("/api/v1/participant/survey-configurations/2", headers=headers).json() == []
             assert client.put("/api/v1/survey-progress", headers=headers, json=draft).status_code == 403
             assert client.post("/api/v1/survey-responses", headers=headers, json={**payload, "submissionId": "late"}).status_code == 403
         assert settings_repository.records["2"]["period_ended"] is True
         assert settings_repository.records["4"]["is_open"] is False
+        settings_repository.records["2"]["followup_participant_ids"] = ["participant-other"]
+        assert client.get(status_path, headers=headers).json()["surveyAllowlistMember"] is False
 
 
 @pytest.mark.parametrize("t1_fallback", [False, True])
