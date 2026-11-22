@@ -176,20 +176,23 @@ def test_participant_followup_round_access_and_exact_deadline():
     records = {
         "1": {"is_open": False, "state": "closed"},
         "2": {"is_open": False, "state": "closed", "selected_configuration": {"versions": []}, "followup_participant_ids": ["listed"]},
-        "3": {"is_open": True, "state": "open", "followup_participant_ids": ["listed"]},
+        "3": {"is_open": True, "state": "open", "selected_configuration": {"versions": []}, "followup_participant_ids": ["listed"]},
         "4": {"is_open": False, "state": "preparing"},
     }
     original = deepcopy(records)
     before = T2_FOLLOWUP_DEADLINE - timedelta(microseconds=1)
-    listed = participant_survey_rounds(records, "listed", False, True, before)
+    listed = participant_survey_rounds(records, "listed", True, True, before)
     assert listed["2"]["is_open"] and listed["3"]["is_open"]
+    assert not participant_survey_rounds(records, "listed", False, True, before)["3"]["is_open"]
     existing = participant_survey_rounds(records, "existing", True, True, before)
-    assert not existing["2"]["is_open"] and existing["3"]["is_open"]
+    assert not existing["2"]["is_open"] and not existing["3"]["is_open"]
     unknown = participant_survey_rounds(records, "unknown", False, True, before)
     assert not unknown["2"]["is_open"] and not unknown["3"]["is_open"]
     for instant in [T2_FOLLOWUP_DEADLINE, T2_FOLLOWUP_DEADLINE + timedelta(seconds=1)]:
         assert not participant_survey_rounds(records, "listed", True, True, instant)["2"]["is_open"]
     records["3"] = {**records["3"], "is_open": False, "state": "closed"}
+    assert participant_survey_rounds(records, "listed", True, True, before)["3"]["is_open"]
+    records["3"]["period_ended"] = True
     assert not participant_survey_rounds(records, "listed", True, True, before)["3"]["is_open"]
     records["2"]["selected_configuration"] = None
     assert not participant_survey_rounds(records, "listed", True, True, before)["2"]["is_open"]
@@ -238,6 +241,8 @@ def test_t1_allowlist_requires_explicit_deadline_policy_and_later_round_membersh
     assert not participant_survey_rounds(records, "new-school", True, False, before)["1"]["is_open"]
     records["2"]["followup_participant_ids"] = ["new-school"]
     records["3"]["followup_participant_ids"] = ["new-school"]
+    assert not participant_survey_rounds(records, "new-school", True, True, before)["3"]["is_open"]
+    records["3"]["selected_configuration"] = {"versions": []}
     rounds = participant_survey_rounds(records, "new-school", True, True, before)
     assert rounds["3"]["is_open"]
     assert records["1"]["is_open"] == original["1"]["is_open"]

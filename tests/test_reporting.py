@@ -9,6 +9,7 @@ from app.services.auth import ParticipantAccount, ParticipantAccountRepository
 from app.services.chats import ChatSubmissionSummary, MongoChatSubmissionRepository
 from app.services.reporting import ResearcherReportingService
 from app.services.surveys import (
+    MongoSurveyDefinitionRepository,
     MongoSurveyResponseRepository,
     SurveyDefinitionRepository,
     SurveyResponseRepository,
@@ -48,10 +49,7 @@ def test_t1_school_groups_report_only_t1_progress_and_normalize_mongo_deadline()
     service = ResearcherReportingService(
         SimpleNamespace(list_allowlist_accounts=AsyncMock(return_value=[{"_id": "one"}])),
         SimpleNamespace(list_allowlist_responses=AsyncMock(return_value=[SurveyResponseSummary("one", 1, "t1-part1")])),
-        SimpleNamespace(list_definitions=AsyncMock(return_value=[
-            SimpleNamespace(survey_round=1, survey_version="t1-part1", part=1),
-            SimpleNamespace(survey_round=2, survey_version="t2-part2", part=2),
-        ])),
+        SimpleNamespace(list_parts_by_version=AsyncMock(return_value={"t1-part1": 1})),
     )
     result = asyncio.run(service.survey_allowlist(groups[0]))
     assert result["surveyRound"] == 1 and result["deadline"].tzinfo == UTC
@@ -81,8 +79,9 @@ def test_allowlist_report_is_read_only_complete_and_role_protected():
                     SurveyResponseSummary("two", 2, "part1", first), SurveyResponseSummary("three", 2, "unknown", second)]
 
     class Definitions:
-        async def list_definitions(self):
-            return [SimpleNamespace(survey_round=2, survey_version=f"part{part}", part=part) for part in (1, 2)]
+        async def list_parts_by_version(self, survey_round):
+            assert survey_round == 2
+            return {"part1": 1, "part2": 2}
 
     class SettingsRepository:
         async def survey_rounds(self, t1_open):
@@ -118,11 +117,27 @@ def test_allowlist_completion_preserves_legacy_missing_submission_time():
     service = ResearcherReportingService(
         SimpleNamespace(list_allowlist_accounts=AsyncMock(return_value=[{"_id": "one"}])),
         SimpleNamespace(list_allowlist_responses=AsyncMock(return_value=[SurveyResponseSummary("one", 2, "part2")])),
-        SimpleNamespace(list_definitions=AsyncMock(return_value=[SimpleNamespace(survey_round=2, survey_version="part2", part=2)])),
+        SimpleNamespace(list_parts_by_version=AsyncMock(return_value={"part2": 2})),
     )
     result = asyncio.run(service.survey_allowlist({"id": "t2-test", "label": "test", "surveyRound": 2, "participant_ids": ["one"]}))
     assert result["counts"]["completed"] == 1
     assert result["participants"][0]["submittedAt"] is None
+
+
+def test_allowlist_definition_query_reads_only_round_version_and_part():
+    collection = MagicMock()
+    collection.find.return_value = iter([
+        {"survey_version": "part1", "spec": {"part": 1}},
+        {"survey_version": "part2", "spec": {"part": 2}},
+        {"survey_version": "legacy"},
+    ])
+    repository = MongoSurveyDefinitionRepository(AsyncCollection(collection))
+
+    assert asyncio.run(repository.list_parts_by_version(3)) == {"part1": 1, "part2": 2}
+    collection.find.assert_called_once_with(
+        {"survey_round": 3},
+        projection={"_id": 0, "survey_version": 1, "spec.part": 1},
+    )
 
 
 def test_allowlist_queries_are_member_scoped_metadata_projections():

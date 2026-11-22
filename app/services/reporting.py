@@ -80,8 +80,7 @@ class ResearcherReportingService:
 
         identities = group["participant_ids"]
         accounts = {str(account["_id"]): account for account in await self._participants.list_allowlist_accounts(identities)}
-        definitions = {definition.survey_version: definition.part for definition in await self._definitions.list_definitions()
-                       if definition.survey_round == group["surveyRound"] and definition.part in (1, 2)}
+        definitions = await self._definitions.list_parts_by_version(group["surveyRound"])
         submissions = {}
         submitted_parts = set()
         for response in await self._responses.list_allowlist_responses(identities, group["surveyRound"]):

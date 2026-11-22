@@ -39,6 +39,8 @@ class SurveyDefinitionRepository(Protocol):
 
     async def list_definitions(self) -> list[SurveyDefinitionSummary]: ...
 
+    async def list_parts_by_version(self, survey_round: int) -> dict[str, int]: ...
+
 
 class SurveyResponseRepository(Protocol):
     async def create_response(self, response: SurveyResponseRecord) -> None: ...
@@ -165,6 +167,20 @@ class MongoSurveyDefinitionRepository:
             definitions,
             key=lambda definition: (definition.survey_round, definition.survey_version),
         )
+
+
+    async def list_parts_by_version(self, survey_round: int) -> dict[str, int]:
+        cursor = self._collection.find(
+            {"survey_round": survey_round},
+            projection={"_id": 0, "survey_version": 1, "spec.part": 1},
+        )
+        parts = {}
+        async for document in cursor:
+            spec = document.get("spec")
+            part = spec.get("part") if isinstance(spec, dict) else None
+            if part in (1, 2):
+                parts[document["survey_version"]] = int(part)
+        return parts
 
 
 class MongoSurveyResponseRepository:
