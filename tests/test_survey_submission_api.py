@@ -645,10 +645,38 @@ def test_t3_checkpoint_and_submission_stay_in_the_selected_audience(audience, sc
         assert all(response.detail["testerSubmission"] is True for response in responses.responses)
         status = client.get("/api/v1/participant/survey-status", headers=headers).json()
         assert status["surveyRoundsOpen"]["3"] is True
+        configuration = client.get("/api/v1/participant/survey-configurations/3", headers=headers)
+        assert configuration.status_code == 200
+        assert {(item["surveyVersion"], item["audience"]) for item in configuration.json()} == {
+            (item["surveyVersion"], item["audience"]) for item in status["surveyConfigurations"]["3"]
+        } == {(version, group) for version, (group, _) in versions.items()}
         assert set(status["completedVersionsByRound"]["3"]) == {part1, part2}
         assert 3 not in status["completedRounds"] and status["chatSubmissionAllowed"] is False
         admission.testing = False
+        assert client.get("/api/v1/participant/survey-configurations/3", headers=headers).json() == []
         assert client.post(submit_url, headers=headers, json=part2_final).status_code == 403
+
+
+def test_survey_status_versions_use_the_production_mongo_wrapper() -> None:
+    from unittest.mock import Mock, call
+
+    from app.db.mongodb import AsyncCollection
+    from app.services.surveys import MongoSurveyResponseRepository
+
+    collection = Mock()
+    collection.find.side_effect = [iter([{"survey_version": "t3-part2"}]), iter([])]
+    repository = MongoSurveyResponseRepository(AsyncCollection(collection))
+
+    async def check_versions():
+        assert await repository.list_versions_for_participant("participant-1", 3) == ["t3-part2"]
+        assert await repository.list_versions_for_participant("participant-1", 3, include_tester=False) == []
+
+    asyncio.run(check_versions())
+    query = {"participant_id": "participant-1", "survey_round": 3}
+    assert collection.find.call_args_list == [
+        call(query, projection={"survey_version": 1}),
+        call({**query, "detail.testerSubmission": {"$ne": True}}, projection={"survey_version": 1}),
+    ]
 
 
 def test_final_response_retry_repairs_progress_without_replacing_answers() -> None:

@@ -239,7 +239,7 @@ class MongoSurveyResponseRepository:
         query = {"participant_id": participant_id, "survey_round": survey_round}
         if not include_tester:
             query["detail.testerSubmission"] = {"$ne": True}
-        cursor = self._collection.find(query, {"survey_version": 1})
+        cursor = self._collection.find(query, projection={"survey_version": 1})
         return [document["survey_version"] async for document in cursor]
 
     async def list_all_responses(self) -> list[SurveyResponseRecord]:
