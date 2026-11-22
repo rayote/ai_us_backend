@@ -200,6 +200,61 @@ def survey_client():
         yield client
 
 
+@pytest.mark.parametrize("survey_round", [1, 2])
+def test_researcher_legacy_merged_export_keeps_versions_and_drafts_separate(survey_client, survey_round):
+    client = survey_client
+    timestamp = datetime(2026, 11, 22, 12, tzinfo=UTC)
+    audience = "elementary" if survey_round == 1 else "all"
+    prefix = "t1-elem" if survey_round == 1 else "t2"
+    first, second, other_second = f"{prefix}-part1-v1-draft", f"{prefix}-part2-v1-draft", f"{prefix}-part2-v2"
+    versions = {first: [("participant-1", 12), ("partial", 13)],
+                second: [("participant-1", 14), ("orphan", 15)], other_second: [("partial", 99)]}
+    for version in versions:
+        client.app.state.survey_definition_repository.definitions[survey_round, version] = SurveyDefinition(
+            surveyRound=survey_round, surveyVersion=version, audience=audience, createdAt=timestamp,
+            questions=[SurveyQuestion(key="demo.age", csvColumn="demo.age", order=1)],
+            spec={"part": 1 if version == first else 2, "scales": [{"page": 2, "questions": [
+                {"key": "demo.age", "type": "number", "logic": {"type": "disqualifyIf"}}
+            ]}]},
+        )
+
+    class Responses:
+        async def list_responses(self, round_number, version):
+            return [SurveyResponseRecord(participantId=person, surveyRound=round_number, surveyVersion=version,
+                                         answers={"demo.age": age}, submittedAt=timestamp)
+                    for person, age in versions[version]]
+
+    class Progress:
+        async def list_export_metadata(self, round_number, requested_versions, participants):
+            assert round_number == 2 and set(requested_versions) == versions.keys()
+            assert participants == ["partial", "participant-1"]
+            return [{"participant_id": "partial", "survey_version": second, "answers": {"demo.age": 77},
+                     "page_history": [{"page": 1, "saved_at": timestamp}]}]
+
+    client.app.state.survey_response_repository = Responses()
+    client.app.state.survey_progress_repository = Progress()
+    path = f"/api/v1/researcher/exports/survey-responses/rounds/{survey_round}"
+    assert client.get(path, headers={"Authorization": f"Bearer {_participant_token()}"}).status_code == 403
+    token = _token(client, "researcher", "researcher-password")
+    response = client.get(path, headers={"Authorization": f"Bearer {token}"})
+    assert response.status_code == 200 and response.headers["cache-control"] == "no-store"
+    reader = csv.DictReader(io.StringIO(response.content.decode("utf-8-sig")))
+    rows = {row["참여자 ID"]: row for row in reader}
+    assert not any(flag in reader.fieldnames for flag in FLAG_COLUMNS)
+    assert set(rows) == {"participant-1", "partial"}
+    assert rows["participant-1"]["설문지 구분"] == "초등용"
+    assert (rows["participant-1"]["demo.age_p1"], rows["participant-1"]["demo.age_p2"]) == ("12", "14")
+    assert rows["partial"]["demo.age_p2"] == ""
+    if survey_round == 2:
+        assert rows["partial"]["파트 2 상태"] == "중간 저장"
+        assert rows["partial"]["검사 1 저장 시각(KST)_p2"]
+        assert rows["partial"]["검사 2 저장 시각(KST)_p2"] == ""
+        assert rows["partial"]["설문지 구분"] == ""
+    else:
+        assert rows["partial"]["파트 2 상태"] == "시작 안 함"
+        assert "검사 1 저장 시각(KST)_p2" not in reader.fieldnames
+
+
 def test_researcher_t3_export_pairs_only_matching_final_parts(survey_client):
     client = survey_client
     timestamp = datetime(2026, 11, 22, 12, tzinfo=UTC)
@@ -272,8 +327,20 @@ def test_t3_export_counts_only_displayed_answers_and_excludes_per_item_flag_from
     complete_metrics = ["", "", "", 100, 97, 8]
     flags = _flags(definition, definition, answers, answers, complete_metrics, incomplete_metrics, 4)
     assert (flags[3], flags[4], flags[-1]) == (0, 1, 0)
+    complete_metrics[4] = 98
+    flags = _flags(definition, definition, answers, answers, complete_metrics, incomplete_metrics, 4)
+    assert (flags[3], flags[4], flags[-1]) == (0, 0, 0)
     flags = _flags(definition, definition, answers, answers, incomplete_metrics, incomplete_metrics, 4)
     assert (flags[3], flags[4], flags[-1]) == (0, "", 0)
+
+
+@pytest.mark.parametrize(("text", "expected"), [("잘 모름.", 0), ("딱히 없음.", 0), ("잘 모름. 다만 도움을 받았다", 1)])
+def test_t3_repeated_text_excludes_only_whole_placeholder_answers(text, expected):
+    definition = SurveyDefinition(surveyRound=3, surveyVersion=T3_VERSIONS[0],
+        questions=[SurveyQuestion(key="aiexp.b2", csvColumn="aiexp.b2", order=1)], createdAt=datetime.now(UTC))
+    metrics = ["", "", "", 100, 98, 1]
+    flags = _flags(definition, definition, {"aiexp.b2": text}, {"coping.ss1": text, "coping.ss2": text}, metrics, metrics, 4)
+    assert flags[8] == expected
 
 
 def test_partial_progress_export_is_researcher_only_and_excludes_final_responses() -> (

@@ -103,7 +103,7 @@ from app.services.surveys import (
     SurveyResponseRepository,
     survey_responses_to_csv,
 )
-from app.services.t3_export import T3_VERSIONS, t3_merged_csv
+from app.services.t3_export import T3_VERSIONS, legacy_merged_csv, legacy_survey_part, t3_merged_csv
 from app.services.transcript_runs import TranscriptParseRunRepository, normalized_to_csv, source_error_reason
 from app.services.worker_health import WorkerHealthRepository, worker_health_snapshot
 from fastapi import (
@@ -933,6 +933,52 @@ async def export_t3_survey_responses(
         media_type="text/csv; charset=utf-8",
         headers={"Content-Disposition": f'attachment; filename="{filename}"', "Cache-Control": "no-store"},
     )
+
+
+@router.get("/exports/survey-responses/rounds/{survey_round}")
+async def export_legacy_merged_survey_responses(
+    survey_round: int, request: Request, _: str = Depends(require_researcher)
+) -> Response:
+    if survey_round not in (1, 2):
+        raise HTTPException(status_code=404, detail="회차별 통합 다운로드를 찾을 수 없습니다.")
+    definitions_repo = _survey_definition_repository(request)
+    responses_repo = _survey_response_repository(request)
+    progress_repo = getattr(request.app.state, "survey_progress_repository", None)
+    accounts_repo = getattr(request.app.state, "participant_account_repository", None)
+    if survey_round == 2 and (progress_repo is None or accounts_repo is None):
+        raise HTTPException(status_code=503, detail="T2 통합 다운로드에 필요한 정보를 준비 중입니다.")
+
+    definitions, responses, versions = [], [], []
+    participant_ids = set()
+    for summary in await definitions_repo.list_definitions():
+        version = summary.survey_version
+        part = legacy_survey_part(version)
+        if summary.survey_round != survey_round or part is None or not version.startswith(f"t{survey_round}-"):
+            continue
+        definition = await definitions_repo.get(survey_round, version)
+        if definition is None:
+            raise HTTPException(status_code=409, detail="등록된 설문 정의를 확인해 주세요.")
+        definitions.append(definition)
+        versions.append(version)
+        records = await responses_repo.list_responses(survey_round, version)
+        if part == 1:
+            participant_ids.update(record.participant_id for record in records)
+        responses.extend(records)
+    if not any(legacy_survey_part(version) == 1 for version in versions):
+        raise HTTPException(status_code=404, detail="파트 1 설문 정의를 찾을 수 없습니다.")
+    metadata = []
+    school_levels = {}
+    if survey_round == 2 and participant_ids:
+        metadata = await progress_repo.list_export_metadata(survey_round, versions, sorted(participant_ids))
+        school_levels = {account.participant_id: account.school_level for account in await accounts_repo.list_participants()
+                         if account.participant_id in participant_ids}
+    try:
+        content = legacy_merged_csv(survey_round, definitions, responses, metadata, school_levels)
+    except ValueError as error:
+        raise HTTPException(status_code=409, detail="설문 정의 또는 제출 기록을 확인해 주세요.") from error
+    filename = f"survey-t{survey_round}-merged_{_kst_filename_timestamp(datetime.now(UTC))}.csv"
+    return Response(content="\ufeff" + content, media_type="text/csv; charset=utf-8",
+                    headers={"Content-Disposition": f'attachment; filename="{filename}"', "Cache-Control": "no-store"})
 
 
 @router.get("/survey-progress")
