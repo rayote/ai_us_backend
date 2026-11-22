@@ -585,9 +585,10 @@ def test_t3_checkpoint_and_submission_stay_in_the_selected_audience(audience, sc
 
     class Admission:
         testing = True
+        paused = True
 
         async def participation_settings(self):
-            return {"participation_paused": True}
+            return {"participation_paused": self.paused}
 
         async def survey_rounds(self, t1_open):
             return {str(number): {"is_open": False,
@@ -653,7 +654,14 @@ def test_t3_checkpoint_and_submission_stay_in_the_selected_audience(audience, sc
         assert set(status["completedVersionsByRound"]["3"]) == {part1, part2}
         assert 3 not in status["completedRounds"] and status["chatSubmissionAllowed"] is False
         admission.testing = False
-        assert client.get("/api/v1/participant/survey-configurations/3", headers=headers).json() == []
+        for paused in (True, False):
+            admission.paused = paused
+            ordinary_status = client.get("/api/v1/participant/survey-status", headers=headers)
+            assert ordinary_status.status_code == 200
+            assert ordinary_status.json()["surveyRoundsOpen"]["3"] is False
+            assert ordinary_status.json()["surveyConfigurations"]["3"] == []
+            ordinary_configuration = client.get("/api/v1/participant/survey-configurations/3", headers=headers)
+            assert ordinary_configuration.status_code == 200 and ordinary_configuration.json() == []
         assert client.post(submit_url, headers=headers, json=part2_final).status_code == 403
 
 

@@ -201,7 +201,7 @@ async def _survey_status(request: Request, participant_id: str) -> dict[str, obj
             for key, record in rounds.items()
         },
         "surveyConfigurations": {
-            key: [] if paused and not record["is_open"] else (record.get("selected_configuration") or {}).get("versions", [])
+            key: (record.get("selected_configuration") or {}).get("versions", []) if record["is_open"] else []
             for key, record in rounds.items()
         },
     }
