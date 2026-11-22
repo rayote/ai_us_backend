@@ -185,13 +185,32 @@ def find_claude_export_member(archive: zipfile.ZipFile) -> str:
             name.lower(),
         )
     )
+    metadata_only = True
     for name in candidates:
         try:
             payload = _decode_json(archive.read(name))
         except ValueError:
+            metadata_only = False
             continue
         if _is_claude_export(payload):
             return name
+        account_rows = isinstance(payload, list) and bool(payload) and all(
+            isinstance(row, dict)
+            and {"uuid", "email_address", "full_name", "verified_phone_number"} == set(row)
+            for row in payload
+        )
+        login_events = isinstance(payload, dict) and set(payload) == {"login_events"}
+        project_settings = isinstance(payload, dict) and set(payload) == {
+            "uuid", "name", "description", "creator", "created_at", "updated_at",
+            "is_private", "is_starter_project", "prompt_template", "docs",
+        }
+        metadata_only = metadata_only and (account_rows or login_events or project_settings)
+    if metadata_only and all(
+        member.is_dir() or _is_macos_metadata(member.filename) or member.filename in candidates
+        or PurePosixPath(member.filename).name.lower() in {"readme.txt", ".ds_store"}
+        for member in archive.infolist()
+    ):
+        raise InvalidTranscriptSourceError("missing_required_files", "Claude 계정 또는 프로젝트 설정만 있고 대화 파일이 없습니다.")
     raise ValueError(
         "ZIP 파일 안에서 올바른 Claude conversations.json을 찾지 못했습니다."
     )
@@ -209,6 +228,19 @@ def find_chatgpt_export_members(archive: zipfile.ZipFile) -> list[str]:
         elif match := re.fullmatch(r"conversations-([0-9]+)\.json", name):
             shards.append((int(match.group(1)), member.filename))
     if not legacy and not shards:
+        html_exports = []
+        for member in archive.infolist():
+            if member.is_dir() or _is_macos_metadata(member.filename) or not member.filename.lower().endswith((".html", ".htm")):
+                continue
+            try:
+                _chatgpt_html_payload(archive.read(member))
+            except UnsupportedTranscriptError:
+                continue
+            html_exports.append(member.filename)
+        if len(html_exports) == 1:
+            return html_exports
+        if len(html_exports) > 1:
+            raise UnsupportedTranscriptError("복수의 ChatGPT HTML 내보내기가 있어 원본을 분리해야 합니다.")
         _missing_export_source(
             archive,
             "ZIP 파일 안에서 ChatGPT conversations.json 또는 분할 파일을 찾지 못했습니다."
@@ -225,10 +257,38 @@ def find_chatgpt_export_members(archive: zipfile.ZipFile) -> list[str]:
     return [name for _, name in shards]
 
 
+def _chatgpt_html_payload(content: bytes) -> bytes:
+    document = BeautifulSoup(_decode_html(content), "html.parser")
+    matches = []
+    for script in document.find_all("script"):
+        source = script.string or ""
+        assignment = re.search(r"(?:^|[;\n])\s*(?:var|let|const)\s+jsonData\s*=\s*", source)
+        if assignment is None:
+            continue
+        try:
+            payload, end = json.JSONDecoder().raw_decode(source[assignment.end():])
+        except ValueError:
+            continue
+        tail = source[assignment.end() + end:]
+        if tail.strip() and not tail.lstrip().startswith(";"):
+            continue
+        if isinstance(payload, list) and payload and all(
+            isinstance(item, dict) and isinstance(item.get("mapping"), dict)
+            and (item.get("current_node") is None or isinstance(item.get("current_node"), str))
+            for item in payload
+        ):
+            matches.append(payload)
+    if len(matches) != 1:
+        raise UnsupportedTranscriptError("HTML 안에 단일 정식 ChatGPT 대화 JSON이 없습니다.")
+    return json.dumps(matches[0], ensure_ascii=False).encode("utf-8")
+
+
 def _normalize_chatgpt(
     content: bytes, participant_id: str
 ) -> tuple[dict[str, Any], list[str]]:
     if not zipfile.is_zipfile(io.BytesIO(content)):
+        if content.lstrip().startswith(b"<"):
+            content = _chatgpt_html_payload(content)
         return _parse_chatgpt(content, participant_id), []
     with zipfile.ZipFile(io.BytesIO(content)) as archive:
         source_names = find_chatgpt_export_members(archive)
@@ -237,7 +297,10 @@ def _normalize_chatgpt(
         warnings: list[str] = []
         for source_name in source_names:
             try:
-                normalized = _parse_chatgpt(archive.read(source_name), participant_id)
+                payload = archive.read(source_name)
+                if source_name.lower().endswith((".html", ".htm")):
+                    payload = _chatgpt_html_payload(payload)
+                normalized = _parse_chatgpt(payload, participant_id)
             except ValueError as error:
                 raise ValueError(f"ChatGPT {source_name} 파일을 파싱하지 못했습니다.") from error
             for session in normalized["sessions"]:
@@ -541,6 +604,14 @@ def _parse_gemini(content: bytes, participant_id: str) -> dict[str, Any]:
         )
     )
     if not sessions:
+        document = BeautifulSoup(_decode_html(content), "html.parser")
+        body = document.find("body") or document
+        if not body.get_text().strip() and all(
+            tag.name in {"html", "body", "div", "span", "p", "br", "section", "article", "main"}
+            and set(tag.attrs) <= {"class", "style"}
+            for tag in body.find_all(True)
+        ):
+            raise InvalidTranscriptSourceError("missing_required_files", "HTML 파일에 대화 내용이 없습니다.")
         raise ValueError("Gemini 내 활동 HTML에서 대화 내역을 찾지 못했습니다.")
     return _summary(participant_id, "gemini", "gemini_takeout_html", sessions)
 

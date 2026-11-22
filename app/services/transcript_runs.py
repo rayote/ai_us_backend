@@ -18,7 +18,7 @@ from app.services.screenshot_transcripts import (
     normalize_screenshot_extraction,
     order_screenshot_images,
 )
-from app.services.transcript_adapters import InvalidTranscriptSourceError, UnsupportedTranscriptError, normalize_export
+from app.services.transcript_adapters import InvalidTranscriptSourceError, UnsupportedTranscriptError, _is_macos_metadata, normalize_export
 from bson import ObjectId
 
 
@@ -153,6 +153,23 @@ async def _check_material_consent(
             raise ValueError("동의 철회로 자료 이용이 제한되었습니다.")
 
 
+def _archive_screenshot_images(content: bytes) -> list[ScreenshotImage]:
+    if not zipfile.is_zipfile(io.BytesIO(content)):
+        return []
+    content_types = {".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png",
+                     ".webp": "image/webp", ".heic": "image/heic", ".heif": "image/heif"}
+    with zipfile.ZipFile(io.BytesIO(content)) as archive:
+        members = [member for member in archive.infolist() if not member.is_dir()
+                   and not _is_macos_metadata(member.filename)
+                   and Path(member.filename).name.lower() not in {".ds_store", "readme.txt"}]
+        if not members or any(Path(member.filename).suffix.lower() not in content_types for member in members):
+            return []
+        if sum(member.file_size for member in members) > 256 * 1024 * 1024:
+            raise ValueError("이미지 ZIP의 압축 해제 용량 제한을 초과했습니다.")
+        return [ScreenshotImage(member.filename, content_types[Path(member.filename).suffix.lower()],
+                                archive.read(member)) for member in members]
+
+
 async def process_transcript_parse(
     payload: dict[str, object],
     submissions: ChatSubmissionRepository,
@@ -198,9 +215,20 @@ async def process_transcript_parse(
         elif submission.attachments:
             attachment = submission.attachments[0]
             filename, content, _ = await uploads.read_bytes(attachment.file_id)
-            parser_name, parser_version, normalized, warnings = normalize_export(
-                submission.tool, filename, content, submission.participant_id
-            )
+            try:
+                parser_name, parser_version, normalized, warnings = normalize_export(
+                    submission.tool, filename, content, submission.participant_id
+                )
+            except UnsupportedTranscriptError:
+                images = _archive_screenshot_images(content) if screenshot_extractor is not None else []
+                if not images:
+                    raise
+                ordered_images = order_screenshot_images(images)
+                extracted = await screenshot_extractor.extract(ordered_images, platform=submission.tool)
+                normalized, warnings = normalize_screenshot_extraction(
+                    extracted, ordered_images, submission.participant_id, submission.tool or "other"
+                )
+                parser_name, parser_version = "screenshot-vlm", "screenshot-vlm-v3"
         else:
             normalized = {
                 "participantId": submission.participant_id,

@@ -381,6 +381,7 @@ The phone must match `^01[0-9]{9}$`. The response is the current account snapsho
 
 - Text submissions are normalized from the stored speaker-labelled text.
 - Supported ZIP exports are routed through the matching service adapter.
+- ChatGPT HTML exports are supported only when a single literal `jsonData` assignment contains the native conversation `mapping` structure. JavaScript is never executed. Mixed or ambiguous exports remain unsupported.
 - Gemini-labelled submissions also accept Takeout activity HTML explicitly marked `AI Mode` or `AI 모드`. These use `google-ai-mode-takeout-html` / `google-ai-mode-takeout-html-v1`, normalized `platform=google_ai_mode`, and `sourceType=google_ai_mode_takeout_html`; they are not relabelled as Gemini app conversations. `MyActivity.html`, `내활동.html`, and `내 활동.html` names are supported.
   Administrator ZIP import validation uses the same product-verified activity selector as parsing, rather than requiring `gemini` in the archive member path.
 
@@ -388,6 +389,8 @@ Large transcript persistence uses lossless `gzip-json-v1` storage when the BSON 
 - AI Mode extraction preserves linked questions, nested response blocks and code, timestamps, and one session per activity card without inferring a conversation ID. Ordinary Search cards and caption/preview metadata are excluded from response text. Mixed Gemini-app/AI-Mode files remain unsupported rather than being silently merged or relabelled.
 - AI Mode session metadata includes `sourceProduct`, `groupingBasis=activity_card`, `promptEvidence`, and `responseMissing`. Unverified activity text, including image-only search actions without confirmed question text, is retained with role `unknown` and a warning. Missing answers are not fabricated; this HTML adapter does not invoke an external image model or inspect referenced images.
 - Image submissions are ordered and sent to the configured Gemini screenshot extractor. The production default model is `gemini-3.8-flash`.
+- Image-only ZIP files use the same screenshot extraction path without changing original attachments or submission source type. Mixed document/image ZIPs are not silently reduced to their image subset.
+- Confirmed empty Gemini HTML is stored as `invalid_source` with the existing `sourceErrorCode=missing_required_files`, preserving compatibility with deployed readers. The source must contain no text, media, scripts, or hidden data. Known Claude account/login/project metadata without conversation files uses the same code; unknown structures and unreadable model responses are not automatically invalid sources.
 - Unsupported formats finish with `warning`; processing failures finish with `failed`. Both retain diagnostic text instead of fabricating transcript turns.
 
 `GET /api/v1/researcher/chat-submissions/{submissionId}/latest-parse` returns the latest completed parse run. Add `/download?format=json` or `/download?format=csv` to download the normalized result. A parse run keeps `parserName`, `parserVersion`, `schemaVersion`, warnings, timestamps, normalized JSON, and any error.

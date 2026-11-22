@@ -1912,6 +1912,69 @@ def test_technical_failure_and_unsupported_export_remain_retryable() -> None:
             assert len(jobs.jobs) == 2
 
 
+def test_empty_export_source_error_survives_run_and_submission_storage() -> None:
+    from app.services.transcript_runs import process_transcript_parse
+
+    app, jobs, submissions, uploads, runs = _source_validation_case()
+    archive = io.BytesIO()
+    with zipfile.ZipFile(archive, "w") as zipper:
+        zipper.writestr("Takeout/Gemini/MyActivity.html", "<div></div>")
+    content = archive.getvalue()
+    uploads.files["source"] = ("takeout.zip", content, {})
+    run = asyncio.run(runs.create("source-validation", "adapter-router", "adapter-router-v1"))
+    asyncio.run(process_transcript_parse({"submissionId": "source-validation", "runId": run.run_id},
+                                        submissions, uploads, runs))
+    transcript = ParsedTranscript.model_validate(submissions.submissions[0].transcript.model_dump())
+    assert transcript.status == "invalid_source"
+    assert transcript.source_error_code == "missing_required_files"
+    assert runs.runs[-1].status == "failed"
+    assert runs.runs[-1].source_error_code == "missing_required_files"
+    assert uploads.files["source"][1] == content
+
+
+def test_image_only_zip_uses_existing_screenshot_extractor_and_preserves_original() -> None:
+    from app.services.transcript_runs import process_transcript_parse
+
+    app, jobs, submissions, uploads, runs = _source_validation_case()
+    archive = io.BytesIO()
+    with zipfile.ZipFile(archive, "w") as zipper:
+        zipper.writestr("capture.png", b"synthetic image")
+    content = archive.getvalue()
+    uploads.files["source"] = ("captures.zip", content, {})
+    extractor = type("SyntheticExtractor", (), {})()
+    extractor.extract = AsyncMock(return_value={"sessionTitle": "Synthetic", "turns": [
+        {"role": "user", "content": "Synthetic question", "sourceImageIndexes": [1], "confidence": 1.0},
+        {"role": "assistant", "content": "Synthetic answer", "sourceImageIndexes": [1], "confidence": 1.0},
+    ]})
+    run = asyncio.run(runs.create("source-validation", "adapter-router", "adapter-router-v1"))
+    asyncio.run(process_transcript_parse({"submissionId": "source-validation", "runId": run.run_id},
+                                        submissions, uploads, runs, extractor))
+    assert runs.runs[-1].status == "completed"
+    assert runs.runs[-1].parser_name == "screenshot-vlm"
+    assert submissions.submissions[0].transcript.status == "parsed"
+    assert submissions.submissions[0].source_type == "file"
+    assert uploads.files["source"][1] == content
+
+
+def test_mixed_zip_is_not_silently_reduced_to_images() -> None:
+    from app.services.transcript_runs import process_transcript_parse
+
+    app, jobs, submissions, uploads, runs = _source_validation_case()
+    archive = io.BytesIO()
+    with zipfile.ZipFile(archive, "w") as zipper:
+        zipper.writestr("capture.png", b"synthetic image")
+        zipper.writestr("other.pdf", b"synthetic document")
+    uploads.files["source"] = ("mixed.zip", archive.getvalue(), {})
+    extractor = type("SyntheticExtractor", (), {})()
+    extractor.extract = AsyncMock()
+    run = asyncio.run(runs.create("source-validation", "adapter-router", "adapter-router-v1"))
+    asyncio.run(process_transcript_parse({"submissionId": "source-validation", "runId": run.run_id},
+                                        submissions, uploads, runs, extractor))
+    assert runs.runs[-1].status == "warning"
+    assert submissions.submissions[0].transcript.status == "placeholder"
+    extractor.extract.assert_not_called()
+
+
 def test_source_error_does_not_replace_previously_completed_results() -> None:
     from app.services.transcript_runs import process_transcript_parse
 

@@ -373,6 +373,16 @@ def test_worker_rejects_unavailable_target_before_parsing(condition) -> None:
     assert len(participant_reads) == (1 if condition == "withdrawn" else 0)
 
 
+def test_screenshot_archive_ignores_root_macos_metadata() -> None:
+    import io
+    from app.services.transcript_runs import _archive_screenshot_images
+    content = io.BytesIO()
+    with zipfile.ZipFile(content, "w") as archive:
+        archive.writestr("image.jpg", b"synthetic-image")
+        archive.writestr("._image.jpg", b"synthetic-metadata")
+        archive.writestr("__MACOSX/image.jpg", b"synthetic-metadata")
+    images = _archive_screenshot_images(content.getvalue())
+    assert [image.filename for image in images] == ["image.jpg"]
 
 
 def test_transcript_archive_uses_screenshot_extractor() -> None:

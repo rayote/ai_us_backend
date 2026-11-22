@@ -5,10 +5,24 @@ import zipfile
 
 import pytest
 from app.services.transcript_adapters import (
+    InvalidTranscriptSourceError,
     UnsupportedTranscriptError,
     normalize_export,
 )
 from app.services.transcript_runs import _project_transcript, normalized_to_csv
+
+
+def test_gemini_empty_html_is_a_confirmed_source_error() -> None:
+    with pytest.raises(InvalidTranscriptSourceError) as failure:
+        normalize_export("gemini", "MyActivity.html", b"<div></div>", "participant-1")
+    assert failure.value.code == "missing_required_files"
+
+
+@pytest.mark.parametrize("content", [b"<div>unknown format</div>", b"<img src='capture.png'>", b"<div data-text='hello'></div>"])
+def test_gemini_unrecognized_or_media_html_is_not_marked_empty(content: bytes) -> None:
+    with pytest.raises(ValueError) as failure:
+        normalize_export("gemini", "MyActivity.html", content, "participant-1")
+    assert not isinstance(failure.value, InvalidTranscriptSourceError)
 
 
 def test_chatgpt_adapter_follows_active_path() -> None:
@@ -51,6 +65,32 @@ def test_chatgpt_adapter_follows_active_path() -> None:
     )
 
 
+@pytest.mark.parametrize("payload", [
+    [{"uuid": "synthetic", "email_address": "example@example.com", "full_name": "Synthetic", "verified_phone_number": None}],
+    {"login_events": []},
+    {"uuid": "synthetic", "name": "Synthetic", "description": "", "creator": {},
+     "created_at": "", "updated_at": "", "is_private": True, "is_starter_project": False,
+     "prompt_template": "", "docs": []},
+])
+def test_claude_known_metadata_only_archive_is_a_source_error(payload) -> None:
+    archive = io.BytesIO()
+    with zipfile.ZipFile(archive, "w") as zipper:
+        zipper.writestr("metadata.json", json.dumps(payload))
+    with pytest.raises(InvalidTranscriptSourceError) as failure:
+        normalize_export("claude", "export.zip", archive.getvalue(), "participant-1")
+    assert failure.value.code == "missing_required_files"
+
+
+def test_claude_unknown_json_with_metadata_is_not_invalidated() -> None:
+    archive = io.BytesIO()
+    with zipfile.ZipFile(archive, "w") as zipper:
+        zipper.writestr("account.json", json.dumps({"login_events": []}))
+        zipper.writestr("unknown.json", json.dumps({"new_conversation_format": []}))
+    with pytest.raises(ValueError) as failure:
+        normalize_export("claude", "export.zip", archive.getvalue(), "participant-1")
+    assert not isinstance(failure.value, InvalidTranscriptSourceError)
+
+
 def test_chatgpt_adapter_extracts_conversations_json_from_zip() -> None:
     export = [
         {
@@ -88,6 +128,29 @@ def test_chatgpt_adapter_extracts_conversations_json_from_zip() -> None:
         "lastActivityTime": "2023-11-15T07:13:20+09:00",
     }
     assert warnings == ["ZIP 내부의 nested/conversations.json 파일을 파싱했습니다."]
+
+
+def test_chatgpt_html_embedded_native_json_is_parsed_without_running_javascript() -> None:
+    export = [{"id": "synthetic", "title": "Synthetic", "current_node": "user",
+               "mapping": {"user": {"parent": None, "message": {"author": {"role": "user"},
+                           "content": {"parts": ["Synthetic question"]}}}}}]
+    html = "<html><script>const jsonData = " + json.dumps(export) + "; throw new Error('must not execute');</script></html>"
+    archive = io.BytesIO()
+    with zipfile.ZipFile(archive, "w") as zipper:
+        zipper.writestr("chat.html", html)
+    _, _, normalized, _ = normalize_export("chatgpt", "export.zip", archive.getvalue(), "participant-1")
+    assert normalized["summary"]["totalTurns"] == 1
+    assert normalized["sessions"][0]["turns"][0]["content"] == "Synthetic question"
+
+
+@pytest.mark.parametrize("script", [
+    'const jsonData = [{"role":"user","content":"not a native export"}];',
+    'const jsonData = JSON.parse("[]");',
+    'const jsonData = [{"mapping": {}}] + externalData;',
+])
+def test_chatgpt_unverified_html_payload_is_not_fabricated(script: str) -> None:
+    with pytest.raises(UnsupportedTranscriptError):
+        normalize_export("chatgpt", "chat.html", ("<script>" + script + "</script>").encode(), "participant-1")
 
 
 def test_chatgpt_adapter_preserves_multiple_conversations_as_sessions() -> None:
@@ -512,6 +575,63 @@ def test_gemini_adapter_recognizes_product_marked_activity_without_gemini_in_pat
     assert normalized["sessions"][0]["turns"][0]["content"] == "A question"
 
 
+def test_gemini_archive_skips_empty_named_page_for_product_verified_activity() -> None:
+    archive = io.BytesIO()
+    with zipfile.ZipFile(archive, "w") as zipper:
+        zipper.writestr("Gemini/overview.html", "<div></div>")
+        zipper.writestr("other/activity.html", """
+            <div class="outer-cell"><div class="header-cell">Gemini</div>
+            <div class="content-cell">Question<br><p>Answer</p></div></div>
+        """)
+    _, _, normalized, _ = normalize_export("gemini", "takeout.zip", archive.getvalue(), "participant-1")
+    assert normalized["summary"]["totalTurns"] == 2
+
+
+@pytest.mark.parametrize('auxiliary', ['__MACOSX/Gemini/._overview.html', 'Gemini/._overview.html'])
+def test_gemini_ignores_binary_macos_html_metadata(auxiliary):
+    archive = io.BytesIO()
+    with zipfile.ZipFile(archive, 'w') as zipper:
+        zipper.writestr('Gemini/overview.html', '<div></div>')
+        zipper.writestr(auxiliary, bytes.fromhex('00051607') + b'\xff' * 203)
+        zipper.writestr('other/activity.html', '''
+            <div class="outer-cell"><div class="header-cell">Gemini</div>
+            <div class="content-cell">Question<br><p>Answer</p></div></div>
+        ''')
+    _, _, normalized, _ = normalize_export('gemini', 'takeout.zip', archive.getvalue(), 'participant-1')
+    assert normalized['summary']['totalTurns'] == 2
+
+
+@pytest.mark.parametrize('tool', ['chatgpt', 'claude', 'grok'])
+def test_native_export_selection_does_not_read_macos_metadata(tool):
+    from app.services.transcript_adapters import find_chatgpt_export_members, find_claude_export_member, find_grok_export_member
+    selectors = {'chatgpt': find_chatgpt_export_members, 'claude': find_claude_export_member, 'grok': find_grok_export_member}
+    payloads = {'chatgpt': [], 'claude': [{'uuid': 'synthetic', 'chat_messages': []}], 'grok': {'conversations': [{'conversation': {}, 'responses': []}]}}
+    name = 'export/grok.json' if tool == 'grok' else 'export/conversations.json'
+    content = io.BytesIO()
+    with zipfile.ZipFile(content, 'w') as archive:
+        archive.writestr('__MACOSX/export/conversations.json', b'\xff')
+        archive.writestr(name, json.dumps(payloads[tool]))
+    with zipfile.ZipFile(io.BytesIO(content.getvalue())) as archive:
+        original_read = archive.read
+
+        def read_payload(member):
+            assert not member.startswith('__MACOSX/')
+            return original_read(member)
+
+        archive.read = read_payload
+        selected = selectors[tool](archive)
+    assert selected == ([name] if tool == 'chatgpt' else name)
+
+
+def test_gemini_empty_named_page_does_not_invalidate_unknown_other_html() -> None:
+    archive = io.BytesIO()
+    with zipfile.ZipFile(archive, "w") as zipper:
+        zipper.writestr("Gemini/overview.html", "<div></div>")
+        zipper.writestr("unknown.html", "<div>Unknown conversation format</div>")
+    with pytest.raises(UnsupportedTranscriptError):
+        normalize_export("gemini", "takeout.zip", archive.getvalue(), "participant-1")
+
+
 @pytest.mark.parametrize("product", ["Search", "", "Gemini was mentioned in a search"])
 def test_gemini_fallback_does_not_accept_other_activity_products(product):
     archive = io.BytesIO()
@@ -754,60 +874,3 @@ def test_normalized_result_projects_to_legacy_transcript() -> None:
     assert transcript.parser_version == "adapter-v1"
     assert transcript.plain_text == "user: 질문\nassistant: 응답"
     assert transcript.warnings == ["경고"]
-
-
-def test_gemini_archive_skips_empty_named_page_for_product_verified_activity() -> None:
-    archive = io.BytesIO()
-    with zipfile.ZipFile(archive, "w") as zipper:
-        zipper.writestr("Gemini/overview.html", "<div></div>")
-        zipper.writestr("other/activity.html", """
-            <div class="outer-cell"><div class="header-cell">Gemini</div>
-            <div class="content-cell">Question<br><p>Answer</p></div></div>
-        """)
-    _, _, normalized, _ = normalize_export("gemini", "takeout.zip", archive.getvalue(), "participant-1")
-    assert normalized["summary"]["totalTurns"] == 2
-
-
-@pytest.mark.parametrize('auxiliary', ['__MACOSX/Gemini/._overview.html', 'Gemini/._overview.html'])
-def test_gemini_ignores_binary_macos_html_metadata(auxiliary):
-    archive = io.BytesIO()
-    with zipfile.ZipFile(archive, 'w') as zipper:
-        zipper.writestr('Gemini/overview.html', '<div></div>')
-        zipper.writestr(auxiliary, bytes.fromhex('00051607') + b'\xff' * 203)
-        zipper.writestr('other/activity.html', '''
-            <div class="outer-cell"><div class="header-cell">Gemini</div>
-            <div class="content-cell">Question<br><p>Answer</p></div></div>
-        ''')
-    _, _, normalized, _ = normalize_export('gemini', 'takeout.zip', archive.getvalue(), 'participant-1')
-    assert normalized['summary']['totalTurns'] == 2
-
-
-@pytest.mark.parametrize('tool', ['chatgpt', 'claude', 'grok'])
-def test_native_export_selection_does_not_read_macos_metadata(tool):
-    from app.services.transcript_adapters import find_chatgpt_export_members, find_claude_export_member, find_grok_export_member
-    selectors = {'chatgpt': find_chatgpt_export_members, 'claude': find_claude_export_member, 'grok': find_grok_export_member}
-    payloads = {'chatgpt': [], 'claude': [{'uuid': 'synthetic', 'chat_messages': []}], 'grok': {'conversations': [{'conversation': {}, 'responses': []}]}}
-    name = 'export/grok.json' if tool == 'grok' else 'export/conversations.json'
-    content = io.BytesIO()
-    with zipfile.ZipFile(content, 'w') as archive:
-        archive.writestr('__MACOSX/export/conversations.json', b'\xff')
-        archive.writestr(name, json.dumps(payloads[tool]))
-    with zipfile.ZipFile(io.BytesIO(content.getvalue())) as archive:
-        original_read = archive.read
-
-        def read_payload(member):
-            assert not member.startswith('__MACOSX/')
-            return original_read(member)
-
-        archive.read = read_payload
-        selected = selectors[tool](archive)
-    assert selected == ([name] if tool == 'chatgpt' else name)
-
-
-def test_gemini_empty_named_page_does_not_invalidate_unknown_other_html() -> None:
-    archive = io.BytesIO()
-    with zipfile.ZipFile(archive, "w") as zipper:
-        zipper.writestr("Gemini/overview.html", "<div></div>")
-        zipper.writestr("unknown.html", "<div>Unknown conversation format</div>")
-    with pytest.raises(UnsupportedTranscriptError):
-        normalize_export("gemini", "takeout.zip", archive.getvalue(), "participant-1")
