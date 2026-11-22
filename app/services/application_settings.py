@@ -148,15 +148,23 @@ def participant_survey_rounds(
             allowed = listed and configured and current_time < T2_FOLLOWUP_DEADLINE
             state = "open" if allowed else "closed"
         if key == "3":
-            allowed = bool(record["is_open"] and (existing_participant or listed))
-            state = "open" if allowed else "closed" if record["is_open"] else state
+            roster_configured = "followup_participant_ids" in record
+            if roster_configured:
+                allowed = (
+                    existing_participant and listed and configured
+                    and not record.get("period_ended")
+                )
+                state = "open" if allowed else "closed" if configured else state
+            else:
+                allowed = bool(record["is_open"] and existing_participant)
+                state = "open" if allowed else "closed" if record["is_open"] else state
         if key in {"2", "3"} and participant_id in t1_members and not listed:
             allowed, state = False, "closed"
         if key == "3" and participant_id in t2_members and not listed:
             allowed, state = False, "closed"
         if key == "3":
             tester = participant_id in record.get("tester_participant_ids", [])
-            if not record["is_open"] and tester and existing_participant and configured and not record.get("period_ended"):
+            if not allowed and not record["is_open"] and tester and existing_participant and configured and not record.get("period_ended"):
                 allowed, state = True, "open"
                 tester_access = True
             elif tester and not listed and record["is_open"]:

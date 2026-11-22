@@ -557,7 +557,8 @@ def test_partial_progress_revision_isolation_replacement_and_completion(open_par
 
 
 @pytest.mark.parametrize("audience, school", [("elementary", "초등"), ("secondary", "중등")])
-def test_t3_checkpoint_and_submission_stay_in_the_selected_audience(audience, school):
+@pytest.mark.parametrize("tester_mode", [True, False])
+def test_t3_checkpoint_and_submission_stay_in_the_selected_audience(audience, school, tester_mode):
     from dataclasses import replace
     from app.schemas.survey import SurveyDefinitionSummary, SurveyProgressRecord
 
@@ -584,7 +585,7 @@ def test_t3_checkpoint_and_submission_stay_in_the_selected_audience(audience, sc
                     for index, key in enumerate(("demo.contact", "demo.guardianContact", "demo.age"))])
 
     class Admission:
-        testing = True
+        admitted = True
         paused = True
 
         async def participation_settings(self):
@@ -592,8 +593,9 @@ def test_t3_checkpoint_and_submission_stay_in_the_selected_audience(audience, sc
 
         async def survey_rounds(self, t1_open):
             return {str(number): {"is_open": False,
-                **({"configuration_id": "t3-parts-v4-1122", "tester_participant_ids":
-                    ["participant-1"] if self.testing else []} if number == 3 else {})} for number in range(1, 5)}
+                **({"configuration_id": "t3-parts-v4-1122",
+                    ("tester_participant_ids" if tester_mode else "followup_participant_ids"):
+                    ["participant-1"] if self.admitted else []} if number == 3 else {})} for number in range(1, 5)}
 
     class Progress:
         records = {}
@@ -643,7 +645,7 @@ def test_t3_checkpoint_and_submission_stay_in_the_selected_audience(audience, sc
         assert [(response.survey_version, response.answers) for response in responses.responses] == [
             (part1, answers), (part2, part2_answers),
         ]
-        assert all(response.detail["testerSubmission"] is True for response in responses.responses)
+        assert all((response.detail.get("testerSubmission") is True) == tester_mode for response in responses.responses)
         status = client.get("/api/v1/participant/survey-status", headers=headers).json()
         assert status["surveyRoundsOpen"]["3"] is True
         configuration = client.get("/api/v1/participant/survey-configurations/3", headers=headers)
@@ -652,8 +654,10 @@ def test_t3_checkpoint_and_submission_stay_in_the_selected_audience(audience, sc
             (item["surveyVersion"], item["audience"]) for item in status["surveyConfigurations"]["3"]
         } == {(version, group) for version, (group, _) in versions.items()}
         assert set(status["completedVersionsByRound"]["3"]) == {part1, part2}
-        assert 3 not in status["completedRounds"] and status["chatSubmissionAllowed"] is False
-        admission.testing = False
+        assert (3 in status["completedRounds"]) == (not tester_mode)
+        if tester_mode:
+            assert status["chatSubmissionAllowed"] is False
+        admission.admitted = False
         for paused in (True, False):
             admission.paused = paused
             ordinary_status = client.get("/api/v1/participant/survey-status", headers=headers)
@@ -911,7 +915,33 @@ def test_t2_only_allowlist_member_requires_explicit_t3_admission():
     records["3"]["followup_participant_ids"] = ["t2-member"]
     assert participant_survey_rounds(records, "t2-member", True, True)["3"]["is_open"]
     records["3"]["is_open"] = False
+    assert participant_survey_rounds(records, "t2-member", True, True)["3"]["is_open"]
+    records["3"]["followup_participant_ids"] = []
     assert not participant_survey_rounds(records, "t2-member", True, True)["3"]["is_open"]
+
+
+def test_t3_regular_roster_restricts_access_without_reopening_public_intake():
+    from app.services.application_settings import participant_survey_rounds
+
+    records = {"3": {
+        "is_open": False,
+        "selected_configuration": {"id": "selected"},
+        "followup_participant_ids": ["regular", "missing"],
+        "tester_participant_ids": ["tester", "regular"],
+    }}
+    for public_open in (False, True):
+        records["3"]["is_open"] = public_open
+        for paused in (False, True):
+            regular = participant_survey_rounds(records, "regular", True, paused)["3"]
+            assert regular["is_open"] and not regular["tester_access"]
+            assert not participant_survey_rounds(records, "other", True, paused)["3"]["is_open"]
+            assert not participant_survey_rounds(records, "missing", False, paused)["3"]["is_open"]
+    records["3"]["is_open"] = False
+    tester = participant_survey_rounds(records, "tester", True, True)["3"]
+    assert tester["is_open"] and tester["tester_access"]
+    records["3"]["period_ended"] = True
+    for account in ("regular", "tester"):
+        assert not participant_survey_rounds(records, account, True, True)["3"]["is_open"]
 
 
 def test_closed_t3_opens_only_for_registered_testers_and_lists_them_separately():
