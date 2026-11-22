@@ -30,6 +30,19 @@ class MongoSurveyProgressRepository:
     def __init__(self, collection: Any) -> None:
         self._collection = collection
 
+    async def list_export_metadata(
+        self, survey_round: int, survey_versions: list[str], participant_ids: list[str]
+    ) -> list[dict[str, Any]]:
+        return [
+            document
+            async for document in self._collection.find(
+                {"survey_round": survey_round, "survey_version": {"$in": survey_versions},
+                 "participant_id": {"$in": participant_ids}},
+                {"_id": 0, "participant_id": 1, "survey_version": 1, "completed": 1,
+                 "detail": 1, "page_history": 1},
+            )
+        ]
+
     async def list_incomplete(
         self, survey_round: int, survey_version: str
     ) -> list[dict[str, Any]]:

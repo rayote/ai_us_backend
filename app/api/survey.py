@@ -361,8 +361,8 @@ async def save_survey_progress(
             "answers": _merge_participant_profile_answers(
                 progress.answers,
                 known_keys,
-                participant,
-                reenter=progress.survey_round in {2, 3},
+                participant if progress.survey_round != 3 else None,
+                reenter=progress.survey_round == 2,
             ),
             "detail": {
                 **progress.detail,

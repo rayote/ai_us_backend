@@ -1,4 +1,8 @@
+import csv
+import io
 from datetime import UTC, datetime
+
+import pytest
 
 from app.api.researcher import _survey_export_filename
 from app.core.security import create_access_token, hash_password
@@ -18,6 +22,7 @@ from app.services.auth import (
     ResearcherAccountRepository,
 )
 from app.services.surveys import SurveyDefinitionRepository, SurveyResponseRepository
+from app.services.t3_export import FLAG_COLUMNS, T3_VERSIONS, _flags, _visible_answers
 from fastapi.testclient import TestClient
 
 
@@ -187,6 +192,87 @@ def _participant_token() -> str:
     return create_access_token(
         "participant-1", "participant", "test-secret-at-least-thirty-two-bytes", 60
     )
+
+
+@pytest.fixture
+def survey_client():
+    with _client() as client:
+        yield client
+
+
+def test_researcher_t3_export_pairs_only_matching_final_parts(survey_client):
+    client = survey_client
+    timestamp = datetime(2026, 11, 22, 12, tzinfo=UTC)
+    records = {
+        T3_VERSIONS[0]: [("finished", "12"), ("draft", "11"), ("not-started", "10")],
+        T3_VERSIONS[1]: [("finished", "15"), ("orphan", "13")],
+        T3_VERSIONS[2]: [("secondary", "17")],
+        T3_VERSIONS[3]: [("secondary", "17"), ("draft", "wrong-audience")],
+    }
+
+    class Responses:
+        async def list_responses(self, round_number, version):
+            assert round_number == 3
+            return [SurveyResponseRecord(participantId=person, surveyRound=3, surveyVersion=version,
+                                         submittedAt=timestamp, answers={"demo.age": age})
+                    for person, age in records[version]]
+
+    class Progress:
+        async def list_export_metadata(self, round_number, versions, participants):
+            assert round_number == 3 and tuple(versions) == T3_VERSIONS
+            assert participants == ["draft", "finished", "not-started", "secondary"]
+            return [{"participant_id": "draft", "survey_version": T3_VERSIONS[1],
+                     "answers": {"demo.age": "private-draft"},
+                     "page_history": [{"page": 1, "saved_at": timestamp}]}]
+
+    client.app.state.survey_response_repository = Responses()
+    client.app.state.survey_progress_repository = Progress()
+    for version in T3_VERSIONS:
+        client.app.state.survey_definition_repository.definitions[3, version] = SurveyDefinition(
+            surveyRound=3, surveyVersion=version, createdAt=timestamp,
+            audience="elementary" if "-elem-" in version else "secondary",
+            questions=[SurveyQuestion(key="demo.age", label="Age", csvColumn="demo.age", order=1)],
+            spec={"part": 1 if "-part1-" in version else 2, "scales": []},
+        )
+    path = "/api/v1/researcher/exports/survey-responses/t3"
+    assert client.get(path).status_code == 401
+    assert client.get(path, headers={"Authorization": f"Bearer {_participant_token()}"}).status_code == 403
+    token = _token(client, "researcher", "researcher-password")
+    response = client.get(path, headers={"Authorization": f"Bearer {token}"})
+    assert response.status_code == 200
+    assert response.headers["cache-control"] == "no-store"
+    assert 'attachment; filename="survey-t3-merged_' in response.headers["content-disposition"]
+    assert response.content.startswith(b"\xef\xbb\xbf")
+    rows = {row["참여자 ID"]: row for row in csv.DictReader(io.StringIO(response.content.decode("utf-8-sig")))}
+    assert set(rows) == {"draft", "finished", "not-started", "secondary"}
+    assert rows["finished"]["demo.age_p2"] == "15"
+    assert rows["secondary"]["설문지 구분"] == "중고등용"
+    assert rows["draft"]["파트 2 상태"] == "중간 저장"
+    assert rows["draft"]["검사 1 저장 시각(KST)_p2"]
+    assert rows["draft"]["demo.age_p2"] == ""
+    assert rows["not-started"]["파트 2 상태"] == "시작 안 함"
+    assert all(not rows["draft"][flag] for flag in FLAG_COLUMNS)
+    assert "private-draft" not in response.text and "wrong-audience" not in response.text
+
+
+def test_t3_export_counts_only_displayed_answers_and_excludes_per_item_flag_from_overall():
+    timestamp = datetime(2026, 11, 22, 12, tzinfo=UTC)
+    questions = [{"key": f"question.{number}", "type": "text"} for number in range(50)]
+    questions[0]["logic"] = {"type": "showIfEq", "dependsOn": "question.1", "equals": "trigger"}
+    definition = SurveyDefinition(
+        surveyRound=3, surveyVersion=T3_VERSIONS[0], createdAt=timestamp,
+        questions=[SurveyQuestion(key=item["key"], csvColumn=item["key"], order=order)
+                   for order, item in enumerate(questions)],
+        spec={"scales": [{"scaleId": "sample", "questions": questions}]},
+    )
+    answers = _visible_answers(definition, dict.fromkeys((item["key"] for item in questions), "value"))
+    assert "question.0" not in answers
+    incomplete_metrics = ["", "", "", 100, 97, 3]
+    complete_metrics = ["", "", "", 100, 97, 8]
+    flags = _flags(definition, definition, answers, answers, complete_metrics, incomplete_metrics, 4)
+    assert (flags[3], flags[4], flags[-1]) == (0, 1, 0)
+    flags = _flags(definition, definition, answers, answers, incomplete_metrics, incomplete_metrics, 4)
+    assert (flags[3], flags[4], flags[-1]) == (0, "", 0)
 
 
 def test_partial_progress_export_is_researcher_only_and_excludes_final_responses() -> (

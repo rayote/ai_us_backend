@@ -39,8 +39,8 @@ class SurveySubmissionService:
         answers = _merge_participant_profile_answers(
             submission.answers,
             known_keys,
-            participant,
-            reenter=submission.survey_round in {2, 3},
+            participant if submission.survey_round != 3 else None,
+            reenter=submission.survey_round == 2,
         )
         if unknown_keys := set(answers) - known_keys:
             raise UnknownQuestionKeyError(", ".join(sorted(unknown_keys)))

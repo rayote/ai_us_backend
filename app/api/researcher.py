@@ -103,6 +103,7 @@ from app.services.surveys import (
     SurveyResponseRepository,
     survey_responses_to_csv,
 )
+from app.services.t3_export import T3_VERSIONS, t3_merged_csv
 from app.services.transcript_runs import TranscriptParseRunRepository, normalized_to_csv, source_error_reason
 from app.services.worker_health import WorkerHealthRepository, worker_health_snapshot
 from fastapi import (
@@ -890,6 +891,46 @@ async def export_survey_responses(
         content="\ufeff" + survey_responses_to_csv(definition, responses, profiles),
         media_type="text/csv; charset=utf-8",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@router.get("/exports/survey-responses/t3")
+async def export_t3_survey_responses(
+    request: Request, _: str = Depends(require_researcher)
+) -> Response:
+    definition_repository = _survey_definition_repository(request)
+    response_repository = _survey_response_repository(request)
+    progress_repository = getattr(request.app.state, "survey_progress_repository", None)
+    if progress_repository is None:
+        raise HTTPException(status_code=503, detail="T3 진행 기록을 준비 중입니다.")
+
+    definitions = []
+    for version in T3_VERSIONS:
+        definition = await definition_repository.get(3, version)
+        if definition is None:
+            raise HTTPException(status_code=404, detail="T3 통합 다운로드에 필요한 설문 정의가 없습니다.")
+        definitions.append(definition)
+
+    responses = []
+    participant_ids = set()
+    for version in T3_VERSIONS:
+        records = await response_repository.list_responses(3, version)
+        if "-part1-" in version:
+            participant_ids.update(record.participant_id for record in records)
+        responses.extend(records)
+    metadata = (
+        await progress_repository.list_export_metadata(3, list(T3_VERSIONS), sorted(participant_ids))
+        if participant_ids else []
+    )
+    try:
+        content = t3_merged_csv(definitions, responses, metadata)
+    except ValueError as error:
+        raise HTTPException(status_code=409, detail="T3 설문 정의 또는 제출 기록을 확인해 주세요.") from error
+    filename = f"survey-t3-merged_{_kst_filename_timestamp(datetime.now(UTC))}.csv"
+    return Response(
+        content="\ufeff" + content,
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"', "Cache-Control": "no-store"},
     )
 
 

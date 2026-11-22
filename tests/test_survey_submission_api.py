@@ -359,14 +359,20 @@ def test_submission_overwrites_profile_answers_from_participant_account(open_par
     }
 
 
-def test_t2_preserves_reentered_demographics_but_enforces_account_phones() -> None:
+@pytest.mark.parametrize("survey_round, participant_phone, guardian_phone", [
+    (2, "01012345678", "01098765432"),
+    (3, "01000000000", "01000000001"),
+])
+def test_reentered_demographics_and_round_specific_contact_policy(
+    survey_round, participant_phone, guardian_phone
+) -> None:
     from app.schemas.survey import SurveySubmissionCreate
     from app.services.submissions import SurveySubmissionService
 
     definitions = InMemoryDefinitions()
     definitions.definition = SurveyDefinition(
-        surveyRound=2,
-        surveyVersion="t2-part1-v9-1022",
+        surveyRound=survey_round,
+        surveyVersion=f"t{survey_round}-part1-test",
         audience="all",
         questions=[
             SurveyQuestion(key=key, csvColumn=key, order=order)
@@ -382,7 +388,7 @@ def test_t2_preserves_reentered_demographics_but_enforces_account_phones() -> No
         SurveySubmissionService(definitions, jobs).submit(
             accounts.account.participant_id,
             SurveySubmissionCreate(
-                surveyRound=2,
+                surveyRound=survey_round,
                 surveyVersion=definitions.definition.survey_version,
                 submissionId="t2-reentry",
                 answers={
@@ -403,10 +409,10 @@ def test_t2_preserves_reentered_demographics_but_enforces_account_phones() -> No
     assert jobs.jobs[0].payload["answers"] == {
         "demo.grade": 9,
         "demo.contact": {
-            "demo.contact_phone": "01012345678",
+            "demo.contact_phone": participant_phone,
             "demo.contact_email": "new@example.com",
         },
-        "demo.guardianContact": {"demo.guardianContact_phone": "01098765432"},
+        "demo.guardianContact": {"demo.guardianContact_phone": guardian_phone},
     }
     assert accounts.account.grade == 4
 
@@ -547,6 +553,95 @@ def test_partial_progress_revision_isolation_replacement_and_completion(open_par
             ).status_code
             == 409
         )
+
+
+@pytest.mark.parametrize("audience, school", [("elementary", "초등"), ("secondary", "중등")])
+def test_t3_checkpoint_and_submission_stay_in_the_selected_audience(audience, school):
+    from dataclasses import replace
+    from app.schemas.survey import SurveyDefinitionSummary, SurveyProgressRecord
+
+    versions = {
+        f"t3-{slug}-part{part}-v4-1122": (group, part)
+        for slug, group in (("elem", "elementary"), ("secondary", "secondary"))
+        for part in (1, 2)
+    }
+    part1, part2 = [version for version, (group, _) in versions.items() if group == audience]
+    wrong = next(version for version, (group, part) in versions.items() if group != audience and part == 1)
+    now = datetime.now(UTC)
+
+    class Definitions(InMemoryDefinitions):
+        async def list_definitions(self):
+            return [SurveyDefinitionSummary(surveyRound=3, surveyVersion=version, audience=group,
+                part=part, questionCount=3, createdAt=now) for version, (group, part) in versions.items()]
+
+        async def get(self, survey_round, survey_version):
+            if survey_round != 3 or survey_version not in versions:
+                return None
+            group, part = versions[survey_version]
+            return SurveyDefinition(surveyRound=3, surveyVersion=survey_version, audience=group,
+                spec={"part": part}, createdAt=now, questions=[SurveyQuestion(key=key, csvColumn=key, order=index)
+                    for index, key in enumerate(("demo.contact", "demo.guardianContact", "demo.age"))])
+
+    class Admission:
+        opened = True
+
+        async def participation_settings(self):
+            return {"participation_paused": True}
+
+        async def survey_rounds(self, t1_open):
+            return {str(number): {"is_open": number == 3 and self.opened,
+                **({"configuration_id": "t3-parts-v4-1122"} if number == 3 else {})} for number in range(1, 5)}
+
+    class Progress:
+        records = {}
+
+        async def get(self, participant_id, survey_round, survey_version):
+            return self.records.get((participant_id, survey_round, survey_version))
+
+        async def save(self, participant_id, progress):
+            snapshot = SurveyProgressRecord(**progress.model_dump(exclude={"revision"}), revision=progress.revision + 1, updated_at=now)
+            self.records[(participant_id, progress.survey_round, progress.survey_version)] = snapshot
+            return snapshot
+
+    accounts, definitions, responses, jobs, admission = InMemoryParticipantAccounts(), Definitions(), InMemoryResponses(), InMemoryJobs(), Admission()
+    accounts.account = replace(accounts.account, school_level=school)
+    secret = "test-secret-at-least-thirty-two-bytes"
+    app = create_app(Settings("test", None, "ai_us_test", (), secret), application_settings_repository=admission,
+        participant_account_repository=accounts, survey_definition_repository=definitions,
+        survey_response_repository=responses, survey_progress_repository=Progress(), job_repository=jobs)
+    headers = {"Authorization": "Bearer " + create_access_token("participant-1", "participant", secret, 60)}
+    progress_url = "/api/v1/survey-progress"
+    submit_url = "/api/v1/survey-responses"
+    answers = {"demo.contact": {"demo.contact_phone": "01000000000"}, "demo.age": 13}
+    detail = {"startedAt": now.isoformat(), "activeSeconds": 35, "visitedPageCount": 2}
+    draft = {"surveyRound": 3, "surveyVersion": part1, "revision": 0, "completedPage": 1,
+        "nextPage": 2, "totalPages": 8, "answers": answers, "detail": detail, "clientSavedAt": now.isoformat()}
+    final = {"surveyRound": 3, "surveyVersion": part1, "submissionId": "t3-p1", "answers": answers, "detail": detail}
+    with TestClient(app) as client:
+        assert client.put(progress_url, headers=headers, json={**draft, "surveyVersion": wrong}).status_code == 403
+        assert client.post(submit_url, headers=headers, json={**final, "surveyVersion": part2}).status_code == 403
+        assert client.put(progress_url, headers=headers, json=draft).status_code == 200
+        fresh_headers = {"Authorization": "Bearer " + create_access_token("participant-1", "participant", secret, 120)}
+        restored = client.get(progress_url, headers=fresh_headers, params={"surveyRound": 3, "surveyVersion": part1}).json()
+        assert (restored["answers"], restored["nextPage"], restored["detail"]["activeSeconds"]) == (answers, 2, 35)
+        assert client.get(progress_url, headers=fresh_headers, params={"surveyRound": 3, "surveyVersion": part2}).status_code == 404
+        assert client.post(submit_url, headers=headers, json=final).status_code == 202
+        asyncio.run(store_survey_response(jobs.jobs[-1].payload, definitions, responses))
+        assert responses.responses[-1].answers == answers
+        part2_answers = {**answers, "demo.age": 14}
+        part2_draft = {**draft, "surveyVersion": part2, "answers": part2_answers,
+                       "totalPages": 4 if audience == "elementary" else 5}
+        assert client.put(progress_url, headers=fresh_headers, json=part2_draft).status_code == 200
+        part2_saved = client.get(progress_url, headers=headers, params={"surveyRound": 3, "surveyVersion": part2}).json()
+        assert (part2_saved["answers"], part2_saved["nextPage"]) == (part2_answers, 2)
+        part2_final = {**final, "surveyVersion": part2, "submissionId": "t3-p2", "answers": part2_answers}
+        assert client.post(submit_url, headers=headers, json=part2_final).status_code == 202
+        asyncio.run(store_survey_response(jobs.jobs[-1].payload, definitions, responses))
+        assert [(response.survey_version, response.answers) for response in responses.responses] == [
+            (part1, answers), (part2, part2_answers),
+        ]
+        admission.opened = False
+        assert client.post(submit_url, headers=headers, json=part2_final).status_code == 403
 
 
 def test_final_response_retry_repairs_progress_without_replacing_answers() -> None:
