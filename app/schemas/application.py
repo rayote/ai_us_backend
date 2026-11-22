@@ -117,6 +117,7 @@ class SurveyRoundSetting(BaseModel):
     state: Literal["preparing", "open", "closed"]
     configurations: list[SurveyConfiguration]
     followup_participant_count: int = Field(default=0, alias="followupParticipantCount")
+    tester_participant_count: int = Field(default=0, alias="testerParticipantCount")
     followup_deadline: datetime | None = Field(default=None, alias="followupDeadline")
     updated_at: datetime | None = Field(default=None, alias="updatedAt")
     updated_by: str | None = Field(default=None, alias="updatedBy")
@@ -134,6 +135,7 @@ class SurveyRoundSetting(BaseModel):
             state=record["state"],
             configurations=record["configurations"],
             followupParticipantCount=len(record.get("followup_participant_ids", [])),
+            testerParticipantCount=len(record.get("tester_participant_ids", [])),
             followupDeadline=T2_FOLLOWUP_DEADLINE if survey_round == 2 else t1_followup_deadline(record) if survey_round == 1 else None,
             updatedAt=record.get("updated_at"),
             updatedBy=record.get("updated_by"),
@@ -177,6 +179,7 @@ class SurveyRoundSettingUpdate(BaseModel):
         default=None, alias="followupParticipantIds", max_length=5000
     )
     followup_deadline: AwareDatetime | None = Field(default=None, alias="followupDeadline")
+    tester_participant_ids: list[str] | None = Field(default=None, alias="testerParticipantIds", max_length=100)
     followup_groups: list[SurveyAllowlistGroupSetting] | None = Field(
         default=None, alias="followupGroups", max_length=1000
     )
@@ -193,6 +196,8 @@ class SurveyRoundSettingUpdate(BaseModel):
             raise ValueError("토글 값은 true 또는 false여야 합니다.")
         if self.followup_participant_ids is not None:
             self.followup_participant_ids = _normalize_participant_ids(self.followup_participant_ids)
+        if self.tester_participant_ids is not None:
+            self.tester_participant_ids = _normalize_participant_ids(self.tester_participant_ids)
         if self.followup_groups is not None:
             identifiers = [group.id for group in self.followup_groups]
             if len(set(identifiers)) != len(identifiers):

@@ -130,7 +130,7 @@ async def _require_survey_access(
             raise HTTPException(
                 status_code=403, detail="파트 1 제출 완료 후 참여할 수 있습니다."
             )
-    return definition
+    return record
 
 
 async def _survey_status(request: Request, participant_id: str) -> dict[str, object]:
@@ -151,9 +151,17 @@ async def _survey_status(request: Request, participant_id: str) -> dict[str, obj
             )
         )
         versions_by_round[str(survey_round)] = versions
+        official_versions = None
         for version in versions:
             definition = await definitions.get(survey_round, version)
             if definition is not None and (definition.spec or {}).get("part") == 2:
+                if survey_round == 3:
+                    if official_versions is None:
+                        official_versions = await responses.list_versions_for_participant(
+                            participant_id, survey_round, include_tester=False
+                        )
+                    if version not in official_versions:
+                        continue
                 completed_rounds.append(survey_round)
                 break
     rounds, paused = await _participant_rounds(request, participant_id)
@@ -255,7 +263,7 @@ async def submit_survey_response(
     request: Request,
     participant_id: str = Depends(_participant_id),
 ) -> SurveySubmissionAccepted:
-    await _require_survey_access(
+    access = await _require_survey_access(
         request, participant_id, submission.survey_round, submission.survey_version
     )
     try:
@@ -266,7 +274,7 @@ async def submit_survey_response(
             else None
         )
         job = await _submission_service(request).submit(
-            participant_id, submission, participant
+            participant_id, submission, participant, tester_submission=access["tester_access"]
         )
     except UnknownSurveyDefinitionError as error:
         raise HTTPException(

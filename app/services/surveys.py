@@ -48,7 +48,7 @@ class SurveyResponseRepository(Protocol):
     ) -> list[SurveyResponseRecord]: ...
 
     async def list_versions_for_participant(
-        self, participant_id: str, survey_round: int
+        self, participant_id: str, survey_round: int, *, include_tester: bool = True
     ) -> list[str]: ...
 
     async def list_all_responses(self) -> list[SurveyResponseRecord]: ...
@@ -234,11 +234,12 @@ class MongoSurveyResponseRepository:
         return [_response_from_document(document) async for document in cursor]
 
     async def list_versions_for_participant(
-        self, participant_id: str, survey_round: int
+        self, participant_id: str, survey_round: int, *, include_tester: bool = True
     ) -> list[str]:
-        cursor = self._collection.find(
-            {"participant_id": participant_id, "survey_round": survey_round}
-        )
+        query = {"participant_id": participant_id, "survey_round": survey_round}
+        if not include_tester:
+            query["detail.testerSubmission"] = {"$ne": True}
+        cursor = self._collection.find(query, {"survey_version": 1})
         return [document["survey_version"] async for document in cursor]
 
     async def list_all_responses(self) -> list[SurveyResponseRecord]:

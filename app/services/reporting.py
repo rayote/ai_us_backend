@@ -43,7 +43,7 @@ def survey_allowlist_groups(records):
         identifiers = set()
         for group in record.get("followup_groups", []):
             identifier = group.get("id", "")
-            if not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", identifier) or identifier in identifiers or identifier == "ungrouped":
+            if not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", identifier) or identifier in identifiers or identifier == "ungrouped" or (round_number == 3 and identifier == "testing-accounts"):
                 raise ValueError("Invalid follow-up group identifier")
             identifiers.add(identifier)
             allowed_ids = set(allowed)
@@ -56,6 +56,9 @@ def survey_allowlist_groups(records):
             label = "T1 추가 참여 대상자" if round_number == 1 else f"T{round_number} 후속 참여 대상자"
             result.append({"id": f"t{round_number}-ungrouped", "label": label,
                            "surveyRound": round_number, "participant_ids": remaining, "deadline": deadline})
+    if testers := records.get("3", {}).get("tester_participant_ids"):
+        result.append({"id": "t3-testing-accounts", "label": "테스터 계정", "surveyRound": 3,
+                       "participant_ids": list(dict.fromkeys(testers)), "deadline": None})
     return result
 
 

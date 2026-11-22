@@ -137,6 +137,7 @@ def participant_survey_rounds(
         state = "paused" if paused else record.get("state", "open" if allowed else "preparing")
         listed = participant_id in record.get("followup_participant_ids", [])
         configured = record.get("selected_configuration") is not None
+        tester_access = False
         if key == "1" and "followup_participant_ids" in record:
             deadline = t1_followup_deadline(record)
             unlimited = "followup_deadline" in record and record["followup_deadline"] is None
@@ -153,9 +154,16 @@ def participant_survey_rounds(
             allowed, state = False, "closed"
         if key == "3" and participant_id in t2_members and not listed:
             allowed, state = False, "closed"
+        if key == "3":
+            tester = participant_id in record.get("tester_participant_ids", [])
+            if not record["is_open"] and tester and existing_participant and configured and not record.get("period_ended"):
+                allowed, state = True, "open"
+                tester_access = True
+            elif tester and not listed and record["is_open"]:
+                allowed, state = False, "closed"
         if key == "4":
             allowed, state = False, "closed"
-        result[key] = {**record, "is_open": allowed, "state": state}
+        result[key] = {**record, "is_open": allowed, "state": state, "tester_access": tester_access}
     return result
 
 
@@ -281,6 +289,7 @@ class MongoApplicationSettingsRepository:
             "followup_participant_ids",
             "followup_deadline",
             "followup_groups",
+            "tester_participant_ids",
         }:
             raise ValueError("설문 설정 항목이 올바르지 않습니다.")
         prefix = f"survey_rounds.{survey_round}"

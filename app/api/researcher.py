@@ -914,7 +914,8 @@ async def export_t3_survey_responses(
     responses = []
     participant_ids = set()
     for version in T3_VERSIONS:
-        records = await response_repository.list_responses(3, version)
+        records = [record for record in await response_repository.list_responses(3, version)
+                   if (record.detail or {}).get("testerSubmission") is not True]
         if "-part1-" in version:
             participant_ids.update(record.participant_id for record in records)
         responses.extend(records)

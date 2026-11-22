@@ -204,8 +204,8 @@ def test_researcher_t3_export_pairs_only_matching_final_parts(survey_client):
     client = survey_client
     timestamp = datetime(2026, 11, 22, 12, tzinfo=UTC)
     records = {
-        T3_VERSIONS[0]: [("finished", "12"), ("draft", "11"), ("not-started", "10")],
-        T3_VERSIONS[1]: [("finished", "15"), ("orphan", "13")],
+        T3_VERSIONS[0]: [("finished", "12"), ("draft", "11"), ("not-started", "10"), ("tester", "test-only")],
+        T3_VERSIONS[1]: [("finished", "15"), ("orphan", "13"), ("tester", "test-only")],
         T3_VERSIONS[2]: [("secondary", "17")],
         T3_VERSIONS[3]: [("secondary", "17"), ("draft", "wrong-audience")],
     }
@@ -214,7 +214,8 @@ def test_researcher_t3_export_pairs_only_matching_final_parts(survey_client):
         async def list_responses(self, round_number, version):
             assert round_number == 3
             return [SurveyResponseRecord(participantId=person, surveyRound=3, surveyVersion=version,
-                                         submittedAt=timestamp, answers={"demo.age": age})
+                                         submittedAt=timestamp, answers={"demo.age": age},
+                                         detail={"testerSubmission": True} if person == "tester" else None)
                     for person, age in records[version]]
 
     class Progress:
@@ -252,7 +253,7 @@ def test_researcher_t3_export_pairs_only_matching_final_parts(survey_client):
     assert rows["draft"]["demo.age_p2"] == ""
     assert rows["not-started"]["파트 2 상태"] == "시작 안 함"
     assert all(not rows["draft"][flag] for flag in FLAG_COLUMNS)
-    assert "private-draft" not in response.text and "wrong-audience" not in response.text
+    assert all(value not in response.text for value in ("private-draft", "wrong-audience", "test-only"))
 
 
 def test_t3_export_counts_only_displayed_answers_and_excludes_per_item_flag_from_overall():

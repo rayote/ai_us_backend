@@ -168,6 +168,10 @@ async def update_survey_round_settings(
     if not record["configurations"]:
         raise HTTPException(status_code=409, detail="선택 가능한 설문 구성이 없습니다.")
     changes = settings_update.model_dump(exclude_unset=True)
+    if "tester_participant_ids" in changes and survey_round != 3:
+        raise HTTPException(status_code=422, detail="테스터 명단은 3회차에만 설정할 수 있습니다.")
+    if survey_round == 3 and any(group["id"] == "testing-accounts" for group in changes.get("followup_groups", [])):
+        raise HTTPException(status_code=422, detail="테스터 그룹 ID는 별도로 관리됩니다.")
     if "followup_deadline" in changes and survey_round != 1:
         raise HTTPException(status_code=422, detail="명단별 참여 기한은 1회차에만 설정할 수 있습니다.")
     if "configuration_id" in changes:

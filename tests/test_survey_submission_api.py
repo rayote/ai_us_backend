@@ -91,13 +91,14 @@ class InMemoryResponses(SurveyResponseRepository):
         return self.responses
 
     async def list_versions_for_participant(
-        self, participant_id: str, survey_round: int
+        self, participant_id: str, survey_round: int, *, include_tester: bool = True
     ) -> list[str]:
         return [
             response.survey_version
             for response in self.responses
             if response.participant_id == participant_id
             and response.survey_round == survey_round
+            and (include_tester or not (response.detail or {}).get("testerSubmission"))
         ]
 
 
@@ -583,14 +584,15 @@ def test_t3_checkpoint_and_submission_stay_in_the_selected_audience(audience, sc
                     for index, key in enumerate(("demo.contact", "demo.guardianContact", "demo.age"))])
 
     class Admission:
-        opened = True
+        testing = True
 
         async def participation_settings(self):
             return {"participation_paused": True}
 
         async def survey_rounds(self, t1_open):
-            return {str(number): {"is_open": number == 3 and self.opened,
-                **({"configuration_id": "t3-parts-v4-1122"} if number == 3 else {})} for number in range(1, 5)}
+            return {str(number): {"is_open": False,
+                **({"configuration_id": "t3-parts-v4-1122", "tester_participant_ids":
+                    ["participant-1"] if self.testing else []} if number == 3 else {})} for number in range(1, 5)}
 
     class Progress:
         records = {}
@@ -640,7 +642,12 @@ def test_t3_checkpoint_and_submission_stay_in_the_selected_audience(audience, sc
         assert [(response.survey_version, response.answers) for response in responses.responses] == [
             (part1, answers), (part2, part2_answers),
         ]
-        admission.opened = False
+        assert all(response.detail["testerSubmission"] is True for response in responses.responses)
+        status = client.get("/api/v1/participant/survey-status", headers=headers).json()
+        assert status["surveyRoundsOpen"]["3"] is True
+        assert set(status["completedVersionsByRound"]["3"]) == {part1, part2}
+        assert 3 not in status["completedRounds"] and status["chatSubmissionAllowed"] is False
+        admission.testing = False
         assert client.post(submit_url, headers=headers, json=part2_final).status_code == 403
 
 
@@ -869,6 +876,40 @@ def test_t2_only_allowlist_member_requires_explicit_t3_admission():
     assert participant_survey_rounds(records, "t2-member", True, True)["3"]["is_open"]
     records["3"]["is_open"] = False
     assert not participant_survey_rounds(records, "t2-member", True, True)["3"]["is_open"]
+
+
+def test_closed_t3_opens_only_for_registered_testers_and_lists_them_separately():
+    from app.services.application_settings import participant_survey_rounds
+    from app.services.reporting import survey_allowlist_groups
+
+    records = {
+        "1": {"is_open": False, "followup_participant_ids": ["school-member"]},
+        "3": {"is_open": False, "selected_configuration": {"id": "t3-parts-v4-1122"},
+              "tester_participant_ids": ["tester-kid", "tester-teen"]},
+    }
+    assert [group["id"] for group in survey_allowlist_groups(records)] == ["t1-ungrouped", "t3-testing-accounts"]
+    grouped_records = {
+        **records,
+        "2": {"followup_participant_ids": ["t2-member"]},
+        "3": {
+            **records["3"],
+            "followup_participant_ids": ["t3-member", "t3-ungrouped-member"],
+            "followup_groups": [{"id": "school", "participant_ids": ["t3-member"]}],
+        },
+    }
+    assert [group["id"] for group in survey_allowlist_groups(grouped_records)] == [
+        "t1-ungrouped", "t2-ungrouped", "t3-school", "t3-ungrouped", "t3-testing-accounts",
+    ]
+    for identifier in ("tester-kid", "tester-teen"):
+        resolved = participant_survey_rounds(records, identifier, True, True)
+        assert resolved["3"]["is_open"] and not resolved["1"]["is_open"]
+    assert not participant_survey_rounds(records, "tester-kid", False, True)["3"]["is_open"]
+    assert not participant_survey_rounds(records, "ordinary", True, True)["3"]["is_open"]
+    records["3"]["period_ended"] = True
+    assert not participant_survey_rounds(records, "tester-kid", True, True)["3"]["is_open"]
+    records["3"].update(period_ended=False, is_open=True)
+    assert participant_survey_rounds(records, "ordinary", True, True)["3"]["is_open"]
+    assert not participant_survey_rounds(records, "tester-kid", True, True)["3"]["is_open"]
 
 
 def test_followup_allowlist_deadline_and_t3_without_t2(monkeypatch):

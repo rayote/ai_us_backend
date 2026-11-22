@@ -29,6 +29,8 @@ class SurveySubmissionService:
         participant_id: str,
         submission: SurveySubmissionCreate,
         participant: ParticipantAccount | None = None,
+        *,
+        tester_submission: bool = False,
     ) -> Job:
         definition = await self._definitions.get(
             submission.survey_round, submission.survey_version
@@ -54,7 +56,8 @@ class SurveySubmissionService:
                     "surveyVersion": submission.survey_version,
                     "answers": answers,
                     "detail": {
-                        **(submission.detail or {}),
+                        **{key: value for key, value in (submission.detail or {}).items() if key != "testerSubmission"},
+                        **({"testerSubmission": True} if tester_submission else {}),
                         "demographicEntryPolicy": (
                             "reenter" if submission.survey_round in {2, 3} else "profile"
                         ),
