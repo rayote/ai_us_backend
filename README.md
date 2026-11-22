@@ -4,6 +4,8 @@
 
 ## 주요 기능
 
+현재 설문 운영은 T1~T3 기준입니다. 회차별 접수 정책, 일반 접수와 분리된 T3 테스터 명단, 연구자 통합 CSV는 [API 계약](docs/api-contract.md)을 참고하세요. T4 제출은 종료됐지만 과거 기록은 보존합니다. Git 푸시와 CloudType 운영 배포는 별도입니다.
+
 - 참여 신청: 동의 항목, 연락처, 학교급·학년을 검증하고 중복 휴대폰 번호 신청을 차단합니다.
 - 참여자 인증: 휴대폰 번호 로그인, JWT 인증, 공통 초기 비밀번호 `1234`의 최초 변경 강제를 지원합니다.
 - 비밀번호 재설정: 참여자 본인 휴대폰 번호와 보호자 휴대폰 번호가 일치하면 비밀번호를 `1234`로 초기화하고 다음 로그인에서 변경을 강제합니다.
@@ -63,7 +65,7 @@ CloudType Secret의 bootstrap 계정은 최초 backend 실행 시 `admin`으로 
 
 ## 대화문 원본 오류
 
-- 파싱 중 필수 대화 파일 누락, Gemini 대신 Gmail 등 다른 서비스의 활동만 포함된 내보내기, 손상된 ZIP, 내용·미디어·숨겨진 데이터가 없는 Gemini HTML이 확정되면 제출 요약에 `parseStatus=invalid_source`와 `sourceErrorCode`를 저장합니다. 코드는 `missing_required_files`, `wrong_service_export`, `invalid_archive`입니다. 파싱 실행은 `failed`에 같은 코드를 기록합니다. 빈 HTML과 완전한 필드 구성이 확인된 Claude 계정·로그인·프로젝트 설정만 있는 ZIP은 기존 코드인 `missing_required_files`로 구분해 배포 전 운영 서버의 읽기 호환성을 유지합니다.
+- 파싱 중 필수 대화 파일 누락, Gemini 대신 Gmail 등 다른 서비스의 활동만 포함된 내보내기, 손상된 ZIP, 내용·미디어·숨겨진 데이터가 없는 Gemini HTML이 확정되면 제출 요약에 `parseStatus=invalid_source`와 `sourceErrorCode`를 저장합니다. 코드는 `missing_required_files`, `wrong_service_export`, `invalid_archive`입니다. 파싱 실행은 `failed`에 같은 코드를 기록합니다. 빈 Gemini HTML과 대화 없이 확인된 Claude 계정·로그인·프로젝트 설정만 있는 ZIP은 기존 오류 코드인 `missing_required_files`를 사용합니다.
 - 콘솔은 `오류 파일` 버튼을 비활성화하고 아래에 짧은 사유를 표시합니다. 재요청 API는 작업을 생성하지 않고 `409`로 거절하며 일괄 CSV에서도 해당 원본을 다시 읽지 않습니다. 원본 다운로드와 이전 정상 파싱 결과는 동의가 허용하는 범위에서 보존합니다. 올바른 원본은 새 제출로 등록합니다.
 - 네트워크·모델 실패, 형식 미지원, 제품을 확인할 수 없는 활동 HTML, 여러 활동 파일이 섞인 모호한 경우는 자동으로 원본 오류로 단정하지 않습니다. 기존 실패 자료는 자동 소급 변경하지 않으며, 이 상태는 변경된 파서가 원본 오류를 확인한 후부터 표시됩니다.
 

@@ -475,18 +475,24 @@ State priority is: no valid selected configuration -> `preparing`; selected + en
 
 The existing `application_settings` document `_id: "participant_application"` uses dotted `$set` fields `survey_rounds.N.configuration_id`, `.is_open`, `.period_ended`, `.updated_at` and `.updated_by`, with `upsert=true`. Other rounds and `auto_approval` are preserved, including when separate rounds are changed concurrently. Automatic approval changes likewise preserve round settings. No redeployment is required for subsequent setting changes. Concurrent writes to the same round use last-write-wins semantics.
 
-### Temporary follow-up participant access (2026-11-10)
+### Follow-up participant access
 
 Admins may replace a round's allowlist with `PUT /api/v1/admin/survey-round-settings/1`, `/2` or `/3` and exactly `{"followupParticipantIds": ["<participant account ID>"]}`. IDs are authenticated account IDs, not phone numbers, names or survey respondent labels. The field accepts at most 5,000 strings, normalizes whitespace and removes duplicates. Empty or overlong identifiers, null, multiple changed fields and non-admin writes are rejected; T4 writes return 410. This supplies the API, not a console list-upload control; no real list is automatically loaded.
 
 The dotted `.followup_participant_ids` write preserves the saved admission toggles and audit fields are updated normally. Settings responses include `followupParticipantCount` and `followupDeadline` without returning the identifier list. T2's deadline is `2026-11-16T00:00:00+09:00` (`2026-11-15T15:00:00Z`), exclusively: access at or after that instant is denied.
 
 - T2: once the allowlist field exists, only listed participants may access the selected configuration before the deadline. They may enter even while global participation is paused and T2 is period-ended. Neither a normal open toggle nor a cached browser state overrides the allowlist or deadline. An explicit empty list denies everyone. Removing someone from the list revokes subsequent access. Ordinary historical T2 settings without this field retain their previous behavior.
-- T3: temporarily allow registered participant accounts and allowlisted participants without a T2 completion prerequisite, including during the public application pause. The administrator must still select a valid configuration and open T3; neither the list nor existing-account status bypasses T3 preparing/ended state. This is not a frozen registration-date cohort: accounts created by trusted administrator imports are registered accounts too; public signup must remain paused operationally.
-- T2 and T3 part 2 require a stored part-1 response from that round. Status, configuration reads, progress writes and final writes use the same permission calculation. T2 deadline checks occur on each request; already accepted jobs may finish after the deadline.
+- Regular T3 access requires a selected configuration and an open, non-ended round. Existing accounts or explicitly listed participants can enter without completing T2, including during the general participation pause. Accounts listed for T1 or T2 need explicit regular T3 membership. The tester exception below is separate.
+- T2 and T3 part 2 require a stored part-1 response from that round. School-specific T3 versions require the corresponding part 1 of the same release and audience; T3 progress and final writes enforce the account's school audience. Status and configuration reads use the same round access calculation: closed rounds advertise no versions in `surveyConfigurations`, and their configuration endpoint returns `200` with `[]`. T2 deadline checks occur on each request; already accepted jobs may finish after the deadline.
 - Ordinary T1 admission is unchanged when its allowlist field is absent. The T1 school-cohort exception below is opt-in. Historical responses and chat submission point identifiers are unchanged. T4 admission is retired as described below. Deployment does not register participants, load a list, reopen T2 globally or open T3. Production settings/list changes are separate authorized operations.
 
-### T1 school-cohort access (2026-11-14)
+### T3 tester access
+
+Admins replace the separate tester roster with `PUT /api/v1/admin/survey-round-settings/3` and `{"testerParticipantIds": ["<participant account ID>"]}`. The request changes only that field and accepts up to 100 IDs. A valid selected configuration is required. An empty list removes the exception and its report tab. The settings response returns `testerParticipantCount`, not the IDs. This roster does not set T3 to open, change regular follow-up membership, or affect the participant's `surveyAllowlistMember` flag.
+
+While general T3 is closed, a listed existing account can use the selected T3 configuration, save progress and submit, provided the period has not ended. When general T3 opens, the tester roster alone does not grant access; accounts still on the tester roster need explicit regular T3 membership. The backend marks finals submitted through the tester exception with `detail.testerSubmission: true`. This marker excludes them from regular `completedRounds` and the T3 merged CSV, but does not remove them from `completedVersionsByRound` or isolate them from every report or per-version export.
+
+### T1 school-cohort access
 
 A T1 allowlist requires a selected configuration and an explicit deadline policy. Admins set it separately with `PUT /api/v1/admin/survey-round-settings/1`: `{"followupDeadline": "<ISO 8601 timestamp with timezone>"}` sets an exclusive deadline, while `{"followupDeadline": null}` explicitly allows unlimited time. No deadline is inferred from T2, the CSV, or a suggested two-week collection period. Missing, invalid or expired stored deadlines deny access; only an explicitly stored null enables no-deadline access. Timezone-naive input is rejected, while MongoDB's naive datetime values are interpreted as UTC on reads. Custom deadlines are rejected on T2/T3 so their existing policies cannot be changed through this field.
 
@@ -506,7 +512,7 @@ T4's effective admission is always closed, including when old stored settings ar
 
 `GET /api/v1/researcher/survey-allowlists` requires researcher/admin authentication and returns group summaries (`id`, `label`, `surveyRound`, `total`), without member IDs. `GET /api/v1/researcher/survey-allowlists/{group_id}` returns all members of the selected group; unknown groups return 404. Anonymous requests return 401 and participant accounts return 403. There are no registration/import/edit routes for this screen.
 
-Groups derive only from round-1/2/3 `followup_participant_ids`. Optional `followup_groups` metadata on the same round record has this stored shape:
+Regular groups derive from round-1/2/3 `followup_participant_ids`. If the T3 tester roster is nonempty, the API appends `t3-testing-accounts` (`테스터 계정`) after all regular groups. Optional `followup_groups` metadata on the same round record has this stored shape:
 
 ```json
 {"followup_groups": [{"id": "school-a", "label": "School A", "participant_ids": ["<already allowed account ID>"]}]}
@@ -521,6 +527,14 @@ Reports include `deadline`, `counts` (`total`, `completed`, `partial`, `notSubmi
 Reads are scoped to the selected member IDs and round, projecting only account identity/contact and response version/submission timestamps. Answers, passwords, guardian contacts, transcripts and full account/response scans are excluded. This read-only report neither changes access settings nor opens any round; T4 retirement is enforced separately.
 
 Existing `GET /api/v1/researcher/exports/survey-responses` CSV exports include stored allowlisted submissions in the same round/version as ordinary submissions. Allowlist membership is not an export filter; the existing selected survey version and optional school-level filter still apply. Queued jobs and drafts are not exported before final responses are stored.
+
+### Merged survey CSV exports
+
+- `GET /api/v1/researcher/exports/survey-responses/rounds/1` and `/rounds/2` merge registered legacy part versions for T1 and T2 respectively. This route does not serve T3 or T4.
+- `GET /api/v1/researcher/exports/survey-responses/t3` uses the four registered T3 v4-1122 definitions. Rows are anchored on final part-1 responses and paired with matching final part-2 responses when present. Tester finals are excluded before pairing; drafts and queued submissions do not create rows.
+- T3 quality flag `4-(2)` uses active seconds divided by the number of answered items for each eligible part. Eligibility requires the expected page count, a nonnegative active time, and at least one answered item. The flag is `1` if any eligible part is below two seconds per item, `0` if at least one part is eligible and none is below two seconds, and blank if neither part is eligible.
+
+These downloads require researcher/admin authentication and are separate from the version-filtered CSV. They return UTF-8 CSV with a BOM and a KST timestamp in the filename.
 
 ### Application list
 

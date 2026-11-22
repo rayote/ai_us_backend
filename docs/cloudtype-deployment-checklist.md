@@ -1,5 +1,7 @@
 # CloudType Deployment Checklist
 
+For a release that changes survey admission, also verify the participant status and configuration endpoints with approved test accounts. With general T3 closed and a tester roster configured, a listed tester with a valid selected configuration should receive `200` on both requests and see T3 open. A regular account outside the roster should receive `200` with T3 closed and no T3 configuration versions. In the researcher console, verify that `테스터 계정` is the last allowlist tab. Do not open general T3 or change the production roster as part of a deployment smoke test.
+
 ## Deployment Model (Confirmed 2026-10-23)
 
 The user confirmed that this project's CloudType services are deployed manually: CloudType fetches the connected Git repository, builds a Docker image and deploys the resulting container when the operator explicitly starts deployment. A GitHub push publishes source changes only; it does not redeploy either development or production. Restarting an existing service does not by itself incorporate new repository commits. Do not request a separate automatic-deployment toggle confirmation before an authorized push under this confirmed setup.
