@@ -201,21 +201,26 @@ class MongoSurveyResponseRepository:
                 raise
             submitted_at = existing["submitted_at"]
         if self._progress_collection is not None:
+            completed = {"completed": True, "completed_at": submitted_at}
+            initial = {
+                "revision": 0,
+                "completed_page": 0,
+                "next_page": 1,
+                "total_pages": 1,
+                "updated_at": submitted_at,
+            }
+            if response.survey_round == 3:
+                completed["answers"] = response.answers
+            else:
+                initial["answers"] = response.answers
             await self._progress_collection.update_one(
                 {
                     "_id": f"{response.participant_id}:{response.survey_round}:{response.survey_version}",
                     **identity,
                 },
                 {
-                    "$set": {"completed": True, "completed_at": submitted_at},
-                    "$setOnInsert": {
-                        "revision": 0,
-                        "answers": response.answers,
-                        "completed_page": 0,
-                        "next_page": 1,
-                        "total_pages": 1,
-                        "updated_at": submitted_at,
-                    },
+                    "$set": completed,
+                    "$setOnInsert": initial,
                 },
                 upsert=True,
             )

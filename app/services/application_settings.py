@@ -130,6 +130,7 @@ def participant_survey_rounds(
 ) -> dict[str, dict[str, Any]]:
     current_time = now or datetime.now(UTC)
     t1_members = records.get("1", {}).get("followup_participant_ids", [])
+    t2_members = records.get("2", {}).get("followup_participant_ids", [])
     result = {}
     for key, record in records.items():
         allowed = not paused and record["is_open"]
@@ -149,6 +150,8 @@ def participant_survey_rounds(
             allowed = bool(record["is_open"] and (existing_participant or listed))
             state = "open" if allowed else "closed" if record["is_open"] else state
         if key in {"2", "3"} and participant_id in t1_members and not listed:
+            allowed, state = False, "closed"
+        if key == "3" and participant_id in t2_members and not listed:
             allowed, state = False, "closed"
         if key == "4":
             allowed, state = False, "closed"

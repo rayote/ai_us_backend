@@ -96,10 +96,27 @@ def main() -> int:
 def extract_survey_sets(
     frontend_index: Path, survey_round: int = 1
 ) -> dict[str, list[dict[str, Any]]]:
-    html = frontend_index.read_text(encoding="utf-8")
+    html = frontend_index.read_text(encoding="utf-8-sig")
     scripts = "\n".join(
         re.findall(r"<script[^>]*>([\s\S]*?)</script>", html, flags=re.IGNORECASE)
     )
+    if survey_round == 3:
+        match = re.search(r"\bvar\s+SURVEY_SETS(?:_T3)?\s*=\s*", scripts)
+        if match is None:
+            raise RuntimeError("T3 SURVEY_SETS block was not found")
+        sets, _ = json.JSONDecoder().raw_decode(scripts, match.end())
+        if not isinstance(sets, dict) or set(sets) != {"elementary", "secondary"}:
+            raise ValueError("T3 requires elementary and secondary survey sets")
+        for audience, parts in sets.items():
+            if not isinstance(parts, list) or len(parts) != 2 or any(
+                not isinstance(part, dict)
+                or part.get("part") != number
+                or part.get("surveyRound") != 3
+                or part.get("audience") != audience
+                for number, part in enumerate(parts, 1)
+            ):
+                raise ValueError(f"Invalid T3 parts for {audience}")
+        return sets
     pattern = (
         r"var\s+SURVEY_SETS_T2\s*=([\s\S]*?);\n\s*var\s+SURVEY_ROUND\s*="
         if survey_round == 2

@@ -759,6 +759,23 @@ def test_t1_school_allowlist_allows_submission_without_reopening_signup_or_t3(un
         assert len(responses.responses) == 2
 
 
+def test_t2_only_allowlist_member_requires_explicit_t3_admission():
+    from app.services.application_settings import participant_survey_rounds
+
+    records = {
+        "1": {"is_open": False, "followup_participant_ids": ["t1-member"]},
+        "2": {"is_open": False, "followup_participant_ids": ["t2-member"]},
+        "3": {"is_open": True, "selected_configuration": {"id": "t3-parts-v4-1122"}},
+    }
+    assert participant_survey_rounds(records, "ordinary", True, True)["3"]["is_open"]
+    for participant in ("t1-member", "t2-member"):
+        assert not participant_survey_rounds(records, participant, True, True)["3"]["is_open"]
+    records["3"]["followup_participant_ids"] = ["t2-member"]
+    assert participant_survey_rounds(records, "t2-member", True, True)["3"]["is_open"]
+    records["3"]["is_open"] = False
+    assert not participant_survey_rounds(records, "t2-member", True, True)["3"]["is_open"]
+
+
 def test_followup_allowlist_deadline_and_t3_without_t2(monkeypatch):
     import csv
     import io

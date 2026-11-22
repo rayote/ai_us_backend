@@ -40,7 +40,7 @@ class SurveySubmissionService:
             submission.answers,
             known_keys,
             participant,
-            reenter=submission.survey_round == 2,
+            reenter=submission.survey_round in {2, 3},
         )
         if unknown_keys := set(answers) - known_keys:
             raise UnknownQuestionKeyError(", ".join(sorted(unknown_keys)))
@@ -56,7 +56,7 @@ class SurveySubmissionService:
                     "detail": {
                         **(submission.detail or {}),
                         "demographicEntryPolicy": (
-                            "reenter" if submission.survey_round == 2 else "profile"
+                            "reenter" if submission.survey_round in {2, 3} else "profile"
                         ),
                         "demographicPolicyVersion": "2026-10-23",
                     },

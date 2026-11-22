@@ -103,6 +103,14 @@ async def _require_survey_access(
     definition = await definitions.get(survey_round, survey_version)
     if definition is None:
         raise HTTPException(status_code=404, detail="설문 정의를 찾을 수 없습니다.")
+    if survey_round == 3 and definition.audience in {"elementary", "secondary"}:
+        repository = _participant_repository(request)
+        account = await repository.find_by_id(participant_id) if repository is not None else None
+        audience = {"초등": "elementary", "중등": "secondary", "고등": "secondary"}.get(
+            getattr(account, "school_level", None)
+        )
+        if definition.audience != audience:
+            raise HTTPException(status_code=403, detail="참여자의 학교급에 맞는 설문을 선택해 주세요.")
     if survey_round in {2, 3} and (definition.spec or {}).get("part") == 2:
         if responses is None:
             raise HTTPException(
@@ -111,6 +119,9 @@ async def _require_survey_access(
         completed = await responses.list_versions_for_participant(
             participant_id, survey_round
         )
+        if survey_round == 3 and definition.audience in {"elementary", "secondary"}:
+            expected = survey_version.replace("-part2-", "-part1-", 1)
+            completed = [version for version in completed if version == expected and expected != survey_version]
         for version in completed:
             previous = await definitions.get(survey_round, version)
             if previous is not None and (previous.spec or {}).get("part") == 1:
@@ -351,12 +362,12 @@ async def save_survey_progress(
                 progress.answers,
                 known_keys,
                 participant,
-                reenter=progress.survey_round == 2,
+                reenter=progress.survey_round in {2, 3},
             ),
             "detail": {
                 **progress.detail,
                 "demographicEntryPolicy": (
-                    "reenter" if progress.survey_round == 2 else "profile"
+                    "reenter" if progress.survey_round in {2, 3} else "profile"
                 ),
                 "demographicPolicyVersion": "2026-10-23",
             },
