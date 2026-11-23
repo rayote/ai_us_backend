@@ -5,7 +5,7 @@ from uuid import uuid4
 
 from app.api.auth import _participant_id
 from app.api.applications import participation_settings
-from app.api.survey import _job_repository, _survey_status
+from app.api.survey import _survey_status
 from app.schemas.chat import (
     ChatSubmissionAccepted,
     ChatSubmissionCreate,
@@ -16,11 +16,9 @@ from app.services.chats import (
     ChatConsentRequiredError,
     ChatSubmissionManagementService,
     ChatSubmissionRepository,
-    ChatSubmissionService,
     ChatUploadFile,
     ChatUploadRepository,
     ChatUploadService,
-    InvalidChatLinkError,
     InvalidChatUploadError,
     submission_summary,
 )
@@ -36,6 +34,8 @@ from fastapi import (
 )
 
 router = APIRouter(prefix="/api/v1/chat-submissions", tags=["chat submissions"])
+PARTICIPANT_CHAT_TOOLS = {"zeta", "crack", "other"}
+CHARACTER_CHAT_ONLY = "지금은 캐릭터 챗봇 서비스의 대화문만 제출이 가능해요."
 
 
 async def _require_completed_survey(request: Request, participant_id: str) -> None:
@@ -76,18 +76,6 @@ async def _chat_submission_participant(
         yield participant_id
     finally:
         await participants.release_chat_submission_lock(participant_id, token)
-
-
-def _submission_service(request: Request) -> ChatSubmissionService:
-    participants: ParticipantAccountRepository | None = getattr(
-        request.app.state, "participant_account_repository", None
-    )
-    if participants is None:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="대화문 제출 서비스를 준비 중입니다.",
-        )
-    return ChatSubmissionService(participants, _job_repository(request))
 
 
 def _upload_service(request: Request) -> ChatUploadService:
@@ -131,19 +119,10 @@ async def submit_chat(
     request: Request,
     participant_id: str = Depends(_chat_submission_participant),
 ) -> ChatSubmissionAccepted:
-    try:
-        job = await _submission_service(request).submit(participant_id, submission)
-    except ChatConsentRequiredError as error:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="대화문 제출 동의가 필요합니다.",
-        ) from error
-    except InvalidChatLinkError as error:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="유효한 대화 공유 링크가 아닙니다.",
-        ) from error
-    return ChatSubmissionAccepted(submissionId=job.id, status=job.status)
+    raise HTTPException(
+        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+        detail=CHARACTER_CHAT_ONLY,
+    )
 
 
 @router.post(
@@ -161,6 +140,8 @@ async def submit_chat_upload(
     participant_id: str = Depends(_chat_submission_participant),
 ) -> ChatSubmissionAccepted:
     try:
+        if tool not in PARTICIPANT_CHAT_TOOLS or source_type != "image":
+            raise InvalidChatUploadError(CHARACTER_CHAT_ONLY)
         upload_files = [
             ChatUploadFile(
                 filename=file.filename or "upload",

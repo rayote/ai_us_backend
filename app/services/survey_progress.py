@@ -38,8 +38,8 @@ class MongoSurveyProgressRepository:
             async for document in self._collection.find(
                 {"survey_round": survey_round, "survey_version": {"$in": survey_versions},
                  "participant_id": {"$in": participant_ids}},
-                {"_id": 0, "participant_id": 1, "survey_version": 1, "completed": 1,
-                 "detail": 1, "page_history": 1},
+                projection={"_id": 0, "participant_id": 1, "survey_version": 1, "completed": 1,
+                            "detail": 1, "page_history": 1},
             )
         ]
 

@@ -238,28 +238,14 @@ The frontend combines this server state with browser-local completion markers, s
 
 `POST /api/v1/chat-submissions`
 
-This endpoint requires a participant bearer token, the account's current AI chat submission consent, and at least one completed survey round. Application-time consent is historical, not the current authorization source. It queues the submitted original input.
-
-```json
-{
-  "submissionPoint": "afterRound1",
-  "sourceType": "text",
-  "rawInput": "사용자: 안녕하세요\nAI: 무엇을 도와드릴까요?",
-  "submissionId": "browser-generated-chat-id"
-}
-```
-
-`submissionPoint` supports `afterRound1` through `afterRound4`; `sourceType` is `link` or `text`. The response is `202 Accepted` with the Queue `submissionId` and current status. Use `GET /api/v1/submission-jobs/{submissionId}` to check completion.
-
-The backend stores `rawInput` separately from the normalized transcript. The text parser normalizes pasted speaker labels. A valid shared link receives `placeholder` parser status until a service-specific parser is added; it is not treated as extracted transcript text.
+This legacy endpoint no longer accepts participant link or text submissions. Eligible participants receive `422` and must use the character-chat screenshot upload below. Existing records and queued jobs are unaffected.
 
 ## Upload AI chat files
 
-`POST /api/v1/chat-submissions/uploads` accepts `multipart/form-data` and requires a participant bearer token with AI chat submission consent. It stores original file bytes in the MongoDB GridFS bucket `chat_uploads`; `chat_submissions` keeps only the submission metadata and GridFS file IDs.
+`POST /api/v1/chat-submissions/uploads` accepts `multipart/form-data` and requires a participant bearer token, current AI chat submission consent, and at least one completed survey round. It stores original file bytes in the MongoDB GridFS bucket `chat_uploads`; `chat_submissions` keeps only the submission metadata and GridFS file IDs.
 
-Required form fields are `files`, `tool`, `submissionPoint`, `sourceType`, and `submissionId`. Use `sourceType=file` for one ZIP file and `sourceType=image` for one or more screenshots. ZIP files must have a `.zip` extension and ZIP signature. Allowed screenshots are JPG, PNG, WEBP, and HEIC.
+Required form fields are `files`, `tool`, `submissionPoint`, `sourceType`, and `submissionId`. `submissionPoint` supports `afterRound1` through `afterRound4`. New participant uploads accept only `tool=zeta`, `tool=crack`, or `tool=other` with `sourceType=image`; other combinations return `422`. Allowed screenshots are JPG, PNG, WEBP, and HEIC.
 
-- ZIP: exactly one file
 - Images: at most 20 files
 - Each file: at most 25 MB
 - Total request files: at most 100 MB
@@ -268,7 +254,7 @@ The endpoint returns `202 Accepted` with the supplied `submissionId` and `comple
 
 ## Researcher proxy registration of chat files
 
-The researcher file-management dashboard uses a resumable API instead of one large multipart request. All endpoints require an `admin` or `researcher` bearer token. The participant must exist and have AI chat submission consent. Its service values match the participant UI: `chatgpt`, `gemini`, `claude`, `grok`, `zeta`, `crack`, and `other`.
+The researcher file-management dashboard uses a resumable API instead of one large multipart request. All endpoints require an `admin` or `researcher` bearer token. The participant must exist and have AI chat submission consent. This workflow is unchanged and continues to accept `chatgpt`, `gemini`, `claude`, `grok`, `zeta`, `crack`, and `other`.
 
 1. `POST /api/v1/researcher/chat-submission-imports` initializes one file with `phone`, `submissionPoint`, `tool`, `filename`, `contentType`, and `size`. ChatGPT, Gemini, Claude, and Grok accept one ZIP up to 1 GB. Zeta, Crack, and Other accept up to 20 JPG/PNG/WEBP/HEIC images, each below 20 MB and at most 100 MB total. The response contains `uploadId`, `chunkSize` (currently 4 MiB), `totalChunks`, `uploadedChunks`, and `status`.
 2. `PUT /api/v1/researcher/chat-submission-imports/{uploadId}/chunks/{chunkNumber}` stores one `application/octet-stream` chunk. Sending the same number and bytes again is idempotent; conflicting bytes are rejected.

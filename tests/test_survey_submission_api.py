@@ -691,6 +691,26 @@ def test_survey_status_versions_use_the_production_mongo_wrapper() -> None:
     ]
 
 
+def test_merged_export_metadata_uses_the_production_mongo_wrapper() -> None:
+    from unittest.mock import Mock
+
+    from app.db.mongodb import AsyncCollection
+    from app.services.survey_progress import MongoSurveyProgressRepository
+
+    document = {"participant_id": "participant-1", "survey_version": "t3-part1"}
+    collection = Mock()
+    collection.find.return_value = iter([document])
+    repository = MongoSurveyProgressRepository(AsyncCollection(collection))
+
+    assert asyncio.run(repository.list_export_metadata(3, ["t3-part1"], ["participant-1"])) == [document]
+    collection.find.assert_called_once_with(
+        {"survey_round": 3, "survey_version": {"$in": ["t3-part1"]},
+         "participant_id": {"$in": ["participant-1"]}},
+        projection={"_id": 0, "participant_id": 1, "survey_version": 1, "completed": 1,
+                    "detail": 1, "page_history": 1},
+    )
+
+
 def test_final_response_retry_repairs_progress_without_replacing_answers() -> None:
     import pytest
     from app.services.surveys import MongoSurveyResponseRepository
@@ -1542,12 +1562,9 @@ def test_t2_first_part_order_completion_and_chat_gate_without_t1(open_participat
         assert result["completedRounds"] == [2]
         assert result["completedVersionsByRound"]["1"] == []
         assert result["t1SubmissionsOpen"] is False
-        assert (
-            client.post(
-                "/api/v1/chat-submissions", json=chat, headers=headers
-            ).status_code
-            == 202
-        )
+        response = client.post("/api/v1/chat-submissions", json=chat, headers=headers)
+        assert response.status_code == 422
+        assert "캐릭터 챗봇" in response.json()["detail"]
         participants.account = replace(participants.account, chat_consent=False)
         assert (
             client.post(

@@ -15,6 +15,7 @@ from app.core.security import hash_password
 from app.core.settings import Settings
 from app.main import create_app
 from app.schemas.chat import (
+    ChatSubmissionCreate,
     ChatSubmissionRecord,
     ChatSubmissionReview,
     ParsedTranscript,
@@ -35,7 +36,10 @@ from app.services.chat_downloads import (
 from app.services.chat_imports import ChatImportRepository, ChatImportSession
 from app.services.chats import (
     ChatSubmissionRepository,
+    ChatSubmissionService,
+    ChatUploadFile,
     ChatUploadRepository,
+    ChatUploadService,
     MongoChatSubmissionRepository,
     build_chat_archive,
     available_chat_submissions,
@@ -769,7 +773,15 @@ def test_researcher_image_import_preserves_selected_order() -> None:
     ]
 
 
-def test_consented_participant_submission_is_parsed_and_saved() -> None:
+def _seed_legacy_upload(app, submissions, uploads, submission_id, tool, filename):
+    service = ChatUploadService(app.state.participant_account_repository, submissions, uploads)
+    asyncio.run(service.submit(
+        "participant-1", "afterRound1", "file", tool, submission_id,
+        [ChatUploadFile(filename=filename, content_type="application/zip", data=b"PK\x03\x04example")],
+    ))
+
+
+def test_queued_legacy_participant_submission_is_parsed_and_saved() -> None:
     app, jobs, submissions, _ = _app(True)
     with TestClient(app) as client:
         login = client.post(
@@ -781,16 +793,14 @@ def test_consented_participant_submission_is_parsed_and_saved() -> None:
             },
         )
         headers = {"Authorization": f"Bearer {login.json()['accessToken']}"}
-        response = client.post(
-            "/api/v1/chat-submissions",
-            headers=headers,
-            json={
+        job = asyncio.run(ChatSubmissionService(app.state.participant_account_repository, jobs).submit(
+            "participant-1", ChatSubmissionCreate.model_validate({
                 "submissionPoint": "afterRound1",
                 "sourceType": "text",
                 "rawInput": "사용자: 안녕하세요\nAI: 반가워요",
                 "submissionId": "chat-1",
-            },
-        )
+            }),
+        ))
         worker = QueueWorker(
             jobs,
             {
@@ -801,11 +811,10 @@ def test_consented_participant_submission_is_parsed_and_saved() -> None:
         )
         assert asyncio.run(worker.process_one()) is True
         status_response = client.get(
-            f"/api/v1/submission-jobs/{response.json()['submissionId']}",
+            f"/api/v1/submission-jobs/{job.id}",
             headers=headers,
         )
 
-    assert response.status_code == 202
     assert status_response.json()["status"] == "completed"
     assert submissions.submissions[0].raw_input == "사용자: 안녕하세요\nAI: 반가워요"
     assert submissions.submissions[0].transcript.status == "parsed"
@@ -830,16 +839,13 @@ def test_paused_chat_lock_blocks_overlap_and_releases_after_invalid_upload():
             files={"files": ("export.txt", b"invalid", "text/plain")})
         assert invalid.status_code == 422
         assert participants.chat_lock is None
-        archive_buffer = io.BytesIO()
-        with zipfile.ZipFile(archive_buffer, "w") as archive:
-            archive.writestr("conversations.json", "[]")
         uploaded = client.post("/api/v1/chat-submissions/uploads", headers=headers,
-            data={"tool": "chatgpt", "submissionPoint": "afterRound1", "sourceType": "file", "submissionId": "good-upload"},
-            files={"files": ("export.zip", archive_buffer.getvalue(), "application/zip")})
+            data={"tool": "zeta", "submissionPoint": "afterRound1", "sourceType": "image", "submissionId": "good-upload"},
+            files={"files": ("chat.png", b"png-data", "image/png")})
         assert uploaded.status_code == 202, uploaded.json()
         assert len(submissions.submissions) == 1
         assert participants.chat_lock is None
-        assert client.post("/api/v1/chat-submissions", headers=headers, json=payload).status_code == 202
+        assert client.post("/api/v1/chat-submissions", headers=headers, json=payload).status_code == 422
         assert participants.chat_lock is None
 
 
@@ -867,7 +873,7 @@ def test_unavailable_pause_policy_blocks_writes_but_preserves_login_and_history(
 
 
 def test_paused_participation_keeps_login_and_allows_additional_chat_submission():
-    app, jobs, submissions, uploads = _app(True)
+    app, _, submissions, uploads = _app(True)
     with TestClient(app) as client:
         app.state.application_settings_repository.paused = True
         public = client.get("/api/v1/applications/status")
@@ -899,17 +905,16 @@ def test_paused_participation_keeps_login_and_allows_additional_chat_submission(
         assert status["surveyRoundStates"]["4"] == "closed"
         assert status["chatSubmissionAllowed"] is True
         payload = {
-            "submissionPoint": "afterRound1", "sourceType": "text",
-            "rawInput": "User: hello\nAI: hi", "submissionId": "pause-first",
+            "submissionPoint": "afterRound1", "sourceType": "image",
+            "tool": "zeta", "submissionId": "pause-first",
         }
-        assert client.post("/api/v1/chat-submissions", headers=headers, json=payload).status_code == 202
+        files = {"files": ("chat.png", b"png-data", "image/png")}
+        assert client.post("/api/v1/chat-submissions/uploads", headers=headers, data=payload, files=files).status_code == 202
         status = client.get("/api/v1/participant/survey-status", headers=headers).json()
         assert status["chatSubmissionAllowed"] is True
         payload["submissionId"] = "pause-second"
-        assert client.post("/api/v1/chat-submissions", headers=headers, json=payload).status_code == 202
-        assert len(jobs.jobs) == 2
-        assert submissions.submissions == []
-        assert not uploads.files
+        assert client.post("/api/v1/chat-submissions/uploads", headers=headers, data=payload, files=files).status_code == 202
+        assert len(submissions.submissions) == len(uploads.files) == 2
 
 
 def test_paused_participation_allows_existing_chat_but_blocks_incomplete_survey():
@@ -1294,37 +1299,18 @@ def test_legacy_snake_case_transcript_fields_are_accepted() -> None:
 
 
 def test_researcher_can_export_completed_chat_submission() -> None:
-    app, jobs, submissions, _ = _app(True)
+    app, _, submissions, _ = _app(True)
     with TestClient(app) as client:
-        participant_login = client.post(
-            "/api/v1/auth/participant/login",
-            json={
-                "phone": "01012345678",
-                "password": "password-2026",
-                "audience": "elementary",
-            },
-        )
-        submit = client.post(
-            "/api/v1/chat-submissions",
-            headers={
-                "Authorization": f"Bearer {participant_login.json()['accessToken']}"
-            },
-            json={
+        asyncio.run(store_chat_submission(
+            {
+                "participantId": "participant-1",
                 "submissionPoint": "afterRound4",
                 "sourceType": "text",
                 "rawInput": "사용자: 마지막 대화",
                 "submissionId": "chat-3",
             },
-        )
-        worker = QueueWorker(
-            jobs,
-            {
-                "chat_submission": lambda payload: store_chat_submission(
-                    payload, submissions
-                )
-            },
-        )
-        asyncio.run(worker.process_one())
+            submissions,
+        ))
         researcher_login = client.post(
             "/api/v1/auth/researcher/login",
             json={"username": "researcher", "password": "researcher-password"},
@@ -1337,7 +1323,6 @@ def test_researcher_can_export_completed_chat_submission() -> None:
             params={"submission_point": "afterRound4"},
         )
 
-    assert submit.status_code == 202
     assert export.status_code == 200
     assert "마지막 대화" not in export.text
     assert "participant-1,01012345678,초등,,afterRound4,text" in export.text
@@ -1642,7 +1627,7 @@ def test_researcher_chat_export_filters_selected_submissions_and_uses_kst_filena
     )
 
 
-def test_consented_participant_can_upload_zip_and_multiple_images() -> None:
+def test_participant_can_only_submit_character_chat_images() -> None:
     app, _, submissions, uploads = _app(True)
     with TestClient(app) as client:
         login = client.post(
@@ -1654,11 +1639,27 @@ def test_consented_participant_can_upload_zip_and_multiple_images() -> None:
             },
         )
         headers = {"Authorization": f"Bearer {login.json()['accessToken']}"}
+        upload_path = "/api/v1/chat-submissions/uploads"
+        for tool in ("chatgpt", "gemini", "claude", "grok", "unknown"):
+            blocked = client.post(
+                upload_path,
+                headers=headers,
+                data={"tool": tool, "submissionPoint": "afterRound1", "sourceType": "image", "submissionId": f"blocked-{tool}"},
+                files={"files": ("chat.png", b"png-data", "image/png")},
+            )
+            assert blocked.status_code == 422
+            assert "캐릭터 챗봇" in blocked.json()["detail"]
+        assert client.post(
+            "/api/v1/chat-submissions",
+            headers=headers,
+            json={"submissionPoint": "afterRound1", "sourceType": "text", "rawInput": "hello", "submissionId": "blocked-text"},
+        ).status_code == 422
+        assert not submissions.submissions and not uploads.files
         zip_response = client.post(
-            "/api/v1/chat-submissions/uploads",
+            upload_path,
             headers=headers,
             data={
-                "tool": "chatgpt",
+                "tool": "other",
                 "submissionPoint": "afterRound1",
                 "sourceType": "file",
                 "submissionId": "zip-1",
@@ -1668,7 +1669,7 @@ def test_consented_participant_can_upload_zip_and_multiple_images() -> None:
             },
         )
         image_response = client.post(
-            "/api/v1/chat-submissions/uploads",
+            upload_path,
             headers=headers,
             data={
                 "tool": "zeta",
@@ -1681,6 +1682,14 @@ def test_consented_participant_can_upload_zip_and_multiple_images() -> None:
                 ("files", ("chat-2.jpg", b"jpg-data", "image/jpeg")),
             ],
         )
+        for tool in ("crack", "other"):
+            response = client.post(
+                upload_path,
+                headers=headers,
+                data={"tool": tool, "submissionPoint": "afterRound1", "sourceType": "image", "submissionId": f"{tool}-1"},
+                files={"files": (f"{tool}.png", b"png-data", "image/png")},
+            )
+            assert response.status_code == 202, response.json()
         researcher_login = client.post(
             "/api/v1/auth/researcher/login",
             json={"username": "researcher", "password": "researcher-password"},
@@ -1692,12 +1701,12 @@ def test_consented_participant_can_upload_zip_and_multiple_images() -> None:
             },
         )
 
-    assert zip_response.json() == {"submissionId": "zip-1", "status": "completed"}
+    assert zip_response.status_code == 422
     assert image_response.json() == {"submissionId": "image-1", "status": "completed"}
-    assert len(uploads.files) == 3
-    assert submissions.submissions[0].attachments[0].filename == "chat-export.zip"
+    assert len(uploads.files) == 4
+    assert {item.tool for item in submissions.submissions} == {"zeta", "crack", "other"}
     assert [
-        attachment.filename for attachment in submissions.submissions[1].attachments
+        attachment.filename for attachment in submissions.submissions[0].attachments
     ] == [
         "chat-1.png",
         "chat-2.jpg",
@@ -2077,29 +2086,9 @@ def test_reparse_request_hides_previous_parse_until_completion() -> None:
 
 def test_repeated_transcript_parse_request_reuses_active_run_and_job() -> None:
     runs = InMemoryTranscriptParseRuns()
-    app, jobs, _, _ = _app(True, runs)
+    app, jobs, submissions, uploads = _app(True, runs)
     with TestClient(app) as client:
-        participant_login = client.post(
-            "/api/v1/auth/participant/login",
-            json={
-                "phone": "01012345678",
-                "password": "password-2026",
-                "audience": "elementary",
-            },
-        )
-        client.post(
-            "/api/v1/chat-submissions/uploads",
-            headers={
-                "Authorization": f"Bearer {participant_login.json()['accessToken']}"
-            },
-            data={
-                "tool": "grok",
-                "submissionPoint": "afterRound1",
-                "sourceType": "file",
-                "submissionId": "grok-1",
-            },
-            files={"files": ("grok.zip", b"PK\x03\x04example", "application/zip")},
-        )
+        _seed_legacy_upload(app, submissions, uploads, "grok-1", "grok", "grok.zip")
         researcher_login = client.post(
             "/api/v1/auth/researcher/login",
             json={"username": "researcher", "password": "researcher-password"},
@@ -2121,29 +2110,9 @@ def test_repeated_transcript_parse_request_reuses_active_run_and_job() -> None:
 
 def test_transcript_parse_request_replaces_active_run_with_terminal_job() -> None:
     runs = InMemoryTranscriptParseRuns()
-    app, jobs, _, _ = _app(True, runs)
+    app, jobs, submissions, uploads = _app(True, runs)
     with TestClient(app) as client:
-        participant_login = client.post(
-            "/api/v1/auth/participant/login",
-            json={
-                "phone": "01012345678",
-                "password": "password-2026",
-                "audience": "elementary",
-            },
-        )
-        client.post(
-            "/api/v1/chat-submissions/uploads",
-            headers={
-                "Authorization": f"Bearer {participant_login.json()['accessToken']}"
-            },
-            data={
-                "tool": "grok",
-                "submissionPoint": "afterRound1",
-                "sourceType": "file",
-                "submissionId": "grok-2",
-            },
-            files={"files": ("grok.zip", b"PK\x03\x04example", "application/zip")},
-        )
+        _seed_legacy_upload(app, submissions, uploads, "grok-2", "grok", "grok.zip")
         researcher_login = client.post(
             "/api/v1/auth/researcher/login",
             json={"username": "researcher", "password": "researcher-password"},
@@ -2180,16 +2149,16 @@ def test_chat_upload_rejects_invalid_file_type() -> None:
             "/api/v1/chat-submissions/uploads",
             headers={"Authorization": f"Bearer {login.json()['accessToken']}"},
             data={
-                "tool": "chatgpt",
+                "tool": "zeta",
                 "submissionPoint": "afterRound1",
-                "sourceType": "file",
+                "sourceType": "image",
                 "submissionId": "bad-1",
             },
-            files={"files": ("not-a-zip.txt", b"text", "text/plain")},
+            files={"files": ("not-an-image.txt", b"text", "text/plain")},
         )
 
     assert response.status_code == 422
-    assert "ZIP" in response.json()["detail"]
+    assert "이미지" in response.json()["detail"]
     assert uploads.files == {}
 
 
@@ -2209,17 +2178,7 @@ def test_participant_can_manage_history_and_researcher_deletes_requested_upload(
         participant_headers = {
             "Authorization": f"Bearer {participant_login.json()['accessToken']}"
         }
-        client.post(
-            "/api/v1/chat-submissions/uploads",
-            headers=participant_headers,
-            data={
-                "tool": "chatgpt",
-                "submissionPoint": "afterRound1",
-                "sourceType": "file",
-                "submissionId": "history-1",
-            },
-            files={"files": ("history.zip", b"PK\x03\x04example", "application/zip")},
-        )
+        _seed_legacy_upload(app, submissions, uploads, "history-1", "chatgpt", "history.zip")
         history = client.get(
             "/api/v1/chat-submissions/mine", headers=participant_headers
         )
