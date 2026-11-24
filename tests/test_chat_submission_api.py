@@ -917,6 +917,31 @@ def test_paused_participation_keeps_login_and_allows_additional_chat_submission(
         assert len(submissions.submissions) == len(uploads.files) == 2
 
 
+def test_upload_uses_highest_completed_active_round_instead_of_requested_point(monkeypatch):
+    app, _, submissions, _ = _app(True)
+    completed_rounds = [2, 3]
+
+    async def survey_status(request, participant_id):
+        return {"completedRounds": completed_rounds, "participationPaused": True,
+                "chatSubmissionAllowed": True}
+
+    monkeypatch.setattr("app.api.chats._survey_status", survey_status)
+    with TestClient(app) as client:
+        app.state.application_settings_repository.paused = True
+        login = client.post("/api/v1/auth/participant/login", json={
+            "phone": "01012345678", "password": "password-2026", "audience": "elementary",
+        })
+        headers = {"Authorization": f"Bearer {login.json()['accessToken']}"}
+        for rounds, requested, expected in [([2, 3], 2, 3), ([2, 4], 3, 2), ([1], 2, 1)]:
+            completed_rounds[:] = rounds
+            response = client.post("/api/v1/chat-submissions/uploads", headers=headers,
+                data={"tool": "zeta", "submissionPoint": f"afterRound{requested}",
+                      "sourceType": "image", "submissionId": f"classified-{expected}"},
+                files={"files": ("chat.png", b"png-data", "image/png")})
+            assert response.status_code == 202, response.json()
+            assert submissions.submissions[-1].submission_point == f"afterRound{expected}"
+
+
 def test_paused_participation_allows_existing_chat_but_blocks_incomplete_survey():
     app, _, submissions, _ = _app(True)
     with TestClient(app) as client:

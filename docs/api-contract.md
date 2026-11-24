@@ -246,6 +246,8 @@ This legacy endpoint no longer accepts participant link or text submissions. Eli
 
 Required form fields are `files`, `tool`, `submissionPoint`, `sourceType`, and `submissionId`. `submissionPoint` supports `afterRound1` through `afterRound4`. New participant uploads accept only `tool=zeta`, `tool=crack`, or `tool=other` with `sourceType=image`; other combinations return `422`. Allowed screenshots are JPG, PNG, WEBP, and HEIC.
 
+The client-supplied `submissionPoint` is accepted for compatibility. The server records the highest officially completed round among T1 through T3; T3 roster membership alone or a tester submission does not count as T3 completion. Researcher imports still use their explicitly selected submission point.
+
 - Images: at most 20 files
 - Each file: at most 25 MB
 - Total request files: at most 100 MB

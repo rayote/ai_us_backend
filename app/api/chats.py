@@ -38,7 +38,7 @@ PARTICIPANT_CHAT_TOOLS = {"zeta", "crack", "other"}
 CHARACTER_CHAT_ONLY = "지금은 캐릭터 챗봇 서비스의 대화문만 제출이 가능해요."
 
 
-async def _require_completed_survey(request: Request, participant_id: str) -> None:
+async def _require_completed_survey(request: Request, participant_id: str) -> int:
     participants = getattr(request.app.state, "participant_account_repository", None)
     participant = (
         await participants.find_by_id(participant_id)
@@ -48,7 +48,8 @@ async def _require_completed_survey(request: Request, participant_id: str) -> No
     if participant is None or not participant.chat_consent:
         raise HTTPException(status_code=403, detail="대화문 제출 동의가 필요합니다.")
     survey_status = await _survey_status(request, participant_id)
-    if not survey_status["completedRounds"]:
+    completed_rounds = set(survey_status["completedRounds"]) & {1, 2, 3}
+    if not completed_rounds:
         raise HTTPException(
             status_code=403, detail="설문을 한 회차 이상 완료한 후 제출할 수 있습니다."
         )
@@ -56,14 +57,15 @@ async def _require_completed_survey(request: Request, participant_id: str) -> No
         raise HTTPException(
             status_code=403, detail=survey_status["chatSubmissionUnavailableReason"]
         )
+    return max(completed_rounds)
 
 
 async def _chat_submission_participant(
     request: Request, participant_id: str = Depends(_participant_id)
-) -> AsyncIterator[str]:
+) -> AsyncIterator[tuple[str, int]]:
     if not (await participation_settings(request))["participation_paused"]:
-        await _require_completed_survey(request, participant_id)
-        yield participant_id
+        completed_round = await _require_completed_survey(request, participant_id)
+        yield participant_id, completed_round
         return
     participants = getattr(request.app.state, "participant_account_repository", None)
     if participants is None:
@@ -72,8 +74,8 @@ async def _chat_submission_participant(
     if not await participants.acquire_chat_submission_lock(participant_id, token):
         raise HTTPException(status_code=409, detail="대화문 제출을 처리 중입니다. 잠시 후 제출 내역을 확인해 주세요. 문제가 계속되면 연구팀에 문의해 주세요.")
     try:
-        await _require_completed_survey(request, participant_id)
-        yield participant_id
+        completed_round = await _require_completed_survey(request, participant_id)
+        yield participant_id, completed_round
     finally:
         await participants.release_chat_submission_lock(participant_id, token)
 
@@ -117,7 +119,7 @@ def _management_service(request: Request) -> ChatSubmissionManagementService:
 async def submit_chat(
     submission: ChatSubmissionCreate,
     request: Request,
-    participant_id: str = Depends(_chat_submission_participant),
+    eligibility: tuple[str, int] = Depends(_chat_submission_participant),
 ) -> ChatSubmissionAccepted:
     raise HTTPException(
         status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -137,8 +139,9 @@ async def submit_chat_upload(
     submission_point: str = Form(..., alias="submissionPoint"),
     source_type: str = Form(..., alias="sourceType"),
     submission_id: str = Form(..., alias="submissionId", min_length=1, max_length=128),
-    participant_id: str = Depends(_chat_submission_participant),
+    eligibility: tuple[str, int] = Depends(_chat_submission_participant),
 ) -> ChatSubmissionAccepted:
+    participant_id, completed_round = eligibility
     try:
         if tool not in PARTICIPANT_CHAT_TOOLS or source_type != "image":
             raise InvalidChatUploadError(CHARACTER_CHAT_ONLY)
@@ -159,7 +162,7 @@ async def submit_chat_upload(
             raise InvalidChatUploadError("제출 시점이 올바르지 않습니다.")
         await _upload_service(request).submit(
             participant_id,
-            submission_point,
+            f"afterRound{completed_round}",
             source_type,
             tool,
             submission_id,
