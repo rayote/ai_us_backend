@@ -396,7 +396,13 @@ Large transcript persistence uses lossless `gzip-json-v1` storage when the BSON 
 
 The response is a `200 OK` bearer token response with `role` set to either `admin` or `researcher` and `needsPasswordChange` set to `false`.
 
-The first account is created with the `admin` role only when both `RESEARCHER_BOOTSTRAP_USERNAME` and `RESEARCHER_BOOTSTRAP_PASSWORD` are configured as CloudType Secrets. This bootstrap account is inserted once and is not overwritten on later backend restarts.
+When both `RESEARCHER_BOOTSTRAP_USERNAME` and `RESEARCHER_BOOTSTRAP_PASSWORD` are configured as CloudType Secrets, startup creates an `admin` if that username is absent. Startup does not overwrite an existing account with that username.
+
+Operators can check the sole admin from the backend repository with `python -m scripts.rotate_bootstrap_admin --database-name <database> --current-username <username>`. The script reads `MONGODB_URI` from the environment or prompts for it without echo. Before renaming the account, remove both bootstrap secrets from CloudType and make sure no running or future backend instance can restart with the old values; otherwise startup can recreate the old admin. To rotate the account, add `--apply --bootstrap-disabled`, enter the current password and the new credentials interactively, then verify the new login in a fresh session. The script does not add a second account or change its ID or role. Existing bearer tokens are not revoked by a credential change and remain valid until expiration unless the JWT signing secret is changed separately, which also signs out other users.
+
+To add a successor without renaming or altering the sole existing admin, run the same command with `--add-admin --apply` instead. This mode does not require changing bootstrap secrets or restarting the backend. Verify the successor's admin login before separately retiring the previous account. Existing tokens expire normally, but expiration alone does not prevent the previous admin from signing in again while their account and credentials remain unchanged.
+
+After verifying the successor's login, check the handover with `--retire-admin <successor-username>` instead of `--add-admin`, then rerun with `--apply`. This changes the previous admin's role to `researcher` and replaces their password with a random value that is not stored or displayed in plaintext. It keeps the previous username so later startups do not recreate or promote the account. The successor account is not modified.
 
 ## Participant contact and password reset
 
